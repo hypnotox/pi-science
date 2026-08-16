@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-- [ADR-adopt-compositional-indexed-equation-analysis: Adopt compositional indexed equation analysis](adopt-compositional-indexed-equation-analysis.md) (Proposed)
+- [ADR-adopt-compositional-indexed-equation-analysis: Adopt compositional indexed equation analysis](adopt-compositional-indexed-equation-analysis.md) (Accepted)
 
 ## History
 

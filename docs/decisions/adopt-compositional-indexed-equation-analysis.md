@@ -1,7 +1,7 @@
 ---
 format: current-state-v4
 slug: adopt-compositional-indexed-equation-analysis
-status: Proposed
+status: Accepted
 date: 2026-08-17
 ---
 # ADR-adopt-compositional-indexed-equation-analysis: Adopt compositional indexed equation analysis
@@ -50,3 +50,4 @@ The public Python request and result contracts must gain whole-request complexit
 ## Status history
 
 - 2026-08-17: Proposed
+- 2026-08-17: Accepted; content-sha256: c27fd4c9189214c66c33fbced64540742a408e1df12bad9a3cd6a1b822e17d74
