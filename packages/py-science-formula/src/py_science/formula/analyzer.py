@@ -1,4 +1,3 @@
-# pyright: reportUnknownVariableType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportAttributeAccessIssue=false, reportArgumentType=false, reportIndexIssue=false, reportUnusedImport=false
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -29,30 +28,29 @@ class OperationTally:
 
     def combine(self, other: OperationTally) -> OperationTally:
         return OperationTally(
-            self.additions + other.additions,
-            self.subtractions + other.subtractions,
-            self.multiplications + other.multiplications,
-            self.divisions + other.divisions,
-            self.powers + other.powers,
+            additions=self.additions + other.additions,
+            subtractions=self.subtractions + other.subtractions,
+            multiplications=self.multiplications + other.multiplications,
+            divisions=self.divisions + other.divisions,
+            powers=self.powers + other.powers,
         )
 
 
 def count_operations(expression: Expression) -> OperationTally:
     if isinstance(expression, BinaryExpression):
-        base = count_operations(expression.left).combine(count_operations(expression.right))
-        return base.combine(
-            {
-                BinaryOperator.ADD: OperationTally(additions=1),
-                BinaryOperator.SUBTRACT: OperationTally(subtractions=1),
-                BinaryOperator.MULTIPLY: OperationTally(multiplications=1),
-                BinaryOperator.DIVIDE: OperationTally(divisions=1),
-                BinaryOperator.POWER: OperationTally(powers=1),
-            }[expression.operator]
-        )
-    if isinstance(expression, (Call, IndexedValue)):
-        return _combine(
-            expression.arguments if isinstance(expression, Call) else expression.indices
-        )
+        children = count_operations(expression.left).combine(count_operations(expression.right))
+        operation = {
+            BinaryOperator.ADD: OperationTally(additions=1),
+            BinaryOperator.SUBTRACT: OperationTally(subtractions=1),
+            BinaryOperator.MULTIPLY: OperationTally(multiplications=1),
+            BinaryOperator.DIVIDE: OperationTally(divisions=1),
+            BinaryOperator.POWER: OperationTally(powers=1),
+        }[expression.operator]
+        return children.combine(operation)
+    if isinstance(expression, Call):
+        return _combine(expression.arguments)
+    if isinstance(expression, IndexedValue):
+        return _combine(expression.indices)
     if isinstance(expression, Sum):
         return (
             count_operations(expression.body)

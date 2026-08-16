@@ -89,6 +89,54 @@ const success = {
   },
   abstract_work: 0,
 };
+const richSuccess = {
+  ...success,
+  interpretation: {
+    normalized_sympy: "Sum(x[i] + 1, (i, 0, n - 1))",
+    normalized_latex: "sum",
+  },
+  operation_counts: {
+    ...success.operation_counts,
+    additions: 1,
+    subtractions: 1,
+  },
+  abstract_work: 2,
+  system: {
+    equations: [
+      {
+        name: "expression",
+        interpretation: success.interpretation,
+        operation_counts: success.operation_counts,
+        aggregate_operation_counts: {
+          additions: "Max(0, n - 1) + Max(0, n)",
+          subtractions: "0",
+          multiplications: "0",
+          divisions: "0",
+          powers: "0",
+        },
+        aggregate_work: "Max(0, n - 1) + Max(0, n)",
+        dependencies: [],
+        primitive_invocations: {},
+        unknown_costs: [],
+        unresolved: [],
+      },
+    ],
+    aggregate_operation_counts: {
+      additions: "Max(0, n - 1) + Max(0, n)",
+      subtractions: "0",
+      multiplications: "0",
+      divisions: "0",
+      powers: "0",
+    },
+    total_work: "Max(0, n - 1) + Max(0, n)",
+    dependency_edges: [],
+    reuse: [],
+    primitive_invocations: {},
+    unknown_costs: [],
+    unresolved: [],
+    extraction_opportunities: [],
+  },
+};
 const responder = (result: unknown = success) =>
   script(
     `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
@@ -124,6 +172,15 @@ describe("private formula bridge", () => {
       status: "failure",
       error: { code: "malformed_syntax" },
     });
+    await expect(
+      invokeAdapter("uv", args, request("Sum(x[i] + 1, (i, 0, n - 1))")),
+    ).resolves.toMatchObject({
+      status: "success",
+      system: {
+        equations: [{ name: "expression" }],
+        dependency_edges: [],
+      },
+    });
   });
 
   it("strictly rejects malformed envelopes and result shapes", async () => {
@@ -139,6 +196,13 @@ describe("private formula bridge", () => {
       JSON.stringify({
         version: 1,
         result: { ...success, unexpected: true },
+      }),
+      JSON.stringify({
+        version: 1,
+        result: {
+          ...richSuccess,
+          system: { ...richSuccess.system, extra: true },
+        },
       }),
     ];
     for (const output of outputs) {

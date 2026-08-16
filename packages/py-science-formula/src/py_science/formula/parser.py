@@ -1,4 +1,3 @@
-# pyright: reportUnknownVariableType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportAttributeAccessIssue=false, reportArgumentType=false, reportIndexIssue=false, reportUnusedImport=false
 from __future__ import annotations
 
 import ast
@@ -13,6 +12,7 @@ from py_science.formula.expressions import (
     BinaryOperator,
     Call,
     Equation,
+    Expression,
     Formula,
     IndexedValue,
     IntegerLiteral,
@@ -36,6 +36,7 @@ class ParseFailure:
 
 
 type ParseResult = Formula | ParseFailure
+
 MAX_INPUT_BYTES = 65_536
 MAX_EXPRESSION_NODES = 4_096
 MAX_EXPRESSION_DEPTH = 128
@@ -45,47 +46,62 @@ _DECIMAL_INTEGER = re.compile(r"(?:0(?:_?0)*|[1-9](?:_?[0-9])*)\Z")
 
 
 def parse_expression(source: str) -> ParseResult:
-    """Parse data-only restricted SymPy spelling; it never evaluates source."""
+    """Parse restricted SymPy spelling as data without evaluating submitted text."""
     try:
-        if len(source.encode("utf-8")) > MAX_INPUT_BYTES:
-            return _failure(
-                ParseFailureKind.TOO_COMPLEX,
-                f"expression exceeds the maximum input size of {MAX_INPUT_BYTES} UTF-8 bytes",
-            )
+        encoded_source = source.encode("utf-8")
     except UnicodeEncodeError:
         return _failure(ParseFailureKind.MALFORMED, "expression is not valid UTF-8")
+    if len(encoded_source) > MAX_INPUT_BYTES:
+        return _failure(
+            ParseFailureKind.TOO_COMPLEX,
+            f"expression exceeds the maximum input size of {MAX_INPUT_BYTES} UTF-8 bytes",
+        )
+
     integer_failure = _validate_decimal_integer_tokens(source)
-    if integer_failure:
+    if integer_failure is not None:
         return integer_failure
     try:
         root = ast.parse(source, mode="eval").body
         complexity_failure = _validate_complexity(root)
-        if complexity_failure:
+        if complexity_failure is not None:
             return complexity_failure
         return _convert(root)
     except SyntaxError as error:
         return ParseFailure(
-            ParseFailureKind.MALFORMED, error.msg, error.lineno, max((error.offset or 1) - 1, 0)
+            ParseFailureKind.MALFORMED,
+            error.msg,
+            error.lineno,
+            max((error.offset or 1) - 1, 0),
         )
     except RecursionError:
         return _failure(
-            ParseFailureKind.TOO_COMPLEX, "expression nesting exceeds the supported limit"
+            ParseFailureKind.TOO_COMPLEX,
+            "expression nesting exceeds the supported limit",
         )
 
 
-def _failure(kind: ParseFailureKind, message: str, node: ast.AST | None = None) -> ParseFailure:
+def _failure(
+    kind: ParseFailureKind,
+    message: str,
+    node: ast.AST | None = None,
+) -> ParseFailure:
     return ParseFailure(
-        kind, message, getattr(node, "lineno", None), getattr(node, "col_offset", None)
+        kind,
+        message,
+        getattr(node, "lineno", None),
+        getattr(node, "col_offset", None),
     )
 
 
 def _validate_decimal_integer_tokens(source: str) -> ParseFailure | None:
     try:
-        for token in tokenize.generate_tokens(io.StringIO(source).readline):
+        tokens = tokenize.generate_tokens(io.StringIO(source).readline)
+        for token in tokens:
             if (
                 token.type == tokenize.NUMBER
-                and _DECIMAL_INTEGER.fullmatch(token.string)
-                and sum(c.isdigit() for c in token.string) > MAX_DECIMAL_INTEGER_DIGITS
+                and _DECIMAL_INTEGER.fullmatch(token.string) is not None
+                and sum(character.isdigit() for character in token.string)
+                > MAX_DECIMAL_INTEGER_DIGITS
             ):
                 return ParseFailure(
                     ParseFailureKind.TOO_COMPLEX,
@@ -94,7 +110,7 @@ def _validate_decimal_integer_tokens(source: str) -> ParseFailure | None:
                     token.start[1],
                 )
     except (IndentationError, tokenize.TokenError):
-        pass
+        return None
     return None
 
 
@@ -119,7 +135,7 @@ def _validate_complexity(root: ast.expr) -> ParseFailure | None:
                 "integer literal exceeds the maximum size of approximately 1024 decimal digits",
                 node,
             )
-        if not (isinstance(node, ast.UnaryOp) and _integer_value(node) is not None):
+        if not (isinstance(node, ast.UnaryOp) and integer is not None):
             stack.extend(
                 (child, depth + 1)
                 for child in ast.iter_child_nodes(node)
@@ -150,84 +166,194 @@ def _convert(node: ast.expr) -> ParseResult:
         and isinstance(node.operand, ast.Constant)
         and type(node.operand.value) is int
     ):
-        return IntegerLiteral((-1 if isinstance(node.op, ast.USub) else 1) * node.operand.value)
+        sign = -1 if isinstance(node.op, ast.USub) else 1
+        return IntegerLiteral(sign * node.operand.value)
     if isinstance(node, ast.Name):
-        return Symbol(node.id)
+        return _symbol(node)
     if isinstance(node, ast.BinOp):
-        op = _binary_operator(node.op)
-        if op:
-            left, right = _convert(node.left), _convert(node.right)
-            if isinstance(left, ParseFailure):
-                return left
-            if isinstance(right, ParseFailure):
-                return right
-            return BinaryExpression(op, left, right)
-    if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name):
-        values = node.slice.elts if isinstance(node.slice, ast.Tuple) else (node.slice,)
-        if not values:
-            return _failure(
-                ParseFailureKind.UNSUPPORTED, "indexed values need at least one index", node
-            )
-        converted = tuple(_convert(value) for value in values)
-        if any(isinstance(value, ParseFailure) for value in converted):
-            return next(value for value in converted if isinstance(value, ParseFailure))
-        return IndexedValue(node.value.id, converted)  # type: ignore[arg-type]
-    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and not node.keywords:
-        if node.func.id == "Sum":
-            if (
-                len(node.args) != 2
-                or not isinstance(node.args[1], ast.Tuple)
-                or len(node.args[1].elts) != 3
-                or not isinstance(node.args[1].elts[0], ast.Name)
-            ):
-                return _failure(
-                    ParseFailureKind.UNSUPPORTED,
-                    "Sum requires Sum(body, (index, lower, upper))",
-                    node,
-                )
-            body, lower, upper = (
-                _convert(node.args[0]),
-                _convert(node.args[1].elts[1]),
-                _convert(node.args[1].elts[2]),
-            )
-            if isinstance(body, ParseFailure):
-                return body
-            if isinstance(lower, ParseFailure):
-                return lower
-            if isinstance(upper, ParseFailure):
-                return upper
-            return Sum(body, node.args[1].elts[0].id, lower, upper)
-        if node.func.id == "Eq":
-            if len(node.args) != 2:
-                return _failure(
-                    ParseFailureKind.UNSUPPORTED, "Eq requires exactly two arguments", node
-                )
-            left, right = _convert(node.args[0]), _convert(node.args[1])
-            if isinstance(left, ParseFailure):
-                return left
-            if isinstance(right, ParseFailure):
-                return right
-            if not isinstance(left, (Symbol, IndexedValue)):
-                return _failure(
-                    ParseFailureKind.UNSUPPORTED,
-                    "equation left side must be a scalar or indexed result",
-                    node.args[0],
-                )
-            return Equation(left, right)
-        arguments = tuple(_convert(arg) for arg in node.args)
-        if any(isinstance(arg, ParseFailure) for arg in arguments):
-            return next(arg for arg in arguments if isinstance(arg, ParseFailure))
-        return Call(node.func.id, arguments)  # type: ignore[arg-type]
+        return _convert_binary(node)
+    if isinstance(node, ast.Subscript):
+        return _convert_indexed(node)
+    if isinstance(node, ast.Call):
+        return _convert_call(node)
     return _failure(
-        ParseFailureKind.UNSUPPORTED, f"unsupported construct: {type(node).__name__}", node
+        ParseFailureKind.UNSUPPORTED,
+        f"unsupported construct: {type(node).__name__}",
+        node,
     )
 
 
+def _symbol(node: ast.Name) -> Symbol | ParseFailure:
+    if node.id.startswith("__"):
+        return _failure(
+            ParseFailureKind.UNSUPPORTED,
+            "dunder names are not supported mathematical identifiers",
+            node,
+        )
+    return Symbol(node.id)
+
+
+def _convert_binary(node: ast.BinOp) -> ParseResult:
+    operator = _binary_operator(node.op)
+    if operator is None:
+        return _failure(
+            ParseFailureKind.UNSUPPORTED,
+            f"unsupported construct: {type(node.op).__name__}",
+            node,
+        )
+    left = _convert(node.left)
+    if isinstance(left, ParseFailure):
+        return left
+    right = _convert(node.right)
+    if isinstance(right, ParseFailure):
+        return right
+    if isinstance(left, Equation) or isinstance(right, Equation):
+        return _failure(
+            ParseFailureKind.UNSUPPORTED,
+            "Eq cannot be nested inside an expression",
+            node,
+        )
+    return BinaryExpression(operator, left, right)
+
+
+def _convert_indexed(node: ast.Subscript) -> ParseResult:
+    if not isinstance(node.value, ast.Name):
+        return _failure(
+            ParseFailureKind.UNSUPPORTED,
+            "indexed values require a named base",
+            node,
+        )
+    base = _symbol(node.value)
+    if isinstance(base, ParseFailure):
+        return base
+    values: tuple[ast.expr, ...] = (
+        tuple(node.slice.elts) if isinstance(node.slice, ast.Tuple) else (node.slice,)
+    )
+    if not values:
+        return _failure(
+            ParseFailureKind.UNSUPPORTED,
+            "indexed values need at least one index",
+            node,
+        )
+    indices: list[Expression] = []
+    for value in values:
+        converted = _convert(value)
+        if isinstance(converted, ParseFailure):
+            return converted
+        if isinstance(converted, Equation):
+            return _failure(
+                ParseFailureKind.UNSUPPORTED,
+                "Eq cannot be used as an index",
+                value,
+            )
+        indices.append(converted)
+    return IndexedValue(base.name, tuple(indices))
+
+
+def _convert_call(node: ast.Call) -> ParseResult:
+    if not isinstance(node.func, ast.Name):
+        return _failure(
+            ParseFailureKind.UNSUPPORTED,
+            "function calls require an ordinary named target",
+            node,
+        )
+    function = _symbol(node.func)
+    if isinstance(function, ParseFailure):
+        return function
+    if node.keywords or any(isinstance(argument, ast.Starred) for argument in node.args):
+        return _failure(
+            ParseFailureKind.UNSUPPORTED,
+            "function calls accept positional arguments only",
+            node,
+        )
+    if function.name == "Sum":
+        return _convert_sum(node)
+    if function.name == "Eq":
+        return _convert_equation(node)
+
+    arguments: list[Expression] = []
+    for argument in node.args:
+        converted = _convert(argument)
+        if isinstance(converted, ParseFailure):
+            return converted
+        if isinstance(converted, Equation):
+            return _failure(
+                ParseFailureKind.UNSUPPORTED,
+                "Eq cannot be used as a function argument",
+                argument,
+            )
+        arguments.append(converted)
+    return Call(function.name, tuple(arguments))
+
+
+def _convert_sum(node: ast.Call) -> ParseResult:
+    if (
+        len(node.args) != 2
+        or not isinstance(node.args[1], ast.Tuple)
+        or len(node.args[1].elts) != 3
+        or not isinstance(node.args[1].elts[0], ast.Name)
+    ):
+        return _failure(
+            ParseFailureKind.UNSUPPORTED,
+            "Sum requires Sum(body, (index, lower, upper))",
+            node,
+        )
+    index_symbol = _symbol(node.args[1].elts[0])
+    if isinstance(index_symbol, ParseFailure):
+        return index_symbol
+    converted_parts: list[Expression] = []
+    for part in (node.args[0], node.args[1].elts[1], node.args[1].elts[2]):
+        converted = _convert(part)
+        if isinstance(converted, ParseFailure):
+            return converted
+        if isinstance(converted, Equation):
+            return _failure(
+                ParseFailureKind.UNSUPPORTED,
+                "Eq cannot be nested inside Sum",
+                part,
+            )
+        converted_parts.append(converted)
+    body, lower, upper = converted_parts
+    return Sum(body, index_symbol.name, lower, upper)
+
+
+def _convert_equation(node: ast.Call) -> ParseResult:
+    if len(node.args) != 2:
+        return _failure(
+            ParseFailureKind.UNSUPPORTED,
+            "Eq requires exactly two arguments",
+            node,
+        )
+    left = _convert(node.args[0])
+    if isinstance(left, ParseFailure):
+        return left
+    right = _convert(node.args[1])
+    if isinstance(right, ParseFailure):
+        return right
+    if not isinstance(left, (Symbol, IndexedValue)):
+        return _failure(
+            ParseFailureKind.UNSUPPORTED,
+            "equation left side must be a scalar or indexed result",
+            node.args[0],
+        )
+    if isinstance(right, Equation):
+        return _failure(
+            ParseFailureKind.UNSUPPORTED,
+            "Eq cannot be nested inside Eq",
+            node.args[1],
+        )
+    return Equation(left, right)
+
+
 def _binary_operator(operator: ast.operator) -> BinaryOperator | None:
-    return {
-        ast.Add: BinaryOperator.ADD,
-        ast.Sub: BinaryOperator.SUBTRACT,
-        ast.Mult: BinaryOperator.MULTIPLY,
-        ast.Div: BinaryOperator.DIVIDE,
-        ast.Pow: BinaryOperator.POWER,
-    }.get(type(operator))
+    if isinstance(operator, ast.Add):
+        return BinaryOperator.ADD
+    if isinstance(operator, ast.Sub):
+        return BinaryOperator.SUBTRACT
+    if isinstance(operator, ast.Mult):
+        return BinaryOperator.MULTIPLY
+    if isinstance(operator, ast.Div):
+        return BinaryOperator.DIVIDE
+    if isinstance(operator, ast.Pow):
+        return BinaryOperator.POWER
+    return None

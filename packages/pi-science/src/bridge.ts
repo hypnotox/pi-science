@@ -64,48 +64,153 @@ function nonNegativeInteger(value: unknown): boolean {
 function positiveInteger(value: unknown): boolean {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
 }
+function validInterpretation(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    exactKeys(value, ["normalized_sympy", "normalized_latex"]) &&
+    typeof value.normalized_sympy === "string" &&
+    typeof value.normalized_latex === "string"
+  );
+}
+const operationKeys = [
+  "additions",
+  "subtractions",
+  "multiplications",
+  "divisions",
+  "powers",
+] as const;
+function validOperationCounts(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    exactKeys(value, operationKeys) &&
+    Object.values(value).every(nonNegativeInteger)
+  );
+}
+function validSymbolicCounts(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    exactKeys(value, operationKeys) &&
+    Object.values(value).every((item) => typeof item === "string")
+  );
+}
+function validStringArray(value: unknown): boolean {
+  return (
+    Array.isArray(value) && value.every((item) => typeof item === "string")
+  );
+}
+function validStringMap(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    Object.values(value).every((item) => typeof item === "string")
+  );
+}
+function validEquationReport(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    exactKeys(value, [
+      "name",
+      "interpretation",
+      "operation_counts",
+      "aggregate_operation_counts",
+      "aggregate_work",
+      "dependencies",
+      "primitive_invocations",
+      "unknown_costs",
+      "unresolved",
+    ]) &&
+    typeof value.name === "string" &&
+    validInterpretation(value.interpretation) &&
+    validOperationCounts(value.operation_counts) &&
+    validSymbolicCounts(value.aggregate_operation_counts) &&
+    typeof value.aggregate_work === "string" &&
+    validStringArray(value.dependencies) &&
+    validStringMap(value.primitive_invocations) &&
+    validStringArray(value.unknown_costs) &&
+    validStringArray(value.unresolved)
+  );
+}
+function validSystemReport(value: unknown): boolean {
+  if (
+    !isRecord(value) ||
+    !exactKeys(value, [
+      "equations",
+      "aggregate_operation_counts",
+      "total_work",
+      "dependency_edges",
+      "reuse",
+      "primitive_invocations",
+      "unknown_costs",
+      "unresolved",
+      "extraction_opportunities",
+    ])
+  )
+    return false;
+  const validEdges =
+    Array.isArray(value.dependency_edges) &&
+    value.dependency_edges.every(
+      (edge) =>
+        Array.isArray(edge) &&
+        edge.length === 2 &&
+        edge.every((item) => typeof item === "string"),
+    );
+  const validReuse =
+    Array.isArray(value.reuse) &&
+    value.reuse.every(
+      (item) =>
+        isRecord(item) &&
+        exactKeys(item, ["producer", "consumer", "references"]) &&
+        typeof item.producer === "string" &&
+        typeof item.consumer === "string" &&
+        positiveInteger(item.references),
+    );
+  return (
+    Array.isArray(value.equations) &&
+    value.equations.every(validEquationReport) &&
+    validSymbolicCounts(value.aggregate_operation_counts) &&
+    typeof value.total_work === "string" &&
+    validEdges &&
+    validReuse &&
+    validStringMap(value.primitive_invocations) &&
+    validStringArray(value.unknown_costs) &&
+    validStringArray(value.unresolved) &&
+    validStringArray(value.extraction_opportunities)
+  );
+}
 function validResult(value: unknown): value is BridgeResult {
   if (!isRecord(value) || typeof value.status !== "string") return false;
   if (value.status === "success") {
-    const interpretation = value.interpretation;
-    const counts = value.operation_counts;
+    const keys = [
+      "status",
+      "interpretation",
+      "operation_counts",
+      "abstract_work",
+    ];
+    if ("system" in value) keys.push("system");
     return (
-      exactKeys(value, [
-        "status",
-        "interpretation",
-        "operation_counts",
-        "abstract_work",
-      ]) &&
-      isRecord(interpretation) &&
-      exactKeys(interpretation, ["normalized_sympy", "normalized_latex"]) &&
-      typeof interpretation.normalized_sympy === "string" &&
-      typeof interpretation.normalized_latex === "string" &&
-      isRecord(counts) &&
-      exactKeys(counts, [
-        "additions",
-        "subtractions",
-        "multiplications",
-        "divisions",
-        "powers",
-      ]) &&
-      Object.values(counts).every(nonNegativeInteger) &&
-      nonNegativeInteger(value.abstract_work)
+      exactKeys(value, keys) &&
+      validInterpretation(value.interpretation) &&
+      validOperationCounts(value.operation_counts) &&
+      nonNegativeInteger(value.abstract_work) &&
+      (!("system" in value) || validSystemReport(value.system))
     );
   }
   if (value.status === "failure") {
     const error = value.error;
+    if (!exactKeys(value, ["status", "error"]) || !isRecord(error))
+      return false;
+    const errorKeys = ["code", "message"];
+    if ("location" in error) errorKeys.push("location");
     return (
-      exactKeys(value, ["status", "error"]) &&
-      isRecord(error) &&
-      exactKeys(error, ["code", "message", "location"]) &&
+      exactKeys(error, errorKeys) &&
       [
         "malformed_syntax",
         "unsupported_construct",
         "expression_too_complex",
         "normalization_failed",
+        "invalid_system",
       ].includes(String(error.code)) &&
       typeof error.message === "string" &&
-      (error.location === null ||
+      (!("location" in error) ||
         (isRecord(error.location) &&
           exactKeys(error.location, ["line", "column"]) &&
           positiveInteger(error.location.line) &&
