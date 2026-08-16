@@ -3,49 +3,63 @@
 
 <!-- awf:edit overview: from .awf/docs/parts/architecture/overview.md -->
 ## Overview
-The repository currently contains the awf-managed project workflow and documentation only. No mathematical analyzer, Pi extension, parser, schema, agent skill, or stable public API exists yet.
+The repository contains a typed Python evaluator for a small restricted-SymPy arithmetic grammar. It safely parses submitted formulas into a backend-independent expression tree, counts submitted operations, and returns normalized SymPy and LaTeX interpretations through a structured in-process API.
 
-The intended product boundary is described in [Vision](vision.md), the request and report contract in [Analysis Model](analysis-model.md), and uncommitted implementation direction in the [Roadmap](roadmap.md).
+[Vision](vision.md) owns the product boundary, [Analysis Model](analysis-model.md) owns the request and report direction plus the exact implemented subset, and [Roadmap](roadmap.md) owns uncommitted expansion work.
 
 
 <!-- awf:edit components: from .awf/docs/parts/architecture/components.md -->
 ## Components
-- `.awf/`: authored workflow and documentation configuration.
-- `docs/`: rendered project, workflow, and product documentation.
-- `awf`: the repository's current command entry point.
+- `src/pi_science/models.py`: strict Pydantic request, result, and error contracts.
+- `src/pi_science/expressions.py`: backend-independent typed expression tree.
+- `src/pi_science/parser.py`: allowlisted restricted-SymPy parser built on Python expression AST inspection.
+- `src/pi_science/analyzer.py`: submitted-operation counting and unit-work aggregation.
+- `src/pi_science/sympy_backend.py`: validated-tree translation and normalized rendering.
+- `src/pi_science/service.py`: public evaluation orchestration.
+- `tests/e2e/`: public-interface behavior and safety evidence.
+- `scripts/check`: application and awf project gate.
+- `.awf/` and `docs/`: authored workflow configuration and rendered project documentation.
 
-Planned product components are safe LaTeX and restricted-SymPy frontends, one normalized mathematical model, symbolic algebra and cost analyzers, dependency and rewrite analysis, a scenario evaluator, structured reports, and a concise agent skill. They are not current architecture until implemented. See the [Roadmap](roadmap.md).
+LaTeX parsing, richer SymPy constructs, symbolic aggregation, scenarios, dependencies, comparisons, rewrites, and an agent skill remain planned components. See [Roadmap](roadmap.md).
 
 
 <!-- awf:edit data-flow: from .awf/docs/parts/architecture/data-flow.md -->
 ## Data flow
-Current repository flow is limited to `./awf render` generating managed documentation and workflow artifacts from `.awf/`, with `./awf check` verifying the result.
-
-The intended analysis flow is:
+The implemented evaluation flow is:
 
 ```text
-LaTeX request -----+
-                   +--> safe parsers --> normalized mathematical model
-SymPy request -----+                           |
-                                               +--> symbolic algebra
-                                               +--> cost analysis
-                                               +--> dependency and rewrite analysis
-                                                          |
-                                                          v
-                                                  scenario evaluator
-                                                          |
-                                                          v
-                                                structured analysis report
+typed request
+    |
+    v
+strict Pydantic contract
+    |
+    v
+allowlisted syntax parser --> typed expression tree --> operation analyzer
+                                      |
+                                      v
+                                SymPy adapter
+                                      |
+                                      v
+                         typed success or failure
 ```
 
-Both frontends share the same model. Parsing, cost semantics, and analysis policy remain separable from SymPy-specific representation.
+Submitted text is inspected as Python expression syntax but never evaluated. Only validated expression-tree nodes reach SymPy. Parsing and analysis do not depend on the SymPy representation, and transport semantics remain outside the evaluator.
+
+The broader multi-frontend analysis flow remains defined by [Vision](vision.md) and [Analysis Model](analysis-model.md).
 
 
 <!-- awf:edit dependencies: from .awf/docs/parts/architecture/dependencies.md -->
 ## Key dependencies
 | Dependency | Role |
 |---|---|
-| awf | Generates and verifies the repository workflow and documentation. |
+| Python 3.13 | Application runtime. |
+| Pydantic v2 | Strict typed request and result validation. |
+| SymPy | Normalized symbolic and LaTeX rendering after validation. |
+| uv | Python provisioning, dependency locking, and command execution. |
+| pytest | End-to-end application tests. |
+| Pyright | Strict static type checking. |
+| Ruff | Python linting. |
+| awf | Generates and verifies workflow and documentation state. |
 | Git | Versions authoritative project state. |
 
-No application runtime or mathematical library is selected as a current dependency. SymPy is the intended initial symbolic backend, but dependency adoption belongs to the implementation change that introduces it. Frontend safety and the public request model must not depend on evaluating arbitrary Python.
+`pyproject.toml` declares dependency ranges and `uv.lock` pins resolved versions. Frontend safety and the internal expression model do not depend on evaluating submitted text or exposing SymPy as the public protocol.

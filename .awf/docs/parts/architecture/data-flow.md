@@ -1,20 +1,21 @@
-Current repository flow is limited to `./awf render` generating managed documentation and workflow artifacts from `.awf/`, with `./awf check` verifying the result.
-
-The intended analysis flow is:
+The implemented evaluation flow is:
 
 ```text
-LaTeX request -----+
-                   +--> safe parsers --> normalized mathematical model
-SymPy request -----+                           |
-                                               +--> symbolic algebra
-                                               +--> cost analysis
-                                               +--> dependency and rewrite analysis
-                                                          |
-                                                          v
-                                                  scenario evaluator
-                                                          |
-                                                          v
-                                                structured analysis report
+typed request
+    |
+    v
+strict Pydantic contract
+    |
+    v
+allowlisted syntax parser --> typed expression tree --> operation analyzer
+                                      |
+                                      v
+                                SymPy adapter
+                                      |
+                                      v
+                         typed success or failure
 ```
 
-Both frontends share the same model. Parsing, cost semantics, and analysis policy remain separable from SymPy-specific representation.
+Submitted text is inspected as Python expression syntax but never evaluated. Only validated expression-tree nodes reach SymPy. Parsing and analysis do not depend on the SymPy representation, and transport semantics remain outside the evaluator.
+
+The broader multi-frontend analysis flow remains defined by [Vision](vision.md) and [Analysis Model](analysis-model.md).

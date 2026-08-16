@@ -1,1 +1,5 @@
-The repository currently has one gate and no fast or extended application-test tier. Introduce a tier only with an executable workload and document exactly which checks it contains.
+- **Focused application tests:** `uv run --locked pytest tests/e2e/test_formula_evaluation.py`.
+- **Application suite:** `uv run --locked pytest`.
+- **Complete gate:** `./scripts/check`.
+
+There is no separate extended tier. Add one only when an executable workload cannot remain in the deterministic complete gate.

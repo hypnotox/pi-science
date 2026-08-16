@@ -1,5 +1,11 @@
-- `.awf/`: authored workflow and documentation configuration.
-- `docs/`: rendered project, workflow, and product documentation.
-- `awf`: the repository's current command entry point.
+- `src/pi_science/models.py`: strict Pydantic request, result, and error contracts.
+- `src/pi_science/expressions.py`: backend-independent typed expression tree.
+- `src/pi_science/parser.py`: allowlisted restricted-SymPy parser built on Python expression AST inspection.
+- `src/pi_science/analyzer.py`: submitted-operation counting and unit-work aggregation.
+- `src/pi_science/sympy_backend.py`: validated-tree translation and normalized rendering.
+- `src/pi_science/service.py`: public evaluation orchestration.
+- `tests/e2e/`: public-interface behavior and safety evidence.
+- `scripts/check`: application and awf project gate.
+- `.awf/` and `docs/`: authored workflow configuration and rendered project documentation.
 
-Planned product components are safe LaTeX and restricted-SymPy frontends, one normalized mathematical model, symbolic algebra and cost analyzers, dependency and rewrite analysis, a scenario evaluator, structured reports, and a concise agent skill. They are not current architecture until implemented. See the [Roadmap](roadmap.md).
+LaTeX parsing, richer SymPy constructs, symbolic aggregation, scenarios, dependencies, comparisons, rewrites, and an agent skill remain planned components. See [Roadmap](roadmap.md).

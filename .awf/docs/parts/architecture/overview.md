@@ -1,3 +1,3 @@
-The repository currently contains the awf-managed project workflow and documentation only. No mathematical analyzer, Pi extension, parser, schema, agent skill, or stable public API exists yet.
+The repository contains a typed Python evaluator for a small restricted-SymPy arithmetic grammar. It safely parses submitted formulas into a backend-independent expression tree, counts submitted operations, and returns normalized SymPy and LaTeX interpretations through a structured in-process API.
 
-The intended product boundary is described in [Vision](vision.md), the request and report contract in [Analysis Model](analysis-model.md), and uncommitted implementation direction in the [Roadmap](roadmap.md).
+[Vision](vision.md) owns the product boundary, [Analysis Model](analysis-model.md) owns the request and report direction plus the exact implemented subset, and [Roadmap](roadmap.md) owns uncommitted expansion work.

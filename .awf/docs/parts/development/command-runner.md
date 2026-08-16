@@ -1,7 +1,9 @@
-Use `./awf` for the current repository tasks:
+Use these repository commands:
 
-- `./awf render`: regenerate managed documentation and workflow artifacts.
-- `./awf check`: run the complete current gate.
+- `./scripts/check`: run the complete application and repository gate.
+- `uv run --locked pytest`: run the application test suite.
+- `uv run --locked pyright`: run strict static type checking.
+- `uv run --locked ruff check src tests`: run Python linting.
+- `./awf render`: regenerate managed workflow and documentation artifacts.
+- `./awf check`: verify awf-managed repository authority and drift.
 - `./awf version`: report the resolved awf version.
-
-A project-specific runner will replace or complement this interface when executable code exists.

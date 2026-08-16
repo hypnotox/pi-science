@@ -168,14 +168,14 @@ Documentation travels with the change that makes it true. When you change behavi
 <!-- awf:edit composing-the-gate: default; create .awf/parts/workflow/composing-the-gate.md to override -->
 ## Composing the gate
 
-The gate is one command (`./awf check`) that must be green before every commit. Compose it from three layers:
+The gate is one command (`./scripts/check`) that must be green before every commit. Compose it from three layers:
 
 
-- **Minimum:** the test suite, the language's standard linter, and `./awf check`: so behaviour, style, and rendered-file drift all block a commit.
+- **Minimum:** the test suite (`uv run --locked pytest`), the language's standard linter, and `./awf check`: so behaviour, style, and rendered-file drift all block a commit.
 
 - **As the project grows:** add what your stack makes cheap: a build step, a coverage threshold, type checking, formatting verification. Each addition must be deterministic: same tree in, same verdict out.
 
-- **Keep it fast.** The per-commit gate should run in seconds; move anything slower (end-to-end suites, broad integration runs) to the fuller tier (`./awf check`) that runs before merging or releasing rather than on every commit.
+- **Keep it fast.** The per-commit gate should run in seconds; move anything slower (end-to-end suites, broad integration runs) to the fuller tier (`./scripts/check`) that runs before merging or releasing rather than on every commit.
 
 A script or task-runner alias makes the gate one word to run and one place to grow. To preserve long gate output, use a direct log redirect and capture the command status separately. Run `project-gate >gate.log 2>&1; gate_status=$?` before inspecting the log, then finish with `exit "$gate_status"`; do not rely on a status-losing pipeline. Substitute the project's actual gate command for `project-gate`.
 
@@ -200,6 +200,6 @@ A tracked stub should locate the invoking worktree, not assume the primary check
 <!-- awf:edit ci: default; create .awf/parts/workflow/ci.md to override -->
 ## Continuous integration
 
-Local hooks are per-clone and optional, so CI is the enforcement backstop: run `./awf check` and the gate (`./awf check`) on every push, and the fuller tier (`./awf check`) before merging. When the pinned bootstrap is enabled, CI obtains the exact awf version this repo was rendered with by capturing the path it prints (`"$(bash .awf/bootstrap.sh)" check`) instead of installing awf separately; the script verifies the download's SHA-256 before caching it.
+Local hooks are per-clone and optional, so CI is the enforcement backstop: run `./awf check` and the gate (`./scripts/check`) on every push, and the fuller tier (`./scripts/check`) before merging. When the pinned bootstrap is enabled, CI obtains the exact awf version this repo was rendered with by capturing the path it prints (`"$(bash .awf/bootstrap.sh)" check`) instead of installing awf separately; the script verifies the download's SHA-256 before caching it.
 
 Pi session-context facts are a transient model-facing observation of the active model window and active-branch compactions. Use them with retained-context relevance and upcoming work at eligible boundaries; no threshold, warning, or automatic action follows.

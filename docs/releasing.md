@@ -2,5 +2,5 @@
 # Releasing
 
 <!-- awf:edit content: from .awf/docs/parts/releasing/content.md -->
-The project has no release process or published artifact while it remains documentation-only. Define versioning, packaging, changelog, publication ownership, and clean-environment smoke checks before the first executable release. Do not tag a product release until the supported syntax subsets, request schema, normalized interpretation, cost semantics, and report qualifications have an explicit compatibility contract.
+The project has no release process or published artifact. Define versioning, packaging, changelog, publication ownership, and clean-environment smoke checks before the first executable release. Do not tag a product release until the supported syntax subset, typed request and result models, normalized interpretation, cost semantics, and report qualifications have an explicit compatibility contract.
 

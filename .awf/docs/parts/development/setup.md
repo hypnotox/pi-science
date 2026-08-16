@@ -1,6 +1,7 @@
-The repository currently requires Git and the checked-in `./awf` wrapper. From a fresh checkout:
+Install [uv](https://docs.astral.sh/uv/), then provision the pinned Python and locked environment from a fresh checkout:
 
-1. Run `./awf version` to resolve the pinned awf binary.
-2. Run `./awf check` to verify the baseline.
+```bash
+uv sync --locked
+```
 
-There is no application toolchain, dependency installation, service, credential, or runtime environment yet.
+uv installs the Python version named by `.python-version`. No Poetry or pyenv setup is required.

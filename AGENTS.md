@@ -16,7 +16,7 @@ You are a developer on `pi-science`, responsible for its long-term health as wel
 
 <!-- awf:edit identity: from .awf/parts/agents-doc/identity.md -->
 ## Identity
-`pi-science` is an early-stage deterministic mathematical analysis layer for coding agents. It accepts agent-formulated LaTeX or restricted SymPy computations plus explicit metadata, then reports normalized interpretation, symbolic cost, scaling, bounds, dependencies, improvement opportunities, and unresolved quantities before implementation. The repository is currently documentation-only, with no analyzer runtime or stable API; experiment orchestration, implementation benchmarking, dataset statistics, and physical validation are outside the core product boundary.
+`pi-science` is an early-stage deterministic mathematical analysis layer for coding agents. Its first runtime slice accepts safely parsed restricted-SymPy arithmetic through a typed Python interface and reports normalized interpretation and submitted-operation counts. The broader product adds LaTeX, metadata, symbolic scaling, bounds, dependencies, improvement opportunities, and unresolved quantities before implementation; experiment orchestration, implementation benchmarking, dataset statistics, and physical validation remain outside the core boundary.
 
 
 <!-- awf:edit invariants: default; create .awf/parts/agents-doc/invariants.md to override -->
@@ -27,7 +27,7 @@ Hard rules every change must respect:
 
 - **Append-only ADRs.** Preserve decision history; change current-state claims forward. See `docs/decisions/` and `docs/decisions/INDEX.md`.
 - **Docs travel with the change.** Update reality and its documentation together.
-- **Stage and gate each commit.** Stage the complete transaction; run `./awf check staged` and `./awf check`. A wired pre-commit hook enforces both; run them manually only in a clone without wired hooks.
+- **Stage and gate each commit.** Stage the complete transaction; run `./awf check staged` and `./scripts/check`. A wired pre-commit hook enforces both; run them manually only in a clone without wired hooks.
 
 <!-- awf:edit workflow: default; create .awf/parts/agents-doc/workflow.md to override -->
 ## Workflow
@@ -42,7 +42,9 @@ Evaluate continuity independently; when durable continuity materially helps, use
 <!-- awf:edit commands: default; create .awf/parts/agents-doc/commands.md to override -->
 ## Commands
 
-- `./awf check`: run the gate before committing
+- `uv run --locked pytest`: run the test suite
+- `./scripts/check`: run the gate before committing
+- `./awf check`: check rendered files for drift
 
 
 <!-- awf:edit document-map: default; create .awf/parts/agents-doc/document-map.md to override -->

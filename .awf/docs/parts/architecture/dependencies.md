@@ -1,6 +1,13 @@
 | Dependency | Role |
 |---|---|
-| awf | Generates and verifies the repository workflow and documentation. |
+| Python 3.13 | Application runtime. |
+| Pydantic v2 | Strict typed request and result validation. |
+| SymPy | Normalized symbolic and LaTeX rendering after validation. |
+| uv | Python provisioning, dependency locking, and command execution. |
+| pytest | End-to-end application tests. |
+| Pyright | Strict static type checking. |
+| Ruff | Python linting. |
+| awf | Generates and verifies workflow and documentation state. |
 | Git | Versions authoritative project state. |
 
-No application runtime or mathematical library is selected as a current dependency. SymPy is the intended initial symbolic backend, but dependency adoption belongs to the implementation change that introduces it. Frontend safety and the public request model must not depend on evaluating arbitrary Python.
+`pyproject.toml` declares dependency ranges and `uv.lock` pins resolved versions. Frontend safety and the internal expression model do not depend on evaluating submitted text or exposing SymPy as the public protocol.

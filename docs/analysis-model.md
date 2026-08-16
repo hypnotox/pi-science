@@ -2,9 +2,15 @@
 # Analysis Model
 
 <!-- awf:edit-in-place body: your edits below are preserved across syncs; awf owns the rest -->
+## Implemented evaluator slice
+
+The current Python runtime exposes a typed in-process `evaluate()` interface for `syntax: sympy` and one `expression`. Its grammar accepts integer literals, symbols, parentheses, signed integer literals, and the binary operators `+`, `-`, `*`, `/`, and `**`. It returns normalized SymPy and LaTeX renderings, submitted-operation counts, abstract unit work, or a structured syntax failure.
+
+Calls, attributes, indexing, containers, comprehensions, non-integer constants, arbitrary Python evaluation, LaTeX, metadata, indexed constructs, equation systems, scenarios, dependencies, comparisons, and rewrites are not implemented. The remaining sections define the broader product contract and MVP direction rather than current runtime coverage.
+
 ## Request envelope
 
-A request contains either one `expression` or a list of named `equations`. Only fields relevant to the analysis are required.
+A complete request contains either one `expression` or a list of named `equations`. Only fields relevant to the analysis are required.
 
 ```json
 {

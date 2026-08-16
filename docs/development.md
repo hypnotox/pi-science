@@ -3,26 +3,31 @@
 
 <!-- awf:edit setup: from .awf/docs/parts/development/setup.md -->
 ## Setup
-The repository currently requires Git and the checked-in `./awf` wrapper. From a fresh checkout:
+Install [uv](https://docs.astral.sh/uv/), then provision the pinned Python and locked environment from a fresh checkout:
 
-1. Run `./awf version` to resolve the pinned awf binary.
-2. Run `./awf check` to verify the baseline.
+```bash
+uv sync --locked
+```
 
-There is no application toolchain, dependency installation, service, credential, or runtime environment yet.
+uv installs the Python version named by `.python-version`. No Poetry or pyenv setup is required.
 
 
 <!-- awf:edit command-runner: from .awf/docs/parts/development/command-runner.md -->
 ## Command runner
-Use `./awf` for the current repository tasks:
+Use these repository commands:
 
-- `./awf render`: regenerate managed documentation and workflow artifacts.
-- `./awf check`: run the complete current gate.
+- `./scripts/check`: run the complete application and repository gate.
+- `uv run --locked pytest`: run the application test suite.
+- `uv run --locked pyright`: run strict static type checking.
+- `uv run --locked ruff check src tests`: run Python linting.
+- `./awf render`: regenerate managed workflow and documentation artifacts.
+- `./awf check`: verify awf-managed repository authority and drift.
 - `./awf version`: report the resolved awf version.
-
-A project-specific runner will replace or complement this interface when executable code exists.
 
 
 <!-- awf:edit dependencies: from .awf/docs/parts/development/dependencies.md -->
 ## Dependencies
-awf is the only project tool currently pinned by the repository. Git supplies version-control state used by awf. No Python runtime or mathematical library is installed. SymPy is the intended initial symbolic backend; parser, schema, and extension dependencies remain unselected until the implementation change that requires them.
+Application and development dependencies live in `pyproject.toml`; `uv.lock` is the reproducible resolution. Use `uv add <package>` or `uv add --dev <package>` to change declared dependencies, then stage the manifest and lockfile together.
+
+The runtime uses Pydantic v2 and SymPy. The development group supplies pytest, Pyright, and Ruff. Python 3.13 is pinned in `.python-version`.
 

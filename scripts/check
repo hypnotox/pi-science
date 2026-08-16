@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$repo_root"
+
+printf '==> pytest\n'
+uv run --locked pytest
+printf '==> pyright\n'
+uv run --locked pyright
+printf '==> ruff\n'
+uv run --locked ruff check src tests
+printf '==> awf\n'
+./awf check

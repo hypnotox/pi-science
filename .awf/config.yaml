@@ -3,8 +3,9 @@ profile: full
 integrationBranch: main
 vars:
   activeMdRegenCmd: ./awf render
-  gateCmd: ./awf check
-  gateCmdFull: ./awf check
+  gateCmd: ./scripts/check
+  gateCmdFull: ./scripts/check
+  testCmd: uv run --locked pytest
 bootstrap:
   enabled: true
 localDocs:

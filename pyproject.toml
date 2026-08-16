@@ -1,0 +1,40 @@
+[project]
+name = "pi-science"
+version = "0.1.0"
+description = "Deterministic symbolic mathematical analysis for coding agents"
+readme = "docs/vision.md"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "pydantic>=2.12,<3",
+  "sympy>=1.14,<2",
+]
+
+[build-system]
+requires = ["hatchling>=1.28,<2"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+  "pyright>=1.1.408,<2",
+  "pytest>=9,<10",
+  "ruff>=0.14,<1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pi_science"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--strict-config", "--strict-markers"]
+
+[tool.pyright]
+typeCheckingMode = "strict"
+include = ["src", "tests"]
+pythonVersion = "3.13"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "RUF", "SIM", "UP"]

@@ -5,15 +5,28 @@ A deterministic pre-commit gate runs the project's checks. The documented lanes 
 
 <!-- awf:edit gate: from .awf/docs/parts/testing/gate.md -->
 ## Gate
-Run `./awf check` before every commit. It currently verifies generated-output drift, repository state, tracked prose, and workflow rules. There are no application tests yet.
+Run `./scripts/check` before every commit. It runs, in order:
+
+1. pytest end-to-end behavior and safety checks;
+2. Pyright strict static type checking;
+3. Ruff source linting;
+4. `./awf check` for repository authority and generated-output drift.
+
+The script uses the locked uv environment and stops at the first failure.
 
 
 <!-- awf:edit tiers: from .awf/docs/parts/testing/tiers.md -->
 ## Tiers and lanes
-The repository currently has one gate and no fast or extended application-test tier. Introduce a tier only with an executable workload and document exactly which checks it contains.
+- **Focused application tests:** `uv run --locked pytest tests/e2e/test_formula_evaluation.py`.
+- **Application suite:** `uv run --locked pytest`.
+- **Complete gate:** `./scripts/check`.
+
+There is no separate extended tier. Add one only when an executable workload cannot remain in the deterministic complete gate.
 
 
 <!-- awf:edit layout: from .awf/docs/parts/testing/layout.md -->
 ## Layout and test shape
-No application test tree exists. Add tests beside the first runtime using its language conventions. Cover parser safety, frontend normalization equivalence, indexed-domain aggregation, symbolic operation counts, assumptions and bounds, scenario treatments, dependency and reuse analysis, candidate comparison, rewrite preconditions, and explicit unresolved results. Keep small deterministic mathematical fixtures in the repository.
+`tests/e2e/test_formula_evaluation.py` exercises the public typed `evaluate()` boundary. It covers strict contracts, normalized interpretation, submitted arithmetic counts, signed integer semantics, malformed syntax, deny-by-default grammar rejection, non-execution of submitted Python, and deterministic results.
+
+Add focused unit tests beside implementation modules only when an isolated policy needs clearer evidence. Extend the end-to-end suite as LaTeX, indexed-domain aggregation, scenarios, dependencies, comparisons, rewrites, and unresolved-result behavior become executable.
 

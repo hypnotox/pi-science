@@ -1,2 +1,9 @@
 # Local product brief retained as non-authoritative input for future design work.
 /docs/project-outline.local.md
+
+# Python environments, caches, and bytecode.
+.venv/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.py[cod]
