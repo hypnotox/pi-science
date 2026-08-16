@@ -6,6 +6,8 @@
 
 The current Python runtime exposes a typed in-process `evaluate()` interface for `syntax: sympy` and one `expression`. Its grammar accepts integer literals, symbols, parentheses, signed integer literals, and the binary operators `+`, `-`, `*`, `/`, and `**`. It returns normalized SymPy and LaTeX renderings, submitted-operation counts, abstract unit work, or a structured syntax failure.
 
+The evaluator accepts at most 65,536 UTF-8 bytes, expression depth 128, approximately 1,024 decimal digits per integer literal, and an internal structural budget. Public complexity errors identify input size, nesting, or integer size when actionable; exhaustion of the internal structural budget remains generic. Powers are represented without eager exponentiation.
+
 Calls, attributes, indexing, containers, comprehensions, non-integer constants, arbitrary Python evaluation, LaTeX, metadata, indexed constructs, equation systems, scenarios, dependencies, comparisons, and rewrites are not implemented. The remaining sections define the broader product contract and MVP direction rather than current runtime coverage.
 
 ## Request envelope

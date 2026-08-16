@@ -20,6 +20,20 @@ class SympyExpression(Protocol):
     def __pow__(self, other: object, modulo: object | None = None, /) -> SympyExpression: ...
 
 
+class SympyPowerConstructor(Protocol):
+    def __call__(
+        self,
+        base: object,
+        exponent: object,
+        *,
+        evaluate: bool,
+    ) -> SympyExpression: ...
+
+
+class NormalizationError(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True, slots=True)
 class NormalizedRendering:
     sympy: str
@@ -27,11 +41,14 @@ class NormalizedRendering:
 
 
 def render(expression: Expression) -> NormalizedRendering:
-    normalized = _to_sympy(expression)
-    return NormalizedRendering(
-        sympy=str(normalized),
-        latex=cast(str, sympy.latex(normalized)),
-    )
+    try:
+        normalized = _to_sympy(expression)
+        return NormalizedRendering(
+            sympy=str(normalized),
+            latex=cast(str, sympy.latex(normalized)),
+        )
+    except Exception as error:
+        raise NormalizationError("SymPy normalization failed") from error
 
 
 def _to_sympy(expression: Expression) -> SympyExpression:
@@ -52,4 +69,5 @@ def _to_sympy(expression: Expression) -> SympyExpression:
         case BinaryOperator.DIVIDE:
             return left / right
         case BinaryOperator.POWER:
-            return left**right
+            power = cast(SympyPowerConstructor, sympy.Pow)
+            return power(left, right, evaluate=False)

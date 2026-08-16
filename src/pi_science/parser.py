@@ -29,10 +29,38 @@ class ParseFailure:
 
 type ParseResult = Expression | ParseFailure
 
+MAX_INPUT_BYTES = 65_536
+MAX_EXPRESSION_NODES = 4_096
+MAX_EXPRESSION_DEPTH = 128
+MAX_INTEGER_BITS = 3_402
+
 
 def parse_expression(source: str) -> ParseResult:
     try:
+        encoded_source = source.encode("utf-8")
+    except UnicodeEncodeError:
+        return ParseFailure(
+            kind=ParseFailureKind.MALFORMED,
+            message="expression is not valid UTF-8",
+            line=None,
+            column=None,
+        )
+    if len(encoded_source) > MAX_INPUT_BYTES:
+        return ParseFailure(
+            kind=ParseFailureKind.TOO_COMPLEX,
+            message=(
+                "expression exceeds the maximum input size of "
+                f"{MAX_INPUT_BYTES} UTF-8 bytes"
+            ),
+            line=None,
+            column=None,
+        )
+
+    try:
         parsed = ast.parse(source, mode="eval")
+        complexity_failure = _validate_complexity(parsed.body)
+        if complexity_failure is not None:
+            return complexity_failure
         return _convert(parsed.body)
     except SyntaxError as error:
         return ParseFailure(
@@ -48,6 +76,51 @@ def parse_expression(source: str) -> ParseResult:
             line=None,
             column=None,
         )
+
+
+def _validate_complexity(root: ast.expr) -> ParseFailure | None:
+    stack: list[tuple[ast.expr, int]] = [(root, 1)]
+    node_count = 0
+    while stack:
+        node, depth = stack.pop()
+        node_count += 1
+        if depth > MAX_EXPRESSION_DEPTH:
+            return ParseFailure(
+                kind=ParseFailureKind.TOO_COMPLEX,
+                message=(
+                    "expression nesting exceeds the maximum depth of "
+                    f"{MAX_EXPRESSION_DEPTH}"
+                ),
+                line=getattr(node, "lineno", None),
+                column=getattr(node, "col_offset", None),
+            )
+        if node_count > MAX_EXPRESSION_NODES:
+            return ParseFailure(
+                kind=ParseFailureKind.TOO_COMPLEX,
+                message="expression is too complex",
+                line=None,
+                column=None,
+            )
+        if (
+            isinstance(node, ast.Constant)
+            and type(node.value) is int
+            and node.value.bit_length() > MAX_INTEGER_BITS
+        ):
+            return ParseFailure(
+                kind=ParseFailureKind.TOO_COMPLEX,
+                message=(
+                    "integer literal exceeds the maximum size of approximately "
+                    "1024 decimal digits"
+                ),
+                line=node.lineno,
+                column=node.col_offset,
+            )
+        stack.extend(
+            (child, depth + 1)
+            for child in ast.iter_child_nodes(node)
+            if isinstance(child, ast.expr)
+        )
+    return None
 
 
 def _convert(node: ast.expr) -> ParseResult:

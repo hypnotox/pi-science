@@ -123,6 +123,21 @@ def test_evaluate_counts_submitted_power() -> None:
     )
 
 
+def test_numeric_powers_are_normalized_without_eager_exponentiation() -> None:
+    request = EvaluationRequest(syntax=FormulaSyntax.SYMPY, expression="2**100000")
+
+    outcome = evaluate(request)
+
+    assert outcome == EvaluationSuccess(
+        interpretation=Interpretation(
+            normalized_sympy="2**100000",
+            normalized_latex="2^{100000}",
+        ),
+        operation_counts=OperationCounts(powers=1),
+        abstract_work=1,
+    )
+
+
 @pytest.mark.parametrize(
     ("expression", "normalized"),
     [("-1", "-1"), ("+1", "1"), ("- 1", "-1"), ("-(1)", "-1")],
@@ -176,6 +191,27 @@ def test_malformed_syntax_returns_a_structured_failure() -> None:
     assert outcome.error.location.line == 1
 
 
+def test_empty_expression_returns_malformed_syntax_without_an_invalid_location() -> None:
+    request = EvaluationRequest(syntax=FormulaSyntax.SYMPY, expression="")
+
+    outcome = evaluate(request)
+
+    assert isinstance(outcome, EvaluationFailure)
+    assert outcome.error.code is EvaluationErrorCode.MALFORMED_SYNTAX
+    assert outcome.error.location is None
+
+
+def test_non_utf8_expression_returns_consumer_facing_malformed_syntax() -> None:
+    request = EvaluationRequest(syntax=FormulaSyntax.SYMPY, expression="\ud800")
+
+    outcome = evaluate(request)
+
+    assert isinstance(outcome, EvaluationFailure)
+    assert outcome.error.code is EvaluationErrorCode.MALFORMED_SYNTAX
+    assert outcome.error.message == "expression is not valid UTF-8"
+    assert outcome.error.location is None
+
+
 @pytest.mark.parametrize(
     "expression",
     [
@@ -215,6 +251,60 @@ def test_submitted_python_is_never_executed(tmp_path: Path) -> None:
     assert isinstance(outcome, EvaluationFailure)
     assert outcome.error.code is EvaluationErrorCode.UNSUPPORTED_CONSTRUCT
     assert not marker.exists()
+
+
+def test_oversized_input_reports_the_public_byte_limit() -> None:
+    request = EvaluationRequest(syntax=FormulaSyntax.SYMPY, expression="x" * 65_537)
+
+    outcome = evaluate(request)
+
+    assert isinstance(outcome, EvaluationFailure)
+    assert outcome.error.code is EvaluationErrorCode.EXPRESSION_TOO_COMPLEX
+    assert outcome.error.message == (
+        "expression exceeds the maximum input size of 65536 UTF-8 bytes"
+    )
+
+
+def test_excessive_nesting_reports_the_public_depth_limit() -> None:
+    expression = "+".join("x" for _ in range(130))
+    request = EvaluationRequest(syntax=FormulaSyntax.SYMPY, expression=expression)
+
+    outcome = evaluate(request)
+
+    assert isinstance(outcome, EvaluationFailure)
+    assert outcome.error.code is EvaluationErrorCode.EXPRESSION_TOO_COMPLEX
+    assert outcome.error.message == "expression nesting exceeds the maximum depth of 128"
+
+
+def test_internal_node_budget_uses_a_generic_consumer_message() -> None:
+    expressions = ["x"] * 2_049
+    while len(expressions) > 1:
+        paired = [
+            f"({expressions[index]}+{expressions[index + 1]})"
+            for index in range(0, len(expressions) - 1, 2)
+        ]
+        if len(expressions) % 2:
+            paired.append(expressions[-1])
+        expressions = paired
+    request = EvaluationRequest(syntax=FormulaSyntax.SYMPY, expression=expressions[0])
+
+    outcome = evaluate(request)
+
+    assert isinstance(outcome, EvaluationFailure)
+    assert outcome.error.code is EvaluationErrorCode.EXPRESSION_TOO_COMPLEX
+    assert outcome.error.message == "expression is too complex"
+
+
+def test_oversized_integer_reports_the_public_literal_limit() -> None:
+    request = EvaluationRequest(syntax=FormulaSyntax.SYMPY, expression="9" * 1_025)
+
+    outcome = evaluate(request)
+
+    assert isinstance(outcome, EvaluationFailure)
+    assert outcome.error.code is EvaluationErrorCode.EXPRESSION_TOO_COMPLEX
+    assert outcome.error.message == (
+        "integer literal exceeds the maximum size of approximately 1024 decimal digits"
+    )
 
 
 def test_excessively_deep_formulas_return_structured_failures() -> None:

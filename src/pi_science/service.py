@@ -11,7 +11,7 @@ from pi_science.models import (
     SourceLocation,
 )
 from pi_science.parser import ParseFailure, ParseFailureKind, parse_expression
-from pi_science.sympy_backend import render
+from pi_science.sympy_backend import NormalizationError, render
 
 
 def evaluate(request: EvaluationRequest) -> EvaluationOutcome:
@@ -27,7 +27,7 @@ def evaluate(request: EvaluationRequest) -> EvaluationOutcome:
 
     try:
         normalized = render(parsed)
-    except Exception:
+    except NormalizationError:
         return EvaluationFailure(
             error=EvaluationError(
                 code=EvaluationErrorCode.NORMALIZATION_FAILED,
@@ -57,7 +57,12 @@ def _error_code(kind: ParseFailureKind) -> EvaluationErrorCode:
 
 
 def _location(failure: ParseFailure) -> SourceLocation | None:
-    if failure.line is None or failure.column is None:
+    if (
+        failure.line is None
+        or failure.line < 1
+        or failure.column is None
+        or failure.column < 0
+    ):
         return None
     return SourceLocation(line=failure.line, column=failure.column)
 
