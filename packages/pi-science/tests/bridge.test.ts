@@ -215,6 +215,68 @@ describe("private formula bridge", () => {
     }
   });
 
+  const setSystemField = (
+    value: typeof richSuccess,
+    field: string,
+    replacement: unknown,
+  ): void => {
+    (value.system as Record<string, unknown>)[field] = replacement;
+  };
+  it.each([
+    [
+      "equation counts",
+      (value: typeof richSuccess) => {
+        value.system.equations[0].operation_counts.additions = -1;
+      },
+    ],
+    [
+      "equation dependencies",
+      (value: typeof richSuccess) => {
+        (value.system.equations[0] as Record<string, unknown>).dependencies = [
+          1,
+        ];
+      },
+    ],
+    [
+      "aggregate count shape",
+      (value: typeof richSuccess) => {
+        delete (
+          value.system.aggregate_operation_counts as Record<string, unknown>
+        ).powers;
+      },
+    ],
+    [
+      "dependency edge shape",
+      (value: typeof richSuccess) => {
+        setSystemField(value, "dependency_edges", [["producer"]]);
+      },
+    ],
+    [
+      "reuse count",
+      (value: typeof richSuccess) => {
+        setSystemField(value, "reuse", [
+          { producer: "a", consumer: "b", references: 0 },
+        ]);
+      },
+    ],
+    [
+      "primitive map",
+      (value: typeof richSuccess) => {
+        setSystemField(value, "primitive_invocations", { f: 1 });
+      },
+    ],
+    [
+      "unknown array",
+      (value: typeof richSuccess) => {
+        setSystemField(value, "unknown_costs", [false]);
+      },
+    ],
+  ])("fails closed for malformed rich response %s", async (_name, mutate) => {
+    const result = structuredClone(richSuccess);
+    mutate(result);
+    await kind(invokeAdapter(node, responder(result), request()), "protocol");
+  });
+
   it("bounds expressions by UTF-8 bytes while permitting empty and boundary input", async () => {
     await expect(
       invokeAdapter(node, responder(), request("")),

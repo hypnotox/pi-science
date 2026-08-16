@@ -270,6 +270,12 @@ def _convert_call(node: ast.Call) -> ParseResult:
         return _convert_sum(node)
     if function.name == "Eq":
         return _convert_equation(node)
+    if function.name == "Max":
+        return _failure(
+            ParseFailureKind.UNSUPPORTED,
+            "Max is reserved for analyzer aggregate-work semantics",
+            node,
+        )
 
     arguments: list[Expression] = []
     for argument in node.args:

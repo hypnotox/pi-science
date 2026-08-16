@@ -132,8 +132,8 @@ class AnalysisRequest(StructuredModel):
         cost_names = {cost.name for cost in self.primitive_costs}
         if definition_names & cost_names:
             raise ValueError("a function cannot have both a definition and primitive work")
-        if {"Eq", "Sum"} & (definition_names | cost_names):
-            raise ValueError("Eq and Sum are reserved mathematical constructs")
+        if {"Eq", "Sum", "Max"} & (definition_names | cost_names):
+            raise ValueError("Eq, Sum, and Max are reserved mathematical constructs")
         return self
 
 

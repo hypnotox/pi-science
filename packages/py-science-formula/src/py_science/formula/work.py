@@ -7,10 +7,12 @@ from py_science.formula.expressions import (
     BinaryOperator,
     Call,
     Expression,
+    ExpressionTooComplex,
     IndexedValue,
     IntegerLiteral,
     Sum,
     Symbol,
+    expression_node_count,
     substitute,
 )
 from py_science.formula.models import MathematicalDomain, SymbolicOperationCounts
@@ -18,6 +20,21 @@ from py_science.formula.sympy_backend import render
 
 _ZERO = IntegerLiteral(0)
 _ONE = IntegerLiteral(1)
+# This is deliberately below the request-wide parsed-node limit: derived work is
+# rendered and reported repeatedly, so it needs its own pre-SymPy bound.
+MAX_WORK_NODES = 4_096
+MAX_WORK_RENDER_BYTES = 196_608
+
+
+@dataclass(slots=True)
+class WorkRenderBudget:
+    bytes: int = 0
+
+    def accept(self, expression: Expression) -> None:
+        estimate = _rendered_size_upper_bound(expression)
+        if self.bytes + estimate > MAX_WORK_RENDER_BYTES:
+            raise ExpressionTooComplex("aggregate work rendering exceeds its size bound")
+        self.bytes += estimate
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,26 +238,63 @@ def is_integer_expression(expression: Expression, context: WorkContext) -> bool:
         if definition is None or len(definition.parameters) != len(expression.arguments):
             return False
         replacements = dict(zip(definition.parameters, expression.arguments, strict=True))
-        return is_integer_expression(substitute(definition.body, replacements), context)
+        return is_integer_expression(
+            substitute(definition.body, replacements, max_nodes=MAX_WORK_NODES), context
+        )
     return is_integer_expression(expression.body, context.with_integer_symbol(expression.index))
 
 
-def render_work(expression: Expression) -> str:
+def render_work(expression: Expression, budget: WorkRenderBudget) -> str:
+    # Do not hand a substitution-expanded tree to SymPy before bounding it.
+    if expression_node_count(expression) > MAX_WORK_NODES:
+        raise ExpressionTooComplex("aggregate work exceeds its structural bound")
+    budget.accept(expression)
     return render(expression).sympy
 
 
-def render_operations(tally: SymbolicTally) -> SymbolicOperationCounts:
-    return SymbolicOperationCounts(
-        additions=render_work(tally.additions),
-        subtractions=render_work(tally.subtractions),
-        multiplications=render_work(tally.multiplications),
-        divisions=render_work(tally.divisions),
-        powers=render_work(tally.powers),
+def _rendered_size_upper_bound(expression: Expression) -> int:
+    """A cheap conservative IR spelling bound, evaluated before SymPy rendering."""
+    if isinstance(expression, IntegerLiteral):
+        # log10(2) is an upper bound for the decimal digits of an integer bit width.
+        return max(1, (expression.value.bit_length() * 31 + 99) // 100)
+    if isinstance(expression, Symbol):
+        return len(expression.name)
+    if isinstance(expression, IndexedValue):
+        return (
+            len(expression.name)
+            + 2
+            + sum(_rendered_size_upper_bound(index) + 1 for index in expression.indices)
+        )
+    if isinstance(expression, Call):
+        return (
+            len(expression.name)
+            + 2
+            + sum(_rendered_size_upper_bound(argument) + 1 for argument in expression.arguments)
+        )
+    if isinstance(expression, Sum):
+        parts = (expression.body, expression.lower, expression.upper)
+        return 16 + sum(_rendered_size_upper_bound(part) for part in parts)
+    return (
+        3
+        + _rendered_size_upper_bound(expression.left)
+        + _rendered_size_upper_bound(expression.right)
     )
 
 
-def render_invocations(invocations: dict[str, Expression]) -> dict[str, str]:
-    return {name: render_work(count) for name, count in sorted(invocations.items())}
+def render_operations(tally: SymbolicTally, budget: WorkRenderBudget) -> SymbolicOperationCounts:
+    return SymbolicOperationCounts(
+        additions=render_work(tally.additions, budget),
+        subtractions=render_work(tally.subtractions, budget),
+        multiplications=render_work(tally.multiplications, budget),
+        divisions=render_work(tally.divisions, budget),
+        powers=render_work(tally.powers, budget),
+    )
+
+
+def render_invocations(
+    invocations: dict[str, Expression], budget: WorkRenderBudget
+) -> dict[str, str]:
+    return {name: render_work(count, budget) for name, count in sorted(invocations.items())}
 
 
 def substitute_analysis(
@@ -249,15 +303,24 @@ def substitute_analysis(
 ) -> WorkAnalysis:
     return WorkAnalysis(
         operations=SymbolicTally(
-            additions=substitute(analysis.operations.additions, replacements),
-            subtractions=substitute(analysis.operations.subtractions, replacements),
-            multiplications=substitute(analysis.operations.multiplications, replacements),
-            divisions=substitute(analysis.operations.divisions, replacements),
-            powers=substitute(analysis.operations.powers, replacements),
+            additions=substitute(
+                analysis.operations.additions, replacements, max_nodes=MAX_WORK_NODES
+            ),
+            subtractions=substitute(
+                analysis.operations.subtractions, replacements, max_nodes=MAX_WORK_NODES
+            ),
+            multiplications=substitute(
+                analysis.operations.multiplications, replacements, max_nodes=MAX_WORK_NODES
+            ),
+            divisions=substitute(
+                analysis.operations.divisions, replacements, max_nodes=MAX_WORK_NODES
+            ),
+            powers=substitute(analysis.operations.powers, replacements, max_nodes=MAX_WORK_NODES),
         ),
-        opaque_work=substitute(analysis.opaque_work, replacements),
+        opaque_work=substitute(analysis.opaque_work, replacements, max_nodes=MAX_WORK_NODES),
         invocations={
-            name: substitute(count, replacements) for name, count in analysis.invocations.items()
+            name: substitute(count, replacements, max_nodes=MAX_WORK_NODES)
+            for name, count in analysis.invocations.items()
         },
         unknown_costs=set(analysis.unknown_costs),
         unresolved=set(analysis.unresolved),
@@ -308,7 +371,7 @@ def _analyze_call(expression: Call, context: WorkContext) -> WorkAnalysis:
             )
             if is_integer_expression(argument, context)
         )
-        internal = substitute(definition.body, placeholders)
+        internal = substitute(definition.body, placeholders, max_nodes=MAX_WORK_NODES)
         body = analyze_work(
             internal,
             context.for_call(expression.name, integer_placeholders),

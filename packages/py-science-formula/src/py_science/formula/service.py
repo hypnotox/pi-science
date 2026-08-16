@@ -9,11 +9,13 @@ from py_science.formula.expressions import (
     Call,
     Equation,
     Expression,
+    ExpressionTooComplex,
     IndexedValue,
     Sum,
     Symbol,
     expression_children,
     expression_node_count,
+    substitute,
 )
 from py_science.formula.models import (
     AnalysisError,
@@ -38,10 +40,12 @@ from py_science.formula.sympy_backend import (
     render_system,
 )
 from py_science.formula.work import (
+    MAX_WORK_NODES,
     FunctionRule,
     PrimitiveRule,
     WorkAnalysis,
     WorkContext,
+    WorkRenderBudget,
     analyze_work,
     cardinality,
     is_integer_expression,
@@ -113,6 +117,7 @@ def analyze(request: AnalysisRequest) -> AnalysisOutcome:
     if isinstance(definitions_or_failure, AnalysisFailure):
         return definitions_or_failure
     definitions, primitives = definitions_or_failure
+    request_unknown_arities = _unknown_call_arities(definitions, primitives)
     context = WorkContext(
         definitions=definitions,
         primitives=primitives,
@@ -120,10 +125,15 @@ def analyze(request: AnalysisRequest) -> AnalysisOutcome:
             name: declaration.domain for name, declaration in request.variables.items()
         },
     )
-    if request.expression is not None:
-        outcome = _analyze_single(request, request.expression, loader, context)
-    else:
-        outcome = _analyze_system(request, loader, context)
+    try:
+        if request.expression is not None:
+            outcome = _analyze_single(
+                request, request.expression, loader, context, request_unknown_arities
+            )
+        else:
+            outcome = _analyze_system(request, loader, context, request_unknown_arities)
+    except ExpressionTooComplex as error:
+        return _complexity_failure(str(error))
     return _bound_result(outcome)
 
 
@@ -139,6 +149,13 @@ def _parse_definitions(
             return parsed
         if isinstance(parsed, Equation):
             return _invalid(f"function {definition.name} body cannot contain Eq")
+        index_error, _ = _validate_index_scopes(
+            parsed,
+            set(definition.parameters),
+            WorkContext({}, {}, {}),
+        )
+        if index_error is not None:
+            return _invalid(f"function {definition.name}: {index_error}")
         unknown = _external_value_names(parsed, set(definition.parameters), set())
         if unknown:
             return _invalid(
@@ -156,6 +173,13 @@ def _parse_definitions(
             return parsed
         if isinstance(parsed, Equation):
             return _invalid(f"primitive cost {primitive.name} cannot contain Eq")
+        index_error, _ = _validate_index_scopes(
+            parsed,
+            set(primitive.parameters),
+            WorkContext({}, {}, {}),
+        )
+        if index_error is not None:
+            return _invalid(f"primitive cost {primitive.name}: {index_error}")
         unknown = _external_value_names(parsed, set(primitive.parameters), set())
         if unknown:
             return _invalid(
@@ -188,6 +212,10 @@ def _validate_function_calls(
         if error is not None:
             return error
         graph[name] = {call.name for call in _calls(definition.body) if call.name in definitions}
+    for primitive in primitives.values():
+        error = _check_call_arities(primitive.work, known_arities, unknown_arities)
+        if error is not None:
+            return error
     if _topological(graph) is None:
         return _invalid("function definitions contain a cycle")
     return None
@@ -198,6 +226,7 @@ def _analyze_single(
     source: str,
     loader: FormulaLoader,
     context: WorkContext,
+    request_unknown_arities: dict[str, int],
 ) -> AnalysisOutcome:
     parsed = loader.parse(source)
     if isinstance(parsed, AnalysisFailure):
@@ -210,7 +239,7 @@ def _analyze_single(
             **{name: len(rule.parameters) for name, rule in context.definitions.items()},
             **{name: len(rule.parameters) for name, rule in context.primitives.items()},
         },
-        {},
+        dict(request_unknown_arities),
     )
     if call_failure is not None:
         return call_failure
@@ -238,16 +267,21 @@ def _analyze_single(
     index_error, index_unresolved = _validate_index_scopes(parsed, set(), context)
     if index_error is not None:
         return _invalid(index_error)
+    _bound_substitution_expansion(parsed, context.definitions)
     analysis = analyze_work(parsed, context)
     analysis.unresolved.update(index_unresolved)
+    work_render_budget = WorkRenderBudget()
     report = _equation_report(
         "expression",
         interpretation,
         tally,
         analysis,
         (),
+        work_render_budget,
     )
-    system = _system_report((report,), WorkAnalysis().combine(analysis), (), (), ())
+    system = _system_report(
+        (report,), WorkAnalysis().combine(analysis), (), (), (), work_render_budget
+    )
     return AnalysisSuccess(
         interpretation=interpretation,
         operation_counts=_counts(tally),
@@ -260,6 +294,7 @@ def _analyze_system(
     request: AnalysisRequest,
     loader: FormulaLoader,
     context: WorkContext,
+    request_unknown_arities: dict[str, int],
 ) -> AnalysisOutcome:
     parsed_or_failure = _parse_equations(request, loader)
     if isinstance(parsed_or_failure, AnalysisFailure):
@@ -269,7 +304,7 @@ def _analyze_system(
     if isinstance(producers_or_failure, AnalysisFailure):
         return producers_or_failure
     producers = producers_or_failure
-    validation = _validate_system(request, equations, producers, context)
+    validation = _validate_system(request, equations, producers, context, request_unknown_arities)
     if isinstance(validation, AnalysisFailure):
         return validation
     edges, reference_counts, index_unresolved = validation
@@ -279,6 +314,7 @@ def _analyze_system(
 
     by_name = {equation.request.name: equation for equation in equations}
     render_budget = RenderingBudget()
+    work_render_budget = WorkRenderBudget()
     reports: dict[str, EquationReport] = {}
     analyses: dict[str, WorkAnalysis] = {}
     all_extractions: list[str] = []
@@ -297,6 +333,7 @@ def _analyze_system(
             variable_domains=context.variable_domains,
             integer_symbols=frozenset(equation.domains),
         )
+        _bound_substitution_expansion(equation.formula.right, scoped_context.definitions)
         analysis = analyze_work(equation.formula.right, scoped_context)
         analysis.unresolved.update(index_unresolved.get(name, ()))
         for index, (lower, upper) in equation.domains.items():
@@ -317,6 +354,7 @@ def _analyze_system(
             tally,
             analysis,
             tuple(sorted(edges[name])),
+            work_render_budget,
         )
         all_extractions.extend(_extraction_opportunities(name, equation.formula.right, producers))
 
@@ -340,6 +378,7 @@ def _analyze_system(
         tuple((dependency, name) for name in order for dependency in sorted(edges[name])),
         reuse,
         tuple(sorted(set(all_extractions))),
+        work_render_budget,
     )
     submitted = OperationTally()
     for name in order:
@@ -379,6 +418,14 @@ def _parse_equations(
             if isinstance(lower, Equation) or isinstance(upper, Equation):
                 return _invalid(f"equation {item.name} domain bounds cannot contain Eq")
             domains[index] = (lower, upper)
+        output_indices = set(domains)
+        for lower, upper in domains.values():
+            dependent = (_symbol_names(lower) | _symbol_names(upper)) & output_indices
+            if dependent:
+                return _invalid(
+                    f"equation {item.name} output-domain bounds cannot depend on output indices: "
+                    + ", ".join(sorted(dependent))
+                )
         result.append(ParsedEquation(item, parsed, domains))
     return tuple(result)
 
@@ -405,6 +452,7 @@ def _validate_system(
     equations: tuple[ParsedEquation, ...],
     producers: dict[str, Producer],
     context: WorkContext,
+    request_unknown_arities: dict[str, int],
 ) -> (
     tuple[
         dict[str, set[str]],
@@ -420,7 +468,7 @@ def _validate_system(
         **{name: len(rule.parameters) for name, rule in context.definitions.items()},
         **{name: len(rule.parameters) for name, rule in context.primitives.items()},
     }
-    unknown_arities: dict[str, int] = {}
+    unknown_arities = dict(request_unknown_arities)
     external: set[str] = set()
     producer_names = set(producers)
     for equation in equations:
@@ -506,6 +554,15 @@ def _validate_index_scopes(
     scope: set[str],
     context: WorkContext,
 ) -> tuple[str | None, set[str]]:
+    # Equation output domains and function parameters are lexical integer names
+    # for index qualification; nested sums extend this scope below.
+    context = WorkContext(
+        definitions=context.definitions,
+        primitives=context.primitives,
+        variable_domains=context.variable_domains,
+        integer_symbols=context.integer_symbols | frozenset(scope),
+        call_stack=context.call_stack,
+    )
     unresolved: set[str] = set()
     if isinstance(expression, IndexedValue):
         for index in expression.indices:
@@ -593,6 +650,47 @@ def _external_value_names(
     return external
 
 
+def _bound_substitution_expansion(
+    expression: Expression,
+    definitions: dict[str, FunctionRule],
+) -> None:
+    """Reject definition inlining before it can create a large derived tree."""
+
+    remaining = MAX_WORK_NODES
+
+    def consume(value: Expression) -> None:
+        nonlocal remaining
+        if isinstance(value, Call) and (definition := definitions.get(value.name)) is not None:
+            expanded = substitute(
+                definition.body,
+                dict(zip(definition.parameters, value.arguments, strict=True)),
+                max_nodes=MAX_WORK_NODES,
+            )
+            consume(expanded)
+            return
+        remaining -= 1
+        if remaining < 0:
+            raise ExpressionTooComplex(
+                "substitution-expanded work exceeds its structural bound"
+            )
+        for child in expression_children(value):
+            consume(child)
+
+    consume(expression)
+
+
+def _unknown_call_arities(
+    definitions: dict[str, FunctionRule], primitives: dict[str, PrimitiveRule]
+) -> dict[str, int]:
+    known = set(definitions) | set(primitives)
+    arities: dict[str, int] = {}
+    for rule in (*definitions.values(), *primitives.values()):
+        for call in _calls(rule.body if isinstance(rule, FunctionRule) else rule.work):
+            if call.name not in known:
+                arities.setdefault(call.name, len(call.arguments))
+    return arities
+
+
 def _check_call_arities(
     expression: Expression,
     known_arities: dict[str, int],
@@ -668,15 +766,16 @@ def _equation_report(
     submitted: OperationTally,
     analysis: WorkAnalysis,
     dependencies: tuple[str, ...],
+    work_render_budget: WorkRenderBudget,
 ) -> EquationReport:
     return EquationReport(
         name=name,
         interpretation=interpretation,
         operation_counts=_counts(submitted),
-        aggregate_operation_counts=render_operations(analysis.operations),
-        aggregate_work=render_work(analysis.total_work),
+        aggregate_operation_counts=render_operations(analysis.operations, work_render_budget),
+        aggregate_work=render_work(analysis.total_work, work_render_budget),
         dependencies=dependencies,
-        primitive_invocations=render_invocations(analysis.invocations),
+        primitive_invocations=render_invocations(analysis.invocations, work_render_budget),
         unknown_costs=tuple(sorted(analysis.unknown_costs)),
         unresolved=tuple(sorted(analysis.unresolved)),
     )
@@ -688,14 +787,15 @@ def _system_report(
     dependency_edges: tuple[tuple[str, str], ...],
     reuse: tuple[ReuseReport, ...],
     extraction_opportunities: tuple[str, ...],
+    work_render_budget: WorkRenderBudget,
 ) -> SystemReport:
     return SystemReport(
         equations=equations,
-        aggregate_operation_counts=render_operations(analysis.operations),
-        total_work=render_work(analysis.total_work),
+        aggregate_operation_counts=render_operations(analysis.operations, work_render_budget),
+        total_work=render_work(analysis.total_work, work_render_budget),
         dependency_edges=dependency_edges,
         reuse=reuse,
-        primitive_invocations=render_invocations(analysis.invocations),
+        primitive_invocations=render_invocations(analysis.invocations, work_render_budget),
         unknown_costs=tuple(sorted(analysis.unknown_costs)),
         unresolved=tuple(sorted(analysis.unresolved)),
         extraction_opportunities=extraction_opportunities,
