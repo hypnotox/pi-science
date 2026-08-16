@@ -45,5 +45,5 @@ Pi eagerly provisions its isolated backend on first startup. Install `uv`, Git, 
 `./scripts/check` is the fast development gate. `./scripts/check-release` builds a temporary clean Git snapshot from the current working tree and drives Pi's real Git-package startup plus both Python dependency forms without publishing. Before a real release, run it after render settlement, tag and push the immutable commit, then verify the public tag and its intended commit:
 
 ```bash
-./scripts/check-release --public-ref v0.1.0 --expected-sha <full-40-character-sha>
+./scripts/check-release --public-ref v0.1.1 --expected-sha <full-40-character-sha>
 ```
