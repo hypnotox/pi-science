@@ -1,9 +1,9 @@
-import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import { realpath } from "node:fs/promises";
 import { homedir } from "node:os";
-import { isAbsolute, join } from "node:path";
-import { promisify } from "node:util";
+import { dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { spawnIsolated, terminateTree } from "./process.js";
 
-const exec = promisify(execFile);
 const MAX_DIAGNOSTIC_BYTES = 4_096;
 const SHA = /^[0-9a-f]{40}$/;
 
@@ -16,16 +16,25 @@ export type ProvisionOptions = {
   cacheDir?: string;
   repo: string;
   adapter: string;
+  checkoutRoot?: string;
   timeoutMs?: number;
 };
 
+type CommandResult = { stdout: string; stderr: string; code: number | null };
+
 function bounded(value: unknown): string {
+  const record =
+    typeof value === "object" && value !== null
+      ? (value as Record<string, unknown>)
+      : undefined;
   const raw =
-    value instanceof Error
-      ? "stderr" in value && typeof value.stderr === "string" && value.stderr
-        ? value.stderr
-        : value.message
-      : String(value);
+    record && typeof record.stderr === "string" && record.stderr
+      ? record.stderr
+      : value instanceof Error
+        ? value.message
+        : record && typeof record.message === "string"
+          ? record.message
+          : String(value);
   return Buffer.from(raw)
     .subarray(0, MAX_DIAGNOSTIC_BYTES)
     .toString("utf8")
@@ -79,6 +88,22 @@ function cacheDirectory(explicit?: string): string | undefined {
     : undefined;
 }
 
+async function nearestRealPath(path: string): Promise<string> {
+  let current = resolve(path);
+  while (!existsSync(current)) current = dirname(current);
+  return realpath(current);
+}
+
+async function cacheIsExternal(
+  cacheDir: string,
+  checkoutRoot?: string,
+): Promise<boolean> {
+  if (!checkoutRoot) return true;
+  const root = await nearestRealPath(checkoutRoot);
+  const candidate = await nearestRealPath(cacheDir);
+  return candidate !== root && !candidate.startsWith(`${root}${sep}`);
+}
+
 function healthy(value: unknown): boolean {
   if (typeof value !== "object" || value === null || Array.isArray(value))
     return false;
@@ -95,6 +120,44 @@ function healthy(value: unknown): boolean {
   return Object.keys(result).length === 1 && result.status === "healthy";
 }
 
+async function runBounded(
+  command: string,
+  args: string[],
+  cacheDir: string,
+  timeoutMs: number,
+): Promise<CommandResult> {
+  return new Promise((resolveResult, reject) => {
+    const child = spawnIsolated(command, args, {
+      env: { ...process.env, UV_CACHE_DIR: cacheDir },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      terminateTree(child);
+    }, timeoutMs);
+    child.stdout!.on("data", (chunk: Buffer) => {
+      stdout = bounded(stdout + chunk.toString());
+    });
+    child.stderr!.on("data", (chunk: Buffer) => {
+      stderr = bounded(stderr + chunk.toString());
+    });
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (timedOut)
+        return reject({ killed: true, message: "timed out", stderr });
+      if (code !== 0) return reject({ code, message: stderr, stderr });
+      resolveResult({ stdout, stderr, code });
+    });
+  });
+}
+
 export async function provision(options: ProvisionOptions): Promise<Readiness> {
   if (!SHA.test(options.revision))
     return {
@@ -103,13 +166,12 @@ export async function provision(options: ProvisionOptions): Promise<Readiness> {
         "Pi checkout identity is unavailable; reinstall Pi from an immutable Git pin, then reload or restart Pi.",
     };
   const cacheDir = cacheDirectory(options.cacheDir);
-  if (!cacheDir)
+  if (!cacheDir || !(await cacheIsExternal(cacheDir, options.checkoutRoot)))
     return {
       ready: false,
       diagnosis:
         "An absolute external user cache path is unavailable; configure XDG_CACHE_HOME, then reload or restart Pi.",
     };
-
   const uv = options.uv ?? "uv";
   const source = `py-science-formula @ git+${options.repo}@${options.revision}#subdirectory=packages/py-science-formula`;
   const args = [
@@ -123,18 +185,17 @@ export async function provision(options: ProvisionOptions): Promise<Readiness> {
     "python",
     options.adapter,
   ];
-  let health: { stdout: string; stderr: string };
+  let health: CommandResult;
   try {
-    health = await exec(uv, [...args, "--health"], {
-      env: { ...process.env, UV_CACHE_DIR: cacheDir },
-      timeout: options.timeoutMs ?? 60_000,
-      maxBuffer: MAX_DIAGNOSTIC_BYTES,
-      encoding: "utf8",
-    });
+    health = await runBounded(
+      uv,
+      [...args, "--health"],
+      cacheDir,
+      options.timeoutMs ?? 60_000,
+    );
   } catch (error) {
     return { ready: false, diagnosis: failure(error) };
   }
-
   let response: unknown;
   try {
     response = JSON.parse(health.stdout);

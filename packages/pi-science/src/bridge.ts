@@ -1,8 +1,9 @@
-import { spawn } from "node:child_process";
+import { spawnIsolated, terminateTree } from "./process.js";
 
 export const PROTOCOL_VERSION = 1;
 export const MAX_RESPONSE_BYTES = 65_536;
 export const MAX_EXPRESSION_BYTES = 65_536;
+export const MAX_ENVELOPE_BYTES = 66_560;
 const MAX_DIAGNOSTIC_BYTES = 4_096;
 
 export type AnalysisRequest = { syntax: "sympy"; expression: string };
@@ -111,13 +112,20 @@ export async function invokeAdapter(
       "formula expression exceeds 65,536 UTF-8 bytes",
     );
   const payload = JSON.stringify({ version: PROTOCOL_VERSION, request });
+  if (Buffer.byteLength(payload, "utf8") > MAX_ENVELOPE_BYTES)
+    throw new BridgeError(
+      "protocol",
+      "formula adapter request envelope exceeds its byte bound",
+    );
   if (signal?.aborted)
     throw new BridgeError(
       "cancelled",
       "formula adapter cancelled before start",
     );
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawnIsolated(command, args, {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
     let stdout = "";
     let stderr = "";
     let settled = false;
@@ -132,8 +140,7 @@ export async function invokeAdapter(
     const cleanup = (kind: BridgeFailureKind, message: string): void => {
       if (cleaning) return;
       cleaning = true;
-      child.kill("SIGTERM");
-      setTimeout(() => child.kill("SIGKILL"), 250).unref();
+      terminateTree(child);
       child.once("close", () =>
         finish(
           new BridgeError(
@@ -149,10 +156,17 @@ export async function invokeAdapter(
     );
     const abort = (): void => cleanup("cancelled", "formula adapter cancelled");
     signal?.addEventListener("abort", abort, { once: true });
-    child.on("error", () =>
-      finish(new BridgeError("environment", "formula adapter could not start")),
+    // Abort can arrive after the precheck but before this listener is installed.
+    if (signal?.aborted) abort();
+    child.on("error", (error) =>
+      finish(
+        new BridgeError(
+          "environment",
+          `formula adapter could not start: ${boundedText(error.message)}`,
+        ),
+      ),
     );
-    child.stdout.on("data", (chunk: Buffer) => {
+    child.stdout!.on("data", (chunk: Buffer) => {
       stdout += chunk.toString();
       if (Buffer.byteLength(stdout) > MAX_RESPONSE_BYTES)
         cleanup(
@@ -160,7 +174,7 @@ export async function invokeAdapter(
           "formula adapter response exceeds its bound",
         );
     });
-    child.stderr.on("data", (chunk: Buffer) => {
+    child.stderr!.on("data", (chunk: Buffer) => {
       stderr = boundedText(stderr + chunk.toString());
     });
     child.on("close", (code) => {
@@ -203,6 +217,8 @@ export async function invokeAdapter(
         );
       }
     });
-    child.stdin.end(payload);
+    // Cleanup can close stdin before the payload write in an abort race.
+    child.stdin!.on("error", () => {});
+    child.stdin!.end(payload);
   });
 }

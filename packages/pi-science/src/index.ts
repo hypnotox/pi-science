@@ -107,6 +107,7 @@ export default async function extension(pi: ExtensionAPI): Promise<void> {
       revision: resolvePinnedRevision(repositoryRoot) ?? "",
       repo: REPOSITORY_URL,
       adapter,
+      checkoutRoot: repositoryRoot,
     }),
   );
 }

@@ -33,6 +33,7 @@ async function options(uv: string): Promise<ProvisionOptions> {
       repositoryRoot,
       "packages/pi-science/bridge/formula_adapter.py",
     ),
+    checkoutRoot: repositoryRoot,
   };
 }
 
@@ -116,6 +117,40 @@ describe("eager provisioning", () => {
     const uv = await executable('process.stdout.write("x".repeat(10000))');
     const state = await provision(await options(uv));
     expect(state.ready).toBe(false);
+  });
+
+  it("rejects direct and symlinked cache paths inside the managed checkout", async () => {
+    const base = await options("unused");
+    const direct = await provision({
+      ...base,
+      cacheDir: join(repositoryRoot, ".cache"),
+    });
+    expect(direct).toMatchObject({
+      ready: false,
+      diagnosis: expect.stringContaining("external"),
+    });
+    const alias = await mkdtemp(join(tmpdir(), "pi-science-alias-"));
+    const { symlink } = await import("node:fs/promises");
+    await symlink(repositoryRoot, join(alias, "checkout"));
+    const linked = await provision({
+      ...base,
+      cacheDir: join(alias, "checkout", "cache"),
+    });
+    expect(linked).toMatchObject({
+      ready: false,
+      diagnosis: expect.stringContaining("external"),
+    });
+  });
+
+  it("terminates a SIGTERM-resistant provisioning process tree", async () => {
+    const uv = await executable(
+      'require("child_process").spawn(process.execPath,["-e",`process.on("SIGTERM",()=>{});setInterval(()=>{},1000)`],{stdio:"ignore"});process.on("SIGTERM",()=>{});setInterval(()=>{},1000)',
+    );
+    const state = await provision({ ...(await options(uv)), timeoutMs: 20 });
+    expect(state).toMatchObject({
+      ready: false,
+      diagnosis: expect.stringContaining("timed out"),
+    });
   });
 
   it("distinguishes immutable identity, cache, executable, timeout, Git, and build failures", async () => {

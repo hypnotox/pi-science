@@ -112,11 +112,18 @@ describe("private formula bridge", () => {
     );
   });
 
-  it("rejects spawn errors and oversized stdout", async () => {
-    await kind(
-      invokeAdapter("/missing/pi-science-command", [], request()),
-      "environment",
-    );
+  it("rejects spawn errors with bounded actionable detail and oversized stdout", async () => {
+    let error: BridgeError | undefined;
+    try {
+      await invokeAdapter("/missing/pi-science-command", [], request());
+    } catch (value) {
+      error = value as BridgeError;
+    }
+    expect(error).toBeDefined();
+    const detail = error!;
+    expect(detail).toMatchObject({ kind: "environment" });
+    expect(detail.message).toContain("ENOENT");
+    expect(Buffer.byteLength(detail.message)).toBeLessThanOrEqual(4_200);
     await kind(
       invokeAdapter(
         node,
@@ -127,7 +134,14 @@ describe("private formula bridge", () => {
     );
   });
 
-  it("honors pre-abort and kills SIGTERM-resistant children on timeout", async () => {
+  it("rejects escape-heavy envelopes that exceed the adapter byte bound", async () => {
+    await kind(
+      invokeAdapter(node, responder(), request("\u0000".repeat(20_000))),
+      "protocol",
+    );
+  });
+
+  it("honors pre-abort and kills SIGTERM-resistant process trees on timeout", async () => {
     const controller = new AbortController();
     controller.abort();
     await kind(
@@ -137,11 +151,36 @@ describe("private formula bridge", () => {
     await kind(
       invokeAdapter(
         node,
-        script('process.on("SIGTERM",()=>{});setInterval(()=>{},1000)'),
+        script(
+          'require("child_process").spawn(process.execPath,["-e",`process.on("SIGTERM",()=>{});setInterval(()=>{},1000)`],{stdio:"ignore"});process.on("SIGTERM",()=>{});setInterval(()=>{},1000)',
+        ),
         request(),
         20,
       ),
       "timeout",
+    );
+  });
+
+  it("observes abort arriving between precheck and listener registration", async () => {
+    let aborted = false;
+    const raced = {
+      get aborted() {
+        return aborted;
+      },
+      addEventListener() {
+        aborted = true;
+      },
+      removeEventListener() {},
+    } as unknown as AbortSignal;
+    await kind(
+      invokeAdapter(
+        node,
+        script('process.on("SIGTERM",()=>{});setInterval(()=>{},1000)'),
+        request(),
+        5_000,
+        raced,
+      ),
+      "cancelled",
     );
   });
 
