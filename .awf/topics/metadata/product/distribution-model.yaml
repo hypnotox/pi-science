@@ -1,0 +1,7 @@
+title: Distribution Model
+summary: Package boundaries, source distribution, integration provisioning, and licensing.
+paths:
+    - package.json
+    - packages/**
+    - pyproject.toml
+    - src/pi_science/**

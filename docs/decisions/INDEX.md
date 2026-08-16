@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-_No decisions are in flight._
+- [ADR-separate-reusable-analysis-packages-from-pi-integration: Separate reusable analysis packages from Pi integration](separate-reusable-analysis-packages-from-pi-integration.md) (Proposed)
 
 ## History
 

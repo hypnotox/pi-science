@@ -3,6 +3,7 @@
 # product topics
 
 - [Analysis Report Contract](analysis-report-contract.md): Interpretation, qualification, and uncertainty requirements for analysis results.
+- [Distribution Model](distribution-model.md): Package boundaries, source distribution, integration provisioning, and licensing.
 - [Mathematical Analysis Model](mathematical-analysis-model.md): The shared internal mathematical model and backend separation.
 - [Mathematical Input Contract](mathematical-input-contract.md): Safe mathematical syntax and request metadata rules.
 - [Product Boundary](product-boundary.md): The symbolic mathematical analysis scope and its exclusions.

@@ -482,7 +482,7 @@
       "templateId": "",
       "templateHash": "",
       "configHash": "sha256:619a4dec6900da1feb21570a9a316b719f4802bf7686ce13e6cd6114d391b3e6",
-      "outputHash": "sha256:0f6cc71927b51504bea009376347c145570db9cd99e3c1715d7a99f2b3cfa6b5",
+      "outputHash": "sha256:c2c4241703ddb73cd9eea691465e5186a12635bee4aa8f62ca4a589431589321",
       "regenChecked": true
     },
     "docs/decisions/README.md": {
@@ -513,7 +513,7 @@
       "templateId": "",
       "templateHash": "",
       "configHash": "sha256:619a4dec6900da1feb21570a9a316b719f4802bf7686ce13e6cd6114d391b3e6",
-      "outputHash": "sha256:7c1f8ce077293152d75563a0df4b73131789ee2c061bb05fdc0a533500bae912",
+      "outputHash": "sha256:7bc01f84ab87b750f59b51fb79b0773452bf03937a7323de577ed8115c04a3b6",
       "regenChecked": true
     },
     "docs/glossary.md": {
@@ -570,11 +570,17 @@
       "configHash": "sha256:f23236ba494fa69a3766c08d3b8a001edbbade37484b216d486ab2f9987b1a43",
       "outputHash": "sha256:468cde57a3def1a02a7ab01bd563f3344223b6ed484bf5e5bd5a37a5b02d0401"
     },
+    "docs/topics/product/distribution-model.md": {
+      "templateId": "topics/topic.md.tmpl",
+      "templateHash": "sha256:25b4ec23c7a22667f9d78b1e5883af8702d82f67896c3a42ac0ad19032d7c7bb",
+      "configHash": "sha256:e86b967ff8d71df4d0bf7fa87a3f9d82bef84f89d1487ce71f917809f09fa4c2",
+      "outputHash": "sha256:a2a9156af5c6c3e9a29f4185fef529c42e8f5419f669fde0cb0046831b3adb66"
+    },
     "docs/topics/product/index.md": {
       "templateId": "topics/index.md.tmpl",
       "templateHash": "sha256:58a9398b187ea9c7c2c3321299b70f8e6faf3f06778c44e6a2232224f3481ab1",
-      "configHash": "sha256:cc1ffe6886b6f039f2d6d71d3f3c13742c4036aaeb61ed59361b96e8c3180f87",
-      "outputHash": "sha256:3388286949312448eaa4440d70da32829328ecd4816150d9f826c91291eb6de6"
+      "configHash": "sha256:4d1b43b6e4a13563342bf87bca6de061f9d56f9d17356e034bb9547aebee8911",
+      "outputHash": "sha256:0f2cf77b6d4e798c1b667d05e03d9b27e1e30c56122af059bb717f4b942f97ec"
     },
     "docs/topics/product/mathematical-analysis-model.md": {
       "templateId": "topics/topic.md.tmpl",
