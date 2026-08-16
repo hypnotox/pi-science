@@ -37,7 +37,7 @@ MAX_EXPRESSION_NODES = 4_096
 MAX_EXPRESSION_DEPTH = 128
 MAX_INTEGER_BITS = 3_402
 MAX_DECIMAL_INTEGER_DIGITS = 1_024
-_DECIMAL_INTEGER = re.compile(r"(?:0|[1-9](?:_?[0-9])*)\Z")
+_DECIMAL_INTEGER = re.compile(r"(?:0(?:_?0)*|[1-9](?:_?[0-9])*)\Z")
 
 
 def parse_expression(source: str) -> ParseResult:

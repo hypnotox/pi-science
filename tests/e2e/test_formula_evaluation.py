@@ -356,8 +356,14 @@ def test_oversized_integer_reports_the_public_literal_limit() -> None:
     )
 
 
-def test_integer_above_python_parser_limit_reports_the_public_literal_limit() -> None:
-    request = EvaluationRequest(syntax=FormulaSyntax.SYMPY, expression="9" * 5_000)
+@pytest.mark.parametrize(
+    "expression",
+    ["9" * 5_000, "0" * 1_025, "_".join("0" for _ in range(1_025))],
+)
+def test_oversized_decimal_tokens_report_the_public_literal_limit(
+    expression: str,
+) -> None:
+    request = EvaluationRequest(syntax=FormulaSyntax.SYMPY, expression=expression)
 
     outcome = evaluate(request)
 
