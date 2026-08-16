@@ -255,8 +255,9 @@ def render_work(expression: Expression, budget: WorkRenderBudget) -> str:
 def _rendered_size_upper_bound(expression: Expression) -> int:
     """A cheap conservative IR spelling bound, evaluated before SymPy rendering."""
     if isinstance(expression, IntegerLiteral):
-        # log10(2) is an upper bound for the decimal digits of an integer bit width.
-        return max(1, (expression.value.bit_length() * 31 + 99) // 100)
+        # log10(2) is below 0.31; include a possible leading minus sign.
+        digits = max(1, (expression.value.bit_length() * 31 + 99) // 100)
+        return digits + int(expression.value < 0)
     if isinstance(expression, Symbol):
         return len(expression.name)
     if isinstance(expression, IndexedValue):
@@ -273,7 +274,11 @@ def _rendered_size_upper_bound(expression: Expression) -> int:
         )
     if isinstance(expression, Sum):
         parts = (expression.body, expression.lower, expression.upper)
-        return 16 + sum(_rendered_size_upper_bound(part) for part in parts)
+        return (
+            16
+            + len(expression.index)
+            + sum(_rendered_size_upper_bound(part) for part in parts)
+        )
     return (
         3
         + _rendered_size_upper_bound(expression.left)
@@ -387,7 +392,7 @@ def _analyze_call(expression: Call, context: WorkContext) -> WorkAnalysis:
         replacements = dict(zip(primitive.parameters, expression.arguments, strict=True))
         result.opaque_work = _add(
             result.opaque_work,
-            substitute(primitive.work, replacements),
+            substitute(primitive.work, replacements, max_nodes=MAX_WORK_NODES),
         )
         return result
 

@@ -1,4 +1,5 @@
 import py_science.formula.service as formula_service
+import py_science.formula.work as formula_work
 import pytest
 from py_science.formula import (
     AnalysisRequest,
@@ -11,6 +12,7 @@ from py_science.formula import (
     VariableDeclaration,
     analyze,
 )
+from py_science.formula.expressions import IntegerLiteral, Sum, Symbol
 from pydantic import ValidationError
 
 
@@ -296,6 +298,114 @@ def test_request_wide_generic_arities_and_parameter_scopes_are_validated() -> No
     assert "shadows an existing index" in parameter_shadow.error.message
     assert "shadows an existing index" in nested_shadow.error.message
     assert "shadows an existing index" in primitive_shadow.error.message
+
+
+def test_domain_bounds_reject_producers_and_share_request_wide_call_arities() -> None:
+    producer_bound = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=(
+                EquationRequest(
+                    name="a",
+                    expression="Eq(A[i], x)",
+                    domains={"i": IndexDomain(lower="0", upper="B")},
+                ),
+                EquationRequest(name="b", expression="Eq(B, y)"),
+            ),
+            variables=variables("x", "y"),
+        )
+    )
+    known_arity = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=(
+                EquationRequest(
+                    name="a",
+                    expression="Eq(A[i], x)",
+                    domains={"i": IndexDomain(lower="0", upper="f(N, N)")},
+                ),
+            ),
+            variables=variables("N", "x"),
+            functions=(FunctionDefinition(name="f", parameters=("z",), body="z"),),
+        )
+    )
+    generic_arity = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=(
+                EquationRequest(
+                    name="a",
+                    expression="Eq(A[i], opaque(x))",
+                    domains={"i": IndexDomain(lower="0", upper="opaque(N, N)")},
+                ),
+            ),
+            variables=variables("N", "x"),
+        )
+    )
+    assert producer_bound.status == "failure"
+    assert "cannot reference named results: B" in producer_bound.error.message
+    assert known_arity.status == "failure"
+    assert known_arity.error.message == "function f requires 1 arguments"
+    assert generic_arity.status == "failure"
+    assert generic_arity.error.message == "function opaque requires 2 arguments"
+
+
+def test_primitive_substitution_and_definition_depth_fail_structurally() -> None:
+    repeated_argument = " + ".join("x" for _ in range(70))
+    repeated_parameter = " + ".join("z" for _ in range(70))
+    primitive = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression=f"p({repeated_argument})",
+            primitive_costs=(
+                PrimitiveCost(name="p", parameters=("z",), work=repeated_parameter),
+            ),
+        )
+    )
+    definitions = tuple(
+        FunctionDefinition(
+            name=f"f{index}",
+            parameters=("z",),
+            body=(
+                " + ".join([f"f{index + 1}(z)", *("1" for _ in range(10))])
+                if index < 39
+                else "z + 1"
+            ),
+        )
+        for index in range(40)
+    )
+    deep = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="f0(x)",
+            functions=definitions,
+        )
+    )
+    assert primitive.status == "failure"
+    assert primitive.error.code.value == "expression_too_complex"
+    assert deep.status == "failure"
+    assert deep.error.code.value == "expression_too_complex"
+
+
+def test_work_render_estimates_cover_signed_integers_and_sum_indices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expressions = (
+        IntegerLiteral(-123456789),
+        Sum(Symbol("x"), "a_very_long_iterator_name", IntegerLiteral(-3), IntegerLiteral(8)),
+    )
+    for expression in expressions:
+        rendering = formula_work.render_work(expression, formula_work.WorkRenderBudget())
+        assert formula_work._rendered_size_upper_bound(expression) >= len(  # pyright: ignore[reportPrivateUsage]
+            rendering.encode("utf-8")
+        )
+
+    monkeypatch.setattr(formula_work, "MAX_WORK_RENDER_BYTES", 1)
+    bounded = analyze(
+        AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="Sum(x[i] + 1, (i, 0, N))")
+    )
+    assert bounded.status == "failure"
+    assert bounded.error.code.value == "expression_too_complex"
 
 
 def test_work_expansion_and_rendered_results_fail_with_structured_complexity(

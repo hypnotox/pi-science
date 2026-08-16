@@ -482,14 +482,20 @@ def _validate_system(
         if index_error is not None:
             return _invalid(f"equation {name}: {index_error}")
         for lower, upper in equation.domains.values():
-            bound_error, bound_unknown = _validate_index_scopes(lower, scope, context)
-            if bound_error is not None:
-                return _invalid(f"equation {name} domain: {bound_error}")
-            index_unknown.update(bound_unknown)
-            bound_error, bound_unknown = _validate_index_scopes(upper, scope, context)
-            if bound_error is not None:
-                return _invalid(f"equation {name} domain: {bound_error}")
-            index_unknown.update(bound_unknown)
+            for bound in (lower, upper):
+                referenced_producers = _referenced_producers(bound, producers)
+                if referenced_producers:
+                    return _invalid(
+                        f"equation {name} output-domain bounds cannot reference named results: "
+                        + ", ".join(sorted(referenced_producers))
+                    )
+                call_failure = _check_call_arities(bound, known_arities, unknown_arities)
+                if call_failure is not None:
+                    return call_failure
+                bound_error, bound_unknown = _validate_index_scopes(bound, scope, context)
+                if bound_error is not None:
+                    return _invalid(f"equation {name} domain: {bound_error}")
+                index_unknown.update(bound_unknown)
         unresolved[name] = tuple(sorted(index_unknown))
         call_failure = _check_call_arities(
             equation.formula.right,
@@ -520,6 +526,18 @@ def _validate_system(
         if consumer in dependencies:
             return _invalid(f"equation {consumer} references itself")
     return edges, references, unresolved
+
+
+def _referenced_producers(
+    expression: Expression,
+    producers: dict[str, Producer],
+) -> set[str]:
+    referenced: set[str] = set()
+    if isinstance(expression, (Symbol, IndexedValue)) and expression.name in producers:
+        referenced.add(expression.name)
+    for child in expression_children(expression):
+        referenced.update(_referenced_producers(child, producers))
+    return referenced
 
 
 def _resolve_references(
@@ -657,16 +675,21 @@ def _bound_substitution_expansion(
     """Reject definition inlining before it can create a large derived tree."""
 
     remaining = MAX_WORK_NODES
+    max_depth = 256
 
-    def consume(value: Expression) -> None:
+    def consume(value: Expression, depth: int) -> None:
         nonlocal remaining
+        if depth > max_depth:
+            raise ExpressionTooComplex(
+                "substitution-expanded work exceeds its depth bound"
+            )
         if isinstance(value, Call) and (definition := definitions.get(value.name)) is not None:
             expanded = substitute(
                 definition.body,
                 dict(zip(definition.parameters, value.arguments, strict=True)),
                 max_nodes=MAX_WORK_NODES,
             )
-            consume(expanded)
+            consume(expanded, depth)
             return
         remaining -= 1
         if remaining < 0:
@@ -674,9 +697,9 @@ def _bound_substitution_expansion(
                 "substitution-expanded work exceeds its structural bound"
             )
         for child in expression_children(value):
-            consume(child)
+            consume(child, depth + 1)
 
-    consume(expression)
+    consume(expression, 1)
 
 
 def _unknown_call_arities(
