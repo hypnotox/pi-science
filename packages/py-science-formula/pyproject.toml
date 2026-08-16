@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Deterministic symbolic formula analysis for coding agents"
 readme = "README.md"
 license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
 requires-python = ">=3.13,<3.14"
 dependencies = [
   "pydantic>=2.12,<3",
