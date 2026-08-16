@@ -4,11 +4,11 @@
 <!-- awf:edit-in-place body: your edits below are preserved across syncs; awf owns the rest -->
 ## Implemented formula-analysis slice
 
-The independently importable `py-science-formula` distribution exposes a typed in-process `py_science.formula.analyze()` interface for `syntax: sympy` and one `expression`. Its grammar accepts integer literals, symbols, parentheses, signed integer literals, and the binary operators `+`, `-`, `*`, `/`, and `**`. It returns normalized SymPy and LaTeX renderings, submitted-operation counts, abstract unit work, or a structured syntax failure.
+The independently importable `py-science-formula` distribution exposes a typed in-process `py_science.formula.analyze()` interface for `syntax: sympy`. It accepts an ordinary expression or named `Eq` equations over indexed scalar values, generic calls, and inclusive `Sum` forms. It returns validated normalized SymPy and LaTeX renderings, submitted counts, symbolic aggregate work, deterministic dependencies, ideal named-result reuse, and explicit unknown primitive costs.
 
-The formula analyzer accepts at most 65,536 UTF-8 bytes, expression depth 128, approximately 1,024 decimal digits per integer literal, and an internal structural budget. Public complexity errors identify input size, nesting, or integer size when actionable; exhaustion of the internal structural budget remains generic. Powers are represented without eager exponentiation.
+The direct-Python boundary bounds request population, text, expression depth, integers, nodes, and rendering. Submitted text is converted from restricted Python AST data only: it is never evaluated or passed to a SymPy string parser. Each named equation is charged once per local output-domain point; downstream references are accesses to that result, while unnamed repetition remains submitted work. Inclusive sums use nonnegative cardinality `max(upper - lower + 1, 0)`.
 
-Calls, attributes, indexing, containers, comprehensions, non-integer constants, arbitrary Python evaluation, LaTeX, metadata, indexed constructs, equation systems, scenarios, dependencies, comparisons, and rewrites are not implemented. The remaining sections define the broader product contract and MVP direction rather than current runtime coverage.
+LaTeX input, assumptions, scenarios, source inference, physical validation, empirical timing, hardware modelling, recurrences, code generation, and expanded equation requests through Pi are not implemented. The remaining sections define the broader product contract and MVP direction rather than current runtime coverage.
 
 ## Request envelope
 

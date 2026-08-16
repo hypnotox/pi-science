@@ -233,9 +233,7 @@ def test_non_utf8_expression_returns_consumer_facing_malformed_syntax() -> None:
 @pytest.mark.parametrize(
     "expression",
     [
-        "f(x)",
         "x.real",
-        "x[0]",
         "[x]",
         "[x for x in y]",
         "1.5",

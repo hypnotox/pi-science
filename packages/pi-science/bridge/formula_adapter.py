@@ -48,7 +48,7 @@ def main() -> int:
             syntax=FormulaSyntax.SYMPY,
             expression=typed_request["expression"],
         )
-        result = analyze(request).model_dump(mode="json")
+        result = analyze(request).model_dump(mode="json", exclude_none=True)
         response({"version": PROTOCOL_VERSION, "result": result})
     except (
         ValueError,
