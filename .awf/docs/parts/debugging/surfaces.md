@@ -1,0 +1,1 @@
+There is no application runtime to inspect. For the current generated tree, use `git status --short` to inspect changes and `./awf check` to identify drift or repository-rule failures. Follow the repair hint emitted by awf.

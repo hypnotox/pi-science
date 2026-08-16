@@ -1,0 +1,1 @@
+The project has no release process or published artifact while it remains documentation-only. Define versioning, packaging, compatibility, changelog, publication ownership, and clean-environment smoke checks before the first executable release. Do not tag a product release until the extension, backend, and schemas have an explicit compatibility contract.

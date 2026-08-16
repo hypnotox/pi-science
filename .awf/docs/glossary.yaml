@@ -1,0 +1,20 @@
+data:
+  terms:
+    - term: clean process
+      meaning: A fresh execution with no hidden interactive state, used to reproduce final evidence.
+    - term: counterexample
+      meaning: A retained input or seed that demonstrates a tested claim does not hold.
+    - term: environment fingerprint
+      meaning: The recorded source, dependency, hardware, operating-system, configuration, seed, and input identity for a run.
+    - term: evidence run
+      meaning: One clean execution of a declared experiment that produces a result envelope and retained artifacts.
+    - term: experiment specification
+      meaning: The pre-execution declaration of claims, inputs, checks, tolerances, environment, and resource limits.
+    - term: reference implementation
+      meaning: A simple independent implementation used as an oracle for bounded comparisons.
+    - term: result envelope
+      meaning: The common machine-readable record of a run's verdict, measurements, uncertainty, environment, artifacts, warnings, and counterexamples.
+    - term: scratch session
+      meaning: A stateful exploratory environment that can inform an experiment but cannot serve as final evidence.
+    - term: verdict
+      meaning: The pass, fail, inconclusive, or error classification produced by an evidence run.

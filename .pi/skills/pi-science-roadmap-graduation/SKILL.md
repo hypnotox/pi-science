@@ -13,7 +13,13 @@ A support skill for moving an item out of `docs/roadmap.md` into an ADR or PR, o
 
 Use when a roadmap item becomes an ADR or PR, or is explicitly dropped. This support skill sits outside the workflow chain.
 
-<!-- awf:edit failure-modes: stub; replace by creating .awf/skills/parts/roadmap-graduation/failure-modes.md -->
+<!-- awf:edit failure-modes: from .awf/skills/parts/roadmap-graduation/failure-modes.md -->
+## Failure modes
+
+- Do not describe a roadmap idea as current architecture, an accepted decision, or executable plan.
+- Do not graduate a candidate dependency or component merely because the outline names it; route material choices through the ordinary design workflow.
+- Do not carry benchmark numbers, compatibility claims, or hardware support claims forward without reproducing them in the current environment.
+- Do not remove neighboring phases or deferred triggers when graduating one item.
 
 
 ## Procedure

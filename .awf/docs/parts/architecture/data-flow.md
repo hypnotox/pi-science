@@ -1,0 +1,1 @@
+`./awf render` reads `.awf/`, regenerates managed documentation and workflow artifacts, and records the transaction in `.awf/awf.lock`. `./awf check` verifies the rendered tree and repository rules. There is no experiment execution or result flow yet.

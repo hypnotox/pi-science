@@ -1,0 +1,1 @@
+No application test tree exists. Add tests beside the first runtime using the conventions of its language, with explicit separation between unit checks, backend integration checks, Pi tool contract checks, and clean-process end-to-end experiments. Store small deterministic fixtures in the repository; keep generated run artifacts outside tracked source.

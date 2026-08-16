@@ -3,17 +3,16 @@
 
 A deterministic pre-commit gate runs the project's checks. The documented lanes include minimum-runtime smoke tests.
 
-<!-- awf:edit gate: default; create .awf/docs/parts/testing/gate.md to override -->
+<!-- awf:edit gate: from .awf/docs/parts/testing/gate.md -->
 ## Gate
+Run `./awf check` before every commit. It currently verifies generated-output drift, repository state, tracked prose, and workflow rules. There are no application tests yet.
 
-A single gate command runs the project's checks and must be green before every commit. A red gate blocks the commit: fix the cause or revert.
 
-<!-- awf:edit tiers: default; create .awf/docs/parts/testing/tiers.md to override -->
+<!-- awf:edit tiers: from .awf/docs/parts/testing/tiers.md -->
 ## Tiers and lanes
+The repository currently has one gate and no fast or extended application-test tier. Introduce a tier only with an executable workload and document exactly which checks it contains.
 
-A gate may have fast and full tiers. Put generated runtime lanes in a consistently enforced tier, never an undocumented manual exception.
 
-<!-- awf:edit layout: stub; replace by creating .awf/docs/parts/testing/layout.md -->
+<!-- awf:edit layout: from .awf/docs/parts/testing/layout.md -->
 ## Layout and test shape
-
-_Describe where tests live and how they map to the code: the directory convention, how unit, integration, and regression tests are named and separated, where generated runtime and cross-language protocol tests live, and where a new test for a given change belongs._
+No application test tree exists. Add tests beside the first runtime using the conventions of its language, with explicit separation between unit checks, backend integration checks, Pi tool contract checks, and clean-process end-to-end experiments. Store small deterministic fixtures in the repository; keep generated run artifacts outside tracked source.

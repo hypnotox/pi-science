@@ -1,0 +1,1 @@
+awf is the only project tool currently pinned by the repository. Git supplies version-control state used by awf. Candidate TypeScript, Python, scientific, benchmark, profiler, Rust, and GPU dependencies in the roadmap are not installed project dependencies.

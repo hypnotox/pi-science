@@ -7,3 +7,10 @@ vars:
   gateCmdFull: ./awf check
 bootstrap:
   enabled: true
+localDocs:
+  - name: vision
+    title: Vision
+    description: Project purpose, scope, principles, and intended users
+  - name: evidence-model
+    title: Evidence Model
+    description: Scientific claims, verdicts, evidence, and reproducibility requirements
