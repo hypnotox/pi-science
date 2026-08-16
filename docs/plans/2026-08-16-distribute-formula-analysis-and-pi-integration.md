@@ -2,7 +2,7 @@
 format: plan-v2
 date: 2026-08-16
 adrs: [separate-reusable-analysis-packages-from-pi-integration]
-status: Proposed
+status: Implemented
 ---
 # Plan: Distribute formula analysis and Pi integration
 
