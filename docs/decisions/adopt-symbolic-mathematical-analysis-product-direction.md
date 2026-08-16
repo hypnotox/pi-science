@@ -1,7 +1,7 @@
 ---
 format: current-state-v4
 slug: adopt-symbolic-mathematical-analysis-product-direction
-status: Proposed
+status: Implemented
 date: 2026-08-16
 ---
 # ADR-adopt-symbolic-mathematical-analysis-product-direction: Adopt symbolic mathematical analysis product direction
@@ -47,3 +47,4 @@ The former experiment and evidence workbench direction is retired rather than re
 ## Status history
 
 - 2026-08-16: Proposed
+- 2026-08-16: Implemented; content-sha256: b7b6249f18d5344219a99447143077d4c695855184dbd211e79f86475de42245

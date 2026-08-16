@@ -4,8 +4,12 @@
 
 Safe mathematical syntax and request metadata rules.
 
-**Applicability:** Owning domain selectors: none. Topic selectors: `docs/evidence-model.md`. Both domain and topic selectors must match. Run `awf topic product/mathematical-input-contract --coverage` for current applicable and owned paths and marker sites.
+**Applicability:** Owning domain selectors: none. Topic selectors: `docs/analysis-model.md`. Both domain and topic selectors must match. Run `awf topic product/mathematical-input-contract --coverage` for current applicable and owned paths and marker sites.
 
 The input contract governs mathematical syntax and the metadata that qualifies its interpretation.
 
 ## Claims
+
+### `rule: safe-familiar-inputs`
+Requests use familiar LaTeX or a safely parsed restricted subset of actual SymPy conventions, with relevant metadata for domains, assumptions, scenarios, and opaque primitive costs. Submitted syntax is data and never arbitrary Python; omitted knowledge remains explicit and unresolved.
+Origin: ADR-adopt-symbolic-mathematical-analysis-product-direction

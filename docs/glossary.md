@@ -7,29 +7,32 @@
 
 | Term | Meaning |
 |---|---|
+| analysis scenario | A named treatment of model variables as fixed values, bounds, finite choices, definitions, or retained scaling dimensions. |
+| candidate comparison | Analysis of competing formulations under shared metadata and scenarios, including cost differences and crossover conditions. |
 | check-in | A deliberate stop for user attention: it names the issue, the options, a recommendation, and the blocked next action, then waits. |
 | claim | One statement of what holds today, declared in a current-state topic and carrying its provenance. An invariant claim is additionally backed, by a test or by stated reasoning. |
-| clean process | A fresh execution with no hidden interactive state, used to reproduce final evidence. |
+| conservative bound | A qualified limit guaranteed by stated assumptions when an exact range cannot be derived. |
 | continuity notice | The routine checkpoint's one-line summary on the clear branch, naming the completed phase and the immediate next action. Informational, never a stop. |
-| counterexample | A retained input or seed that demonstrates a tested claim does not hold. |
 | current-state topic | A domain-owned document of prose plus a closing claims section. Its claims, not the decision-record corpus, are what tooling reads for the rules in force now. |
+| dominant term | A term that controls growth under a declared scenario or parameter region. |
 | drift | Divergence between a generated file and what the config would produce now, or between a declaration and reality. The check command is the oracle, and drift fails it. |
 | effort | One active slugged unit of continuity, owning a working-memory file when multi-step work, likely continuation, coordination, delegation, or durable observations make continuity materially useful. Work without that need uses none. |
-| environment fingerprint | The recorded source, dependency, hardware, operating-system, configuration, seed, and input identity for a run. |
-| evidence run | One clean execution of a declared experiment that produces a result envelope and retained artifacts. |
-| experiment specification | The pre-execution declaration of claims, inputs, checks, tolerances, environment, and resource limits. |
+| equation system | Named indexed equations whose domains and references define aggregate work and dependencies. |
 | invariant backing | What makes an invariant claim checkable: either a proof marker on a test, or a written verification procedure where no test can bear it. The two forms are enforced symmetrically. |
 | managed effort worktree | The checkout an effort creates alongside itself, on its own branch, as the default place its work executes. Integrated and removed explicitly when the effort finishes. |
 | mandatory approval check-in | A check-in that always stops, however clear the path looks. Work continues only once approval is explicitly granted and recorded. |
+| mathematical request | A LaTeX or restricted-SymPy computation with relevant domains, assumptions, scenarios, and primitive costs. |
+| normalized interpretation | The canonical mathematical form the analyzer actually uses, returned in SymPy and LaTeX renderings for inspection. |
+| opaque primitive | A symbolic function whose internal work remains unknown until the request supplies a definition or cost. |
+| primitive cost | A symbolic abstract-work expression assigned to an otherwise opaque operation. |
 | promotion ladder | The path a recurring finding takes from prose guidance toward a deterministic check, so a lesson stops depending on anyone remembering it. |
-| reference implementation | A simple independent implementation used as an oracle for bounded comparisons. |
 | resident root | A directory inside the config tree holding local machine-owned state rather than rendered output, so the closed-tree sweep leaves it alone instead of reporting it as a stray. |
-| result envelope | The common machine-readable record of a run's verdict, measurements, uncertainty, environment, artifacts, warnings, and counterexamples. |
 | retrospective | The terminal step of an effort: capture durable lessons, confirm no managed topology remains, and finish the effort last. |
 | routine checkpoint | The boundary protocol between phases: update working memory, decide whether user attention is required, then either raise a check-in or state a continuity notice and continue. |
-| scratch session | A stateful exploratory environment that can inform an experiment but cannot serve as final evidence. |
+| scaling variable | A variable retained as an asymptotic dimension rather than fixed by a scenario. |
 | stub | A rendered section still carrying only its placeholder text. Stubs raise a non-failing advisory so unwritten content stays visible instead of passing as authored. |
-| verdict | The pass, fail, inconclusive, or error classification produced by an evidence run. |
+| symbolic work | An expression counting abstract computation while preserving declared parameters and unknown primitive costs. |
+| unresolved quantity | A result the analyzer cannot tighten without additional syntax, assumptions, domains, definitions, or costs. |
 | working memory | The file an effort owns for in-flight context: its brief, settled decisions, observations, and handoff log. One writer, and deleted at finish, so nothing others must honour lives there alone. |
 
 <!-- awf:edit append: default; create .awf/docs/parts/glossary/append.md to override -->

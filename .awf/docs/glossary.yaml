@@ -1,20 +1,26 @@
 data:
   terms:
-    - term: clean process
-      meaning: A fresh execution with no hidden interactive state, used to reproduce final evidence.
-    - term: counterexample
-      meaning: A retained input or seed that demonstrates a tested claim does not hold.
-    - term: environment fingerprint
-      meaning: The recorded source, dependency, hardware, operating-system, configuration, seed, and input identity for a run.
-    - term: evidence run
-      meaning: One clean execution of a declared experiment that produces a result envelope and retained artifacts.
-    - term: experiment specification
-      meaning: The pre-execution declaration of claims, inputs, checks, tolerances, environment, and resource limits.
-    - term: reference implementation
-      meaning: A simple independent implementation used as an oracle for bounded comparisons.
-    - term: result envelope
-      meaning: The common machine-readable record of a run's verdict, measurements, uncertainty, environment, artifacts, warnings, and counterexamples.
-    - term: scratch session
-      meaning: A stateful exploratory environment that can inform an experiment but cannot serve as final evidence.
-    - term: verdict
-      meaning: The pass, fail, inconclusive, or error classification produced by an evidence run.
+    - term: analysis scenario
+      meaning: A named treatment of model variables as fixed values, bounds, finite choices, definitions, or retained scaling dimensions.
+    - term: candidate comparison
+      meaning: Analysis of competing formulations under shared metadata and scenarios, including cost differences and crossover conditions.
+    - term: conservative bound
+      meaning: A qualified limit guaranteed by stated assumptions when an exact range cannot be derived.
+    - term: dominant term
+      meaning: A term that controls growth under a declared scenario or parameter region.
+    - term: equation system
+      meaning: Named indexed equations whose domains and references define aggregate work and dependencies.
+    - term: mathematical request
+      meaning: A LaTeX or restricted-SymPy computation with relevant domains, assumptions, scenarios, and primitive costs.
+    - term: normalized interpretation
+      meaning: The canonical mathematical form the analyzer actually uses, returned in SymPy and LaTeX renderings for inspection.
+    - term: opaque primitive
+      meaning: A symbolic function whose internal work remains unknown until the request supplies a definition or cost.
+    - term: primitive cost
+      meaning: A symbolic abstract-work expression assigned to an otherwise opaque operation.
+    - term: scaling variable
+      meaning: A variable retained as an asymptotic dimension rather than fixed by a scenario.
+    - term: symbolic work
+      meaning: An expression counting abstract computation while preserving declared parameters and unknown primitive costs.
+    - term: unresolved quantity
+      meaning: A result the analyzer cannot tighten without additional syntax, assumptions, domains, definitions, or costs.

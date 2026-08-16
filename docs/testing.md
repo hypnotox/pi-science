@@ -15,4 +15,5 @@ The repository currently has one gate and no fast or extended application-test t
 
 <!-- awf:edit layout: from .awf/docs/parts/testing/layout.md -->
 ## Layout and test shape
-No application test tree exists. Add tests beside the first runtime using the conventions of its language, with explicit separation between unit checks, backend integration checks, Pi tool contract checks, and clean-process end-to-end experiments. Store small deterministic fixtures in the repository; keep generated run artifacts outside tracked source.
+No application test tree exists. Add tests beside the first runtime using its language conventions. Cover parser safety, frontend normalization equivalence, indexed-domain aggregation, symbolic operation counts, assumptions and bounds, scenario treatments, dependency and reuse analysis, candidate comparison, rewrite preconditions, and explicit unresolved results. Keep small deterministic mathematical fixtures in the repository.
+

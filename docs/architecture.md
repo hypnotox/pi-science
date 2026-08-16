@@ -3,9 +3,9 @@
 
 <!-- awf:edit overview: from .awf/docs/parts/architecture/overview.md -->
 ## Overview
-The repository currently contains the awf-managed project workflow and documentation only. No scientific runtime, Pi extension, command-line backend, schema, or public API exists yet.
+The repository currently contains the awf-managed project workflow and documentation only. No mathematical analyzer, Pi extension, parser, schema, agent skill, or stable public API exists yet.
 
-The intended product boundary is described in [Vision](vision.md), the evidence contract in [Evidence Model](evidence-model.md), and uncommitted implementation direction in the [Roadmap](roadmap.md).
+The intended product boundary is described in [Vision](vision.md), the request and report contract in [Analysis Model](analysis-model.md), and uncommitted implementation direction in the [Roadmap](roadmap.md).
 
 
 <!-- awf:edit components: from .awf/docs/parts/architecture/components.md -->
@@ -14,12 +14,31 @@ The intended product boundary is described in [Vision](vision.md), the evidence 
 - `docs/`: rendered project, workflow, and product documentation.
 - `awf`: the repository's current command entry point.
 
-Planned extension, backend, schema, skill, and adapter components are not current architecture. See the [Roadmap](roadmap.md).
+Planned product components are safe LaTeX and restricted-SymPy frontends, one normalized mathematical model, symbolic algebra and cost analyzers, dependency and rewrite analysis, a scenario evaluator, structured reports, and a concise agent skill. They are not current architecture until implemented. See the [Roadmap](roadmap.md).
 
 
 <!-- awf:edit data-flow: from .awf/docs/parts/architecture/data-flow.md -->
 ## Data flow
-`./awf render` reads `.awf/`, regenerates managed documentation and workflow artifacts, and records the transaction in `.awf/awf.lock`. `./awf check` verifies the rendered tree and repository rules. There is no experiment execution or result flow yet.
+Current repository flow is limited to `./awf render` generating managed documentation and workflow artifacts from `.awf/`, with `./awf check` verifying the result.
+
+The intended analysis flow is:
+
+```text
+LaTeX request -----+
+                   +--> safe parsers --> normalized mathematical model
+SymPy request -----+                           |
+                                               +--> symbolic algebra
+                                               +--> cost analysis
+                                               +--> dependency and rewrite analysis
+                                                          |
+                                                          v
+                                                  scenario evaluator
+                                                          |
+                                                          v
+                                                structured analysis report
+```
+
+Both frontends share the same model. Parsing, cost semantics, and analysis policy remain separable from SymPy-specific representation.
 
 
 <!-- awf:edit dependencies: from .awf/docs/parts/architecture/dependencies.md -->
@@ -29,4 +48,4 @@ Planned extension, backend, schema, skill, and adapter components are not curren
 | awf | Generates and verifies the repository workflow and documentation. |
 | Git | Versions authoritative project state. |
 
-No application runtime or scientific library is selected as a current dependency. Candidate dependencies remain roadmap items until implementation work adopts them.
+No application runtime or mathematical library is selected as a current dependency. SymPy is the intended initial symbolic backend, but dependency adoption belongs to the implementation change that introduces it. Frontend safety and the public request model must not depend on evaluating arbitrary Python.

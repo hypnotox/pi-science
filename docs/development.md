@@ -24,4 +24,5 @@ A project-specific runner will replace or complement this interface when executa
 
 <!-- awf:edit dependencies: from .awf/docs/parts/development/dependencies.md -->
 ## Dependencies
-awf is the only project tool currently pinned by the repository. Git supplies version-control state used by awf. Candidate TypeScript, Python, scientific, benchmark, profiler, Rust, and GPU dependencies in the roadmap are not installed project dependencies.
+awf is the only project tool currently pinned by the repository. Git supplies version-control state used by awf. No Python runtime or mathematical library is installed. SymPy is the intended initial symbolic backend; parser, schema, and extension dependencies remain unselected until the implementation change that requires them.
+

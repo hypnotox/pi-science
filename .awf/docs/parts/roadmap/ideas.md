@@ -1,19 +1,21 @@
-### Core evidence workbench
+### Safe mathematical request model
 
-Build a standalone `labctl` backend with versioned experiment and result schemas, then expose narrow Pi tools for mathematical checks, simulation verification, and controlled benchmark comparison. Establish clean-process execution, environment fingerprinting, artifact retention, resource limits, and one shared verdict envelope before adding specialized checks.
+Define versioned JSON requests for one expression or named equation systems, with LaTeX and restricted-SymPy frontends. Parse both as data into one normalized mathematical model, return normalized SymPy and LaTeX renderings, and reject ambiguous, unsupported, or arbitrary Python constructs.
 
-Package the workbench for project-local installation and version pinning first, while retaining an optional user-level installation. Define deterministic discovery and precedence so project-local configuration, skills, schemas, and backend selection override user defaults and every run records the effective source.
+Define domains, variables, assumptions, scenarios, primitive costs, and optional stages. Add the concise agent skill that teaches agents to formulate analyzable requests and inspect the normalized interpretation.
 
-Candidate Python capabilities include SymPy and arbitrary-precision numerics for independent mathematical checks, Pint for dimensions, Hypothesis for generated properties, NumPy and SciPy for reference calculations, and pyperf for benchmark measurement. Adopt each dependency only with the capability that requires it.
+### Symbolic cost analysis
 
-### Simulation evidence
+Count scalar arithmetic, powers, roots, function calls, terms, and declared primitives across sums, products, free-index domains, and equation systems. Derive exact symbolic work where possible, simplify under named assumptions, preserve unknown costs, and qualify asymptotic conclusions.
 
-Support readable reference implementations, invariant and monotonicity checks, refinement studies, observed convergence order, symmetry and metamorphic properties, deterministic seed capture, distribution-aware stochastic validation, and finite-value or range checks. Compare full state and error distributions rather than only aggregate means.
+### Scenario and dominance analysis
 
-### Performance evidence
+Support fixed substitutions, intervals, finite choices, definitions, and retained asymptotic variables. Report concrete results, qualified bounds, piecewise dominance, scaling variables, and terms that remain relevant over concrete ranges.
 
-Add geometric workload scaling, uncertainty-aware A/B comparisons, stable environment capture, and separation of startup, warmup, compilation, steady state, and teardown. Add Hyperfine and system counter adapters where portable command benchmarking or hardware evidence is needed. Add Rust adapters for Criterion, Iai-Callgrind, and Proptest when a Rust workload exists.
+### Dependency, reuse, and comparison
 
-### Exploration and diagnosis
+Build equation dependency graphs, identify repeated subexpressions and invariant work, and estimate the symbolic effect of common-subexpression extraction or hoisting. Compare candidate formulations under shared metadata, including symbolic differences, concrete winners, crossover conditions, and unresolved trade-offs.
 
-Add an explicitly non-evidentiary persistent scratch environment. Add compact CPU, memory, instruction, and GPU profiling summaries only after benchmarks identify a reproducible bottleneck; retain full traces as artifacts rather than model context.
+### Local mathematical rewrites
+
+Suggest safe local factoring, reciprocal or norm reuse, repeated-call reduction, invariant extraction, and assumption-driven simplification. State every required assumption, arithmetic qualification, and estimated symbolic effect.

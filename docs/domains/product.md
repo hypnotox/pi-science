@@ -4,7 +4,7 @@
 
 <!-- awf:edit current-state: from .awf/domains/parts/product/current-state.md -->
 ## Current state
-The product domain governs what mathematical inputs pi-science accepts and what its analysis reports may claim. [Vision](../vision.md) owns the product purpose and scope; [Evidence Model](../evidence-model.md) owns the request and report model.
+The product domain governs what mathematical inputs pi-science accepts and what its analysis reports may claim. [Vision](../vision.md) owns the product purpose and scope; [Analysis Model](../analysis-model.md) owns the request and report model.
 
 
 ## Topics

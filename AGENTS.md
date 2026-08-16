@@ -16,7 +16,7 @@ You are a developer on `pi-science`, responsible for its long-term health as wel
 
 <!-- awf:edit identity: from .awf/parts/agents-doc/identity.md -->
 ## Identity
-`pi-science` is an early-stage scientific evidence layer for Pi agents: it is intended to pair narrowly scoped TypeScript extension tools with a standalone Python `labctl` backend and JSON experiment contracts so agents can verify mathematics, simulations, and performance before making claims. The repository is currently documentation-only, with no runtime implementation or stable API; it is for scientific programmers and agent developers who need reproducible pass, fail, inconclusive, or error verdicts instead of plausible-looking calculations and noisy benchmarks.
+`pi-science` is an early-stage deterministic mathematical analysis layer for coding agents. It accepts agent-formulated LaTeX or restricted SymPy computations plus explicit metadata, then reports normalized interpretation, symbolic cost, scaling, bounds, dependencies, improvement opportunities, and unresolved quantities before implementation. The repository is currently documentation-only, with no analyzer runtime or stable API; experiment orchestration, implementation benchmarking, dataset statistics, and physical validation are outside the core product boundary.
 
 
 <!-- awf:edit invariants: default; create .awf/parts/agents-doc/invariants.md to override -->
@@ -66,7 +66,7 @@ Evaluate continuity independently; when durable continuity materially helps, use
 - **Roadmap:** [docs/roadmap.md](docs/roadmap.md), uncommitted ideas and future phases
 - **Testing:** [docs/testing.md](docs/testing.md), gate tiers, test layout, what each tier covers
 
-- **Evidence Model:** [docs/evidence-model.md](docs/evidence-model.md), Scientific claims, verdicts, evidence, and reproducibility requirements
+- **Analysis Model:** [docs/analysis-model.md](docs/analysis-model.md), Mathematical requests, scenarios, analysis results, and uncertainty qualifications
 
 - **Vision:** [docs/vision.md](docs/vision.md), Project purpose, scope, principles, and intended users
 Pi provides transient `[session context]` facts before each model call; a discretionary eligible session-replacement choice informs continuation judgment only.

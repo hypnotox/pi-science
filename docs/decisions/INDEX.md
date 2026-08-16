@@ -2,8 +2,8 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-- [ADR-adopt-symbolic-mathematical-analysis-product-direction: Adopt symbolic mathematical analysis product direction](adopt-symbolic-mathematical-analysis-product-direction.md) (Proposed)
+_No decisions are in flight._
 
 ## History
 
-_No decisions recorded yet._
+- [ADR-adopt-symbolic-mathematical-analysis-product-direction: Adopt symbolic mathematical analysis product direction](adopt-symbolic-mathematical-analysis-product-direction.md) (Implemented)

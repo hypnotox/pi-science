@@ -11,8 +11,8 @@ localDocs:
   - name: vision
     title: Vision
     description: Project purpose, scope, principles, and intended users
-  - name: evidence-model
-    title: Evidence Model
-    description: Scientific claims, verdicts, evidence, and reproducibility requirements
+  - name: analysis-model
+    title: Analysis Model
+    description: Mathematical requests, scenarios, analysis results, and uncertainty qualifications
 domains:
   - product

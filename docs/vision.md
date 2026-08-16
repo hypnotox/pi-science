@@ -4,28 +4,99 @@
 <!-- awf:edit-in-place body: your edits below are preserved across syncs; awf owns the rest -->
 ## Purpose
 
-`pi-science` gives an agent a disciplined experimental workbench for mathematical derivation, simulation verification, benchmarking, profiling, and neural-network checks. It exists to prevent plausible-looking calculations, benchmark noise, hidden interactive state, and post-hoc success criteria from being reported as evidence.
+Coding agents can propose plausible algorithms without reliably inspecting the mathematics behind them. `pi-science` gives agents a deterministic mathematical feedback loop before implementation: the agent states a planned computation, variables, assumptions, and parameter treatments, then receives an inspectable analysis of its cost and structure.
 
-## Users and outcomes
+The tool reports information such as:
 
-The project serves people using Pi for scientific and performance-sensitive software. A user should be able to ask whether a result is correct, convergent, reproducible, or faster and receive a bounded verdict with the run identity and evidence behind it.
+- symbolic operation counts and work expressions;
+- asymptotic complexity and scaling variables;
+- concrete results, finite choices, and qualified parameter bounds;
+- dominant terms and crossover conditions;
+- dependencies, repeated subexpressions, and loop-invariant work;
+- mathematically equivalent local formulations that may require less work;
+- unknown costs or assumptions that prevent a tighter conclusion.
 
-The primary deployment is project-local: each consuming repository can pin its own `pi-science` version, dependencies, policies, and experiment artifacts. The same package should also support a user-level installation for people who deliberately want shared availability across projects. Project-local configuration and assets take precedence over user-level defaults, and a global installation must not make a project's evidence depend on undeclared machine state.
+The goal is not to replace agent reasoning. It is to make the mathematical structure behind that reasoning testable before it becomes code.
 
-## Product boundaries
+## Core use case
 
-The intended system combines narrow Pi tools with a standalone command-line backend and machine-readable schemas. Pi integration supplies agent ergonomics; the backend remains independently executable so evidence can be reproduced without an LLM session and later exposed through another protocol if useful.
+1. An agent reasons about an algorithm or mathematical system.
+2. The agent expresses the planned computation in LaTeX or restricted SymPy syntax.
+3. The agent supplies relevant domains, assumptions, scenarios, and opaque primitive costs.
+4. The tool safely parses and normalizes the submission into one internal mathematical model.
+5. The tool analyzes symbolic work, dependencies, scaling, and local improvement opportunities.
+6. The agent inspects the normalized interpretation, revises the plan, or compares candidate formulations before implementation.
 
-The workbench does not decide whether an arbitrary scientific model is true. It executes declared checks against explicit assumptions, invariants, reference methods, tolerances, workloads, and environments. A persistent scratch session supports exploration but never qualifies as final evidence.
+The same workflow supports a one-line expression and a named system of indexed equations. A motivating use case is a 3D adaptive fast multipole method whose upward pass, interactions, downward pass, and particle evaluation depend on particle count, expansion order, tree occupancy, and interaction-list size. The analysis remains general mathematical tooling rather than an AFMM-specific product.
 
 ## Principles
 
-- Define the claim and acceptance rule before evaluating the candidate.
-- Establish correctness evidence before optimization evidence.
-- Prefer an independent readable reference over a second copy of the candidate logic.
-- Treat units, assumptions, seeds, tolerances, and uncertainty as experiment inputs.
-- Reproduce final claims in a clean, confined process from files.
-- Preserve counterexamples and distinguish measured facts from interpretation.
-- Return inconclusive when evidence cannot support pass or fail.
-- Keep full traces and bulky artifacts out of model context while retaining their paths.
+### Familiar notation
+
+Agents use notation they already reason about well: LaTeX for concise readable mathematics and actual SymPy conventions for precise machine submission. The supported subsets are explicit and safely parsed as data; arbitrary Python evaluation is forbidden. The internal representation is not part of the public protocol.
+
+### Mathematics plus metadata
+
+The expression describes the computation. A small JSON envelope supplies what ordinary notation leaves implicit, including variable domains, free-index ranges, assumptions, definitions, scenarios, and opaque primitive costs. Only relevant fields are required, so an incomplete model remains useful without receiving fabricated precision.
+
+### Deterministic analysis and explicit uncertainty
+
+Every result distinguishes exact derivation, assumption-dependent derivation, conservative bound, conditional optimization, and unresolved quantity. The analyzer does not silently invent a missing cost, treat a scaling variable as constant, or label a sampled estimate as a mathematical bound.
+
+### Progressive detail
+
+Unknown functions and costs remain symbolic until the agent defines them. An opaque basis computation may therefore remain as `N*K(p)*C_basis(p)` while the rest of the model is analyzed.
+
+### Inspectable interpretation
+
+Every response includes normalized SymPy and LaTeX renderings of what the tool actually analyzed, with warnings for ambiguity or unsupported constructs.
+
+## MVP capabilities
+
+The MVP provides:
+
+1. safe parsing and normalization for supported LaTeX and SymPy subsets;
+2. symbolic counts for arithmetic, powers, roots, function calls, terms, and declared primitives;
+3. exact or qualified work-complexity analysis under supplied assumptions;
+4. scenario evaluation for fixed values, intervals, finite choices, definitions, and retained asymptotic variables;
+5. dependency, reuse, common-subexpression, and invariant-hoisting analysis for named equation systems;
+6. dominant-term analysis that retains lower-order terms when concrete ranges make them relevant;
+7. comparison of candidate formulations, including symbolic differences and crossover conditions;
+8. safe local mathematical rewrites with assumptions and estimated symbolic effect.
+
+The tooling includes a concise agent skill for formulating analyzable requests and inspecting the normalized result. [Analysis Model](analysis-model.md) defines the request and report contract.
+
+## MVP non-goals
+
+The MVP does not:
+
+- execute or benchmark generated implementations;
+- analyze supplied datasets statistically;
+- validate physical correctness or prove that a model represents the intended real-world system;
+- model caches, vectorization, GPU occupancy, exact hardware timing, parallel schedules, or synchronization;
+- generate optimized source code or infer arbitrary high-level algorithm replacements;
+- provide a complete formal proof system;
+- accept arbitrary Python or all of LaTeX and SymPy;
+- silently choose numerical approximations.
+
+Profiler integration may exist later as a separate post-implementation layer. Formula lowering may later produce implementation skeletons without moving implementation testing into the core analyzer.
+
+## Success criteria
+
+The MVP succeeds when an agent can:
+
+- submit either a short expression or an indexed equation system and inspect the normalized interpretation;
+- derive aggregate symbolic work across declared domains;
+- fix some parameters while retaining others as scaling dimensions;
+- evaluate intervals and finite choices with correctly qualified results;
+- identify dominant terms, repeated work, and invariant calculations;
+- compare candidate formulations and derive crossover conditions;
+- see exactly which unknowns prevent a tighter answer;
+- revise an algorithm plan using the analysis before producing implementation code.
+
+## Future direction
+
+Later work may add symbolic storage analysis, work-depth and parallelism models, richer stage semantics, recurrence solving, expected-cost models from declared parameter distributions, domain rule libraries, equality-saturation rewrite exploration, target-aware abstract cost models, formula-to-skeleton lowering, and separate profiler or benchmark integrations.
+
+Every extension preserves the central boundary: agents express planned computation in familiar mathematics, provide explicit context, and receive deterministic structural analysis before they write the implementation.
 <!-- awf:edit-in-place body -->

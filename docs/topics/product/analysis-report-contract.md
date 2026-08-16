@@ -4,8 +4,12 @@
 
 Interpretation, qualification, and uncertainty requirements for analysis results.
 
-**Applicability:** Owning domain selectors: none. Topic selectors: `docs/evidence-model.md`. Both domain and topic selectors must match. Run `awf topic product/analysis-report-contract --coverage` for current applicable and owned paths and marker sites.
+**Applicability:** Owning domain selectors: none. Topic selectors: `docs/analysis-model.md`. Both domain and topic selectors must match. Run `awf topic product/analysis-report-contract --coverage` for current applicable and owned paths and marker sites.
 
 The report contract governs inspectability, qualification, and unresolved analysis results.
 
 ## Claims
+
+### `rule: qualified-inspectable-results`
+Every analysis reports the normalized interpretation actually analyzed and distinguishes exact results, assumption-dependent results, conservative bounds, conditional rewrites, and unresolved quantities. It never silently fixes a scaling variable, invents an unknown cost, or presents sampling as a mathematical bound.
+Origin: ADR-adopt-symbolic-mathematical-analysis-product-direction
