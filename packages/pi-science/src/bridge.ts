@@ -217,8 +217,14 @@ export async function invokeAdapter(
         );
       }
     });
-    // Cleanup can close stdin before the payload write in an abort race.
-    child.stdin!.on("error", () => {});
+    child.stdin!.on("error", (error) => {
+      // Cleanup itself closes stdin; a prior terminal path owns that race.
+      if (cleaning || settled) return;
+      cleanup(
+        "process",
+        `formula adapter stdin failed: ${boundedText(error.message)}`,
+      );
+    });
     child.stdin!.end(payload);
   });
 }

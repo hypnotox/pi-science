@@ -15,10 +15,27 @@ export function spawnIsolated(
 
 export function terminateTree(child: ReturnType<typeof spawn>): void {
   if (child.pid === undefined) return;
+  if (process.platform === "win32") {
+    try {
+      const taskkill = spawn(
+        "taskkill",
+        ["/PID", String(child.pid), "/T", "/F"],
+        {
+          stdio: "ignore",
+          windowsHide: true,
+        },
+      );
+      taskkill.on("error", () => {
+        // The process may have already exited before taskkill starts.
+      });
+    } catch {
+      // The child may have already exited between cleanup and signalling.
+    }
+    return;
+  }
   const kill = (signal: NodeJS.Signals) => {
     try {
-      if (process.platform === "win32") child.kill(signal);
-      else process.kill(-child.pid!, signal);
+      process.kill(-child.pid!, signal);
     } catch {
       // The child may have already exited between cleanup and signalling.
     }

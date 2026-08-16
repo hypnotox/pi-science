@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { chmod, mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { provision, type ProvisionOptions } from "../src/provision.js";
 
 const repositoryRoot = resolve(
@@ -38,6 +38,50 @@ async function options(uv: string): Promise<ProvisionOptions> {
 }
 
 const health = JSON.stringify({ version: 1, result: { status: "healthy" } });
+const leakedPids: number[] = [];
+
+const pause = (milliseconds: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+
+async function readRecordedPid(pidFile: string): Promise<number> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      const pid = Number((await readFile(pidFile, "utf8")).trim());
+      if (Number.isSafeInteger(pid) && pid > 0) {
+        leakedPids.push(pid);
+        return pid;
+      }
+    } catch {
+      // The provisioning process has not recorded its descendant yet.
+    }
+    await pause(10);
+  }
+  throw new Error("resistant descendant PID was not recorded");
+}
+
+async function expectGone(pid: number): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      process.kill(pid, 0);
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") return;
+      throw error;
+    }
+    await pause(10);
+  }
+  throw new Error(`resistant descendant ${pid} remained alive after cleanup`);
+}
+
+afterEach(async () => {
+  for (const pid of leakedPids.splice(0)) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // The operation already cleaned up the descendant.
+    }
+    await expectGone(pid);
+  }
+});
 
 describe("eager provisioning", () => {
   it("uses real uv concurrently against one immutable source and external cache", async () => {
@@ -142,15 +186,40 @@ describe("eager provisioning", () => {
     });
   });
 
-  it("terminates a SIGTERM-resistant provisioning process tree", async () => {
-    const uv = await executable(
-      'require("child_process").spawn(process.execPath,["-e",`process.on("SIGTERM",()=>{});setInterval(()=>{},1000)`],{stdio:"ignore"});process.on("SIGTERM",()=>{});setInterval(()=>{},1000)',
+  it("terminates a provisioning tree and removes its recorded SIGTERM-resistant descendant", async () => {
+    const pidFile = join(
+      tmpdir(),
+      `pi-science-provision-descendant-${process.pid}-${Date.now()}-${Math.random()}`,
     );
-    const state = await provision({ ...(await options(uv)), timeoutMs: 20 });
+    const uv = await executable(
+      `const fs=require("fs"),cp=require("child_process");const child=cp.spawn(process.execPath,["-e",\`process.on("SIGTERM",()=>{});setInterval(()=>{},1000)\`],{stdio:"ignore"});fs.writeFileSync(${JSON.stringify(pidFile)},String(child.pid));process.on("SIGTERM",()=>{});setInterval(()=>{},1000)`,
+    );
+    const promise = provision({ ...(await options(uv)), timeoutMs: 20 });
+    const pid = await readRecordedPid(pidFile);
+    try {
+      await expect(promise).resolves.toMatchObject({
+        ready: false,
+        diagnosis: expect.stringContaining("timed out"),
+      });
+      await expectGone(pid);
+    } finally {
+      await rm(pidFile, { force: true });
+    }
+  });
+
+  it("fails closed with a bounded cache diagnosis when checkout canonicalization races", async () => {
+    const base = await options("unused");
+    const vanishedRoot = await mkdtemp(join(tmpdir(), "pi-science-vanished-"));
+    await rm(vanishedRoot, { recursive: true });
+    const state = await provision({ ...base, checkoutRoot: vanishedRoot });
     expect(state).toMatchObject({
       ready: false,
-      diagnosis: expect.stringContaining("timed out"),
+      diagnosis: expect.stringContaining(
+        "cache path could not be canonicalized",
+      ),
     });
+    if (!state.ready)
+      expect(Buffer.byteLength(state.diagnosis)).toBeLessThanOrEqual(4_300);
   });
 
   it("distinguishes immutable identity, cache, executable, timeout, Git, and build failures", async () => {

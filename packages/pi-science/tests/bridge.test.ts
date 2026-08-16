@@ -1,5 +1,9 @@
+import { EventEmitter } from "node:events";
+import { readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   BridgeError,
   invokeAdapter,
@@ -9,6 +13,69 @@ import {
 
 const node = process.execPath;
 const script = (body: string) => ["-e", body];
+const leakedPids: number[] = [];
+
+const pause = (milliseconds: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+
+async function recordedDescendant(): Promise<{
+  args: string[];
+  pidFile: string;
+}> {
+  const pidFile = join(
+    tmpdir(),
+    `pi-science-bridge-descendant-${process.pid}-${Date.now()}-${Math.random()}`,
+  );
+  return {
+    pidFile,
+    args: script(`
+      const fs=require("fs"),cp=require("child_process");
+      const child=cp.spawn(process.execPath,["-e",\`process.on("SIGTERM",()=>{});setInterval(()=>{},1000)\`],{stdio:"ignore"});
+      fs.writeFileSync(${JSON.stringify(pidFile)},String(child.pid));
+      process.on("SIGTERM",()=>{});setInterval(()=>{},1000);
+    `),
+  };
+}
+
+async function readRecordedPid(pidFile: string): Promise<number> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      const pid = Number((await readFile(pidFile, "utf8")).trim());
+      if (Number.isSafeInteger(pid) && pid > 0) {
+        leakedPids.push(pid);
+        return pid;
+      }
+    } catch {
+      // The parent has not recorded its resistant descendant yet.
+    }
+    await pause(10);
+  }
+  throw new Error("resistant descendant PID was not recorded");
+}
+
+async function expectGone(pid: number): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      process.kill(pid, 0);
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") return;
+      throw error;
+    }
+    await pause(10);
+  }
+  throw new Error(`resistant descendant ${pid} remained alive after cleanup`);
+}
+
+afterEach(async () => {
+  for (const pid of leakedPids.splice(0)) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // The operation already cleaned up the descendant.
+    }
+    await expectGone(pid);
+  }
+});
 const success = {
   status: "success",
   interpretation: { normalized_sympy: "x", normalized_latex: "x" },
@@ -141,24 +208,22 @@ describe("private formula bridge", () => {
     );
   });
 
-  it("honors pre-abort and kills SIGTERM-resistant process trees on timeout", async () => {
+  it("honors pre-abort and removes recorded SIGTERM-resistant descendants on timeout", async () => {
     const controller = new AbortController();
     controller.abort();
     await kind(
       invokeAdapter(node, responder(), request(), 1_000, controller.signal),
       "cancelled",
     );
-    await kind(
-      invokeAdapter(
-        node,
-        script(
-          'require("child_process").spawn(process.execPath,["-e",`process.on("SIGTERM",()=>{});setInterval(()=>{},1000)`],{stdio:"ignore"});process.on("SIGTERM",()=>{});setInterval(()=>{},1000)',
-        ),
-        request(),
-        20,
-      ),
-      "timeout",
-    );
+    const descendant = await recordedDescendant();
+    const promise = invokeAdapter(node, descendant.args, request(), 100);
+    const pid = await readRecordedPid(descendant.pidFile);
+    try {
+      await kind(promise, "timeout");
+      await expectGone(pid);
+    } finally {
+      await rm(descendant.pidFile, { force: true });
+    }
   });
 
   it("observes abort arriving between precheck and listener registration", async () => {
@@ -184,16 +249,60 @@ describe("private formula bridge", () => {
     );
   });
 
-  it("cancels a running SIGTERM-resistant child", async () => {
+  it("cancels a running tree and removes its recorded SIGTERM-resistant descendant", async () => {
     const controller = new AbortController();
+    const descendant = await recordedDescendant();
     const promise = invokeAdapter(
       node,
-      script('process.on("SIGTERM",()=>{});setInterval(()=>{},1000)'),
+      descendant.args,
       request(),
       5_000,
       controller.signal,
     );
-    setTimeout(() => controller.abort(), 20);
-    await kind(promise, "cancelled");
+    const pid = await readRecordedPid(descendant.pidFile);
+    try {
+      controller.abort();
+      await kind(promise, "cancelled");
+      await expectGone(pid);
+    } finally {
+      await rm(descendant.pidFile, { force: true });
+    }
+  });
+
+  it("fails closed when stdin reports a non-cleanup error", async () => {
+    const stdin = new EventEmitter() as NodeJS.WritableStream;
+    const child = Object.assign(new EventEmitter(), {
+      pid: 42,
+      stdin,
+      stdout: new EventEmitter(),
+      stderr: new EventEmitter(),
+    });
+    let terminated = false;
+    vi.resetModules();
+    vi.doMock("../src/process.js", () => ({
+      spawnIsolated: () => child,
+      terminateTree: () => {
+        terminated = true;
+        setImmediate(() => child.emit("close", null));
+      },
+    }));
+    try {
+      const { invokeAdapter: invokeWithFault } =
+        await import("../src/bridge.js");
+      stdin.end = () => {
+        stdin.emit("error", new Error("stdin transport failed"));
+        return stdin;
+      };
+      await expect(
+        invokeWithFault(node, [], request(), 50),
+      ).rejects.toMatchObject({
+        kind: "process",
+        message: expect.stringContaining("stdin transport failed"),
+      });
+      expect(terminated).toBe(true);
+    } finally {
+      vi.doUnmock("../src/process.js");
+      vi.resetModules();
+    }
   });
 });

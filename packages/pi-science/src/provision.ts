@@ -99,7 +99,7 @@ async function cacheIsExternal(
   checkoutRoot?: string,
 ): Promise<boolean> {
   if (!checkoutRoot) return true;
-  const root = await nearestRealPath(checkoutRoot);
+  const root = await realpath(checkoutRoot);
   const candidate = await nearestRealPath(cacheDir);
   return candidate !== root && !candidate.startsWith(`${root}${sep}`);
 }
@@ -166,12 +166,25 @@ export async function provision(options: ProvisionOptions): Promise<Readiness> {
         "Pi checkout identity is unavailable; reinstall Pi from an immutable Git pin, then reload or restart Pi.",
     };
   const cacheDir = cacheDirectory(options.cacheDir);
-  if (!cacheDir || !(await cacheIsExternal(cacheDir, options.checkoutRoot)))
+  if (!cacheDir)
     return {
       ready: false,
       diagnosis:
         "An absolute external user cache path is unavailable; configure XDG_CACHE_HOME, then reload or restart Pi.",
     };
+  try {
+    if (!(await cacheIsExternal(cacheDir, options.checkoutRoot)))
+      return {
+        ready: false,
+        diagnosis:
+          "An absolute external user cache path is unavailable; configure XDG_CACHE_HOME, then reload or restart Pi.",
+      };
+  } catch (error) {
+    return {
+      ready: false,
+      diagnosis: `The cache path could not be canonicalized; configure an accessible absolute external user cache path, then reload or restart Pi.${bounded(error) ? ` (${bounded(error)})` : ""}`,
+    };
+  }
   const uv = options.uv ?? "uv";
   const source = `py-science-formula @ git+${options.repo}@${options.revision}#subdirectory=packages/py-science-formula`;
   const args = [
