@@ -162,9 +162,11 @@ rpc_probe="$tmp/rpc-probe.py"
 cat >"$rpc_probe" <<'PY'
 import json
 import os
-import select
+import queue
+import signal
 import subprocess
 import sys
+import threading
 import time
 
 project, agent, verifier, expected = sys.argv[1:]
@@ -184,8 +186,29 @@ proc = subprocess.Popen(
     stderr=subprocess.PIPE,
     text=True,
     bufsize=1,
+    start_new_session=True,
 )
 assert proc.stdin and proc.stdout and proc.stderr
+events: queue.Queue[str | None] = queue.Queue()
+stderr_chunks: list[str] = []
+stderr_bytes = 0
+
+def read_stdout() -> None:
+    for line in proc.stdout:
+        events.put(line)
+    events.put(None)
+
+def drain_stderr() -> None:
+    global stderr_bytes
+    for chunk in iter(lambda: proc.stderr.read(4096), ""):
+        encoded = chunk.encode("utf-8", errors="replace")
+        stderr_bytes += len(encoded)
+        stderr_chunks.append(chunk)
+        while stderr_bytes > 65_536 and stderr_chunks:
+            stderr_bytes -= len(stderr_chunks.pop(0).encode("utf-8", errors="replace"))
+
+threading.Thread(target=read_stdout, daemon=True).start()
+threading.Thread(target=drain_stderr, daemon=True).start()
 for command in (
     {"id": "commands", "type": "get_commands"},
     {"id": "tools", "type": "prompt", "message": "/pi-science-release-check"},
@@ -199,14 +222,14 @@ doctor = None
 deadline = time.monotonic() + 240
 try:
     while time.monotonic() < deadline and (commands is None or tools is None or doctor is None):
-        ready, _, _ = select.select([proc.stdout], [], [], 0.25)
-        if not ready:
+        try:
+            line = events.get(timeout=0.25)
+        except queue.Empty:
             if proc.poll() is not None:
-                raise AssertionError(f"Pi exited {proc.returncode}: {proc.stderr.read()}")
+                raise AssertionError(f"Pi exited {proc.returncode}: {''.join(stderr_chunks)}")
             continue
-        line = proc.stdout.readline()
-        if not line:
-            continue
+        if line is None:
+            raise AssertionError(f"Pi stdout closed: {''.join(stderr_chunks)}")
         event = json.loads(line)
         if event.get("id") == "commands" and event.get("type") == "response":
             commands = {item["name"] for item in event["data"]["commands"]}
@@ -216,8 +239,8 @@ try:
                 tools = set(json.loads(message)["releaseCheckTools"])
             elif "Formula analysis is ready" in message or "Reload or restart" in message:
                 doctor = message
-    assert commands is not None and "pi-science-doctor" in commands, (commands, proc.stderr.read() if proc.poll() is not None else "")
-    assert tools is not None and doctor is not None, (tools, doctor, commands)
+    assert commands is not None and "pi-science-doctor" in commands, (commands, "".join(stderr_chunks))
+    assert tools is not None and doctor is not None, (tools, doctor, commands, "".join(stderr_chunks))
     if expected == "ready":
         assert "skill:pi-science-formula-analysis" in commands, commands
         assert "analyze_formula" in tools, tools
@@ -227,11 +250,14 @@ try:
         assert "analyze_formula" not in tools, tools
         assert "Reload or restart" in doctor, doctor
 finally:
-    proc.terminate()
     try:
+        os.killpg(proc.pid, signal.SIGTERM)
         proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        proc.kill()
+    except (ProcessLookupError, subprocess.TimeoutExpired):
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
         proc.wait()
 PY
 
@@ -252,11 +278,11 @@ managed_checkout=$(find "$project/.pi/git" -type d -name .git -print -quit | xar
 # diagnostics and the verifier, withholding the analysis tool and product skill.
 no_uv="$tmp/no-uv-bin"
 mkdir "$no_uv"
-for command in node npm git pi; do
+for command in node npm git pi python; do
   target=$(command -v "$command")
   ln -s "$target" "$no_uv/$command"
 done
-PATH="$no_uv:/usr/bin:/bin" XDG_CACHE_HOME="$tmp/pi-disabled-cache" \
-  python "$rpc_probe" "$project" "$agent" "$verifier" disabled
+PATH="$no_uv" XDG_CACHE_HOME="$tmp/pi-disabled-cache" \
+  "$no_uv/python" "$rpc_probe" "$project" "$agent" "$verifier" disabled
 
 printf 'check-release: OK (Pi and Python pins resolve to %s)\n' "$sha"
