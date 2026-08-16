@@ -4,7 +4,7 @@ slug: separate-reusable-analysis-packages-from-pi-integration
 status: Implementing
 date: 2026-08-16
 ---
-# ADR-separate-reusable-analysis-packages-from-pi-integration: Separate reusable analysis packages from Pi integration
+# ADR-0002: Separate reusable analysis packages from Pi integration
 
 ## Context
 
