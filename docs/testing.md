@@ -5,7 +5,7 @@ A deterministic pre-commit gate runs the project's checks. The documented lanes 
 
 <!-- awf:edit gate: from .awf/docs/parts/testing/gate.md -->
 ## Gate
-Run `./scripts/check` before every commit. It runs Python pytest, Pyright, Ruff, Pi TypeScript lint/type checks, formatting and Vitest, then `./awf check`. Run the slower `./scripts/check-release` after render settlement to verify a temporary clean snapshot, separate Git pins, production installation, and ready and disabled Pi resource behavior.
+Run `./scripts/check` before every commit. It runs Python pytest, Pyright, Ruff, Pi TypeScript lint/type checks, formatting and Vitest, then `./awf check`. Vitest excludes managed awf worktrees so an integration gate runs each Pi test once. Run the slower `./scripts/check-release` after render settlement to verify a temporary clean snapshot, separate Git pins, production installation, and ready and disabled Pi resource behavior.
 
 
 <!-- awf:edit tiers: from .awf/docs/parts/testing/tiers.md -->
