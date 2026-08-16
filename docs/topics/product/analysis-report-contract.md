@@ -12,4 +12,4 @@ The report contract governs inspectability, qualification, and unresolved analys
 
 ### `rule: qualified-inspectable-results`
 Every analysis reports the normalized interpretation actually analyzed and distinguishes exact results, assumption-dependent results, conservative bounds, conditional rewrites, and unresolved quantities. It never silently fixes a scaling variable, invents an unknown cost, or presents sampling as a mathematical bound.
-Origin: ADR-adopt-symbolic-mathematical-analysis-product-direction
+Origin: ADR-0001

@@ -6,4 +6,4 @@ _No decisions are in flight._
 
 ## History
 
-- [ADR-adopt-symbolic-mathematical-analysis-product-direction: Adopt symbolic mathematical analysis product direction](adopt-symbolic-mathematical-analysis-product-direction.md) (Implemented)
+- [ADR-0001: Adopt symbolic mathematical analysis product direction](0001-adopt-symbolic-mathematical-analysis-product-direction.md) (Implemented)

@@ -4,7 +4,7 @@ slug: adopt-symbolic-mathematical-analysis-product-direction
 status: Implemented
 date: 2026-08-16
 ---
-# ADR-adopt-symbolic-mathematical-analysis-product-direction: Adopt symbolic mathematical analysis product direction
+# ADR-0001: Adopt symbolic mathematical analysis product direction
 
 ## Context
 
