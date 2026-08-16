@@ -9,7 +9,7 @@ uv run --locked pytest
 printf '==> pyright\n'
 uv run --locked pyright
 printf '==> ruff\n'
-uv run --locked ruff check packages/py-science-formula/src tests
+uv run --locked ruff check packages/py-science-formula/src packages/pi-science/bridge tests
 printf '==> Pi TypeScript\n'
 npm run check:pi
 npm run format:pi

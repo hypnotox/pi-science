@@ -17,5 +17,5 @@ Run `./scripts/check` before every commit. It runs Python pytest, Pyright, Ruff,
 
 <!-- awf:edit layout: from .awf/docs/parts/testing/layout.md -->
 ## Layout and test shape
-Python tests cover the transport-free public formula API and distribution. `packages/pi-science/tests/` covers versioned successful and rejected bridge responses and proves disabled startup registers no analysis tool while retaining the diagnostic command. Provisioning tests use controlled executable paths and shared-cache barriers to cover healthy and failed concurrent starts without modifying the checkout.
+Python tests cover the transport-free public formula API and distribution. `packages/pi-science/tests/` exercises the actual private adapter, strict envelopes and result shapes, UTF-8 request and response bounds, stderr draining, process failure, timeout and cancellation cleanup, real Pi command/tool result contracts, mode-aware warnings, immutable checkout identity, health validation, and prerequisite-specific diagnostics. A barrier wrapper around real uv proves two healthy concurrent starts reuse one immutable-source cache without modifying the checkout; a separate synchronized failure proves identical fail-closed results.
 

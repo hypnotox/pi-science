@@ -10,3 +10,6 @@ __pycache__/
 
 # Built Python distributions.
 dist/
+
+# Installed Node dependencies.
+node_modules/

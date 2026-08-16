@@ -24,7 +24,7 @@ addopts = ["--strict-config", "--strict-markers"]
 
 [tool.pyright]
 typeCheckingMode = "strict"
-include = ["packages/py-science-formula/src", "tests"]
+include = ["packages/py-science-formula/src", "packages/pi-science/bridge", "tests"]
 extraPaths = ["packages/py-science-formula/src"]
 pythonVersion = "3.13"
 
