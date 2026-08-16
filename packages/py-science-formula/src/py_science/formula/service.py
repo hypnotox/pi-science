@@ -1,24 +1,24 @@
-from pi_science.analyzer import OperationTally, count_operations
-from pi_science.models import (
-    EvaluationError,
-    EvaluationErrorCode,
-    EvaluationFailure,
-    EvaluationOutcome,
-    EvaluationRequest,
-    EvaluationSuccess,
+from py_science.formula.analyzer import OperationTally, count_operations
+from py_science.formula.models import (
+    AnalysisError,
+    AnalysisErrorCode,
+    AnalysisFailure,
+    AnalysisOutcome,
+    AnalysisRequest,
+    AnalysisSuccess,
     Interpretation,
     OperationCounts,
     SourceLocation,
 )
-from pi_science.parser import ParseFailure, ParseFailureKind, parse_expression
-from pi_science.sympy_backend import NormalizationError, render
+from py_science.formula.parser import ParseFailure, ParseFailureKind, parse_expression
+from py_science.formula.sympy_backend import NormalizationError, render
 
 
-def evaluate(request: EvaluationRequest) -> EvaluationOutcome:
+def analyze(request: AnalysisRequest) -> AnalysisOutcome:
     parsed = parse_expression(request.expression)
     if isinstance(parsed, ParseFailure):
-        return EvaluationFailure(
-            error=EvaluationError(
+        return AnalysisFailure(
+            error=AnalysisError(
                 code=_error_code(parsed.kind),
                 message=parsed.message,
                 location=_location(parsed),
@@ -28,15 +28,15 @@ def evaluate(request: EvaluationRequest) -> EvaluationOutcome:
     try:
         normalized = render(parsed)
     except NormalizationError:
-        return EvaluationFailure(
-            error=EvaluationError(
-                code=EvaluationErrorCode.NORMALIZATION_FAILED,
+        return AnalysisFailure(
+            error=AnalysisError(
+                code=AnalysisErrorCode.NORMALIZATION_FAILED,
                 message="the validated expression could not be normalized",
             )
         )
 
     tally = count_operations(parsed)
-    return EvaluationSuccess(
+    return AnalysisSuccess(
         interpretation=Interpretation(
             normalized_sympy=normalized.sympy,
             normalized_latex=normalized.latex,
@@ -46,14 +46,14 @@ def evaluate(request: EvaluationRequest) -> EvaluationOutcome:
     )
 
 
-def _error_code(kind: ParseFailureKind) -> EvaluationErrorCode:
+def _error_code(kind: ParseFailureKind) -> AnalysisErrorCode:
     match kind:
         case ParseFailureKind.MALFORMED:
-            return EvaluationErrorCode.MALFORMED_SYNTAX
+            return AnalysisErrorCode.MALFORMED_SYNTAX
         case ParseFailureKind.UNSUPPORTED:
-            return EvaluationErrorCode.UNSUPPORTED_CONSTRUCT
+            return AnalysisErrorCode.UNSUPPORTED_CONSTRUCT
         case ParseFailureKind.TOO_COMPLEX:
-            return EvaluationErrorCode.EXPRESSION_TOO_COMPLEX
+            return AnalysisErrorCode.EXPRESSION_TOO_COMPLEX
 
 
 def _location(failure: ParseFailure) -> SourceLocation | None:

@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-- [ADR-separate-reusable-analysis-packages-from-pi-integration: Separate reusable analysis packages from Pi integration](separate-reusable-analysis-packages-from-pi-integration.md) (Proposed)
+- [ADR-separate-reusable-analysis-packages-from-pi-integration: Separate reusable analysis packages from Pi integration](separate-reusable-analysis-packages-from-pi-integration.md) (Implementing)
 
 ## History
 

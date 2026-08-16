@@ -7,7 +7,7 @@ A deterministic pre-commit gate runs the project's checks. The documented lanes 
 ## Gate
 Run `./scripts/check` before every commit. It runs, in order:
 
-1. pytest end-to-end behavior and safety checks;
+1. pytest formula-analysis end-to-end behavior and safety checks;
 2. Pyright strict static type checking;
 3. Ruff source linting;
 4. `./awf check` for repository authority and generated-output drift.
@@ -17,7 +17,7 @@ The script uses the locked uv environment and stops at the first failure.
 
 <!-- awf:edit tiers: from .awf/docs/parts/testing/tiers.md -->
 ## Tiers and lanes
-- **Focused application tests:** `uv run --locked pytest tests/e2e/test_formula_evaluation.py`.
+- **Focused application tests:** `uv run --locked pytest tests/e2e/test_formula_analysis.py`.
 - **Application suite:** `uv run --locked pytest`.
 - **Complete gate:** `./scripts/check`.
 
@@ -26,7 +26,7 @@ There is no separate extended tier. Add one only when an executable workload can
 
 <!-- awf:edit layout: from .awf/docs/parts/testing/layout.md -->
 ## Layout and test shape
-`tests/e2e/test_formula_evaluation.py` exercises the public typed `evaluate()` boundary. It covers strict contracts, normalized interpretation, submitted arithmetic counts, signed integer semantics, malformed syntax, deny-by-default grammar rejection, non-execution of submitted Python, deterministic results, and consumer-facing resource limits.
+`tests/e2e/test_formula_analysis.py` exercises the public typed `analyze()` boundary from `py_science.formula`. It covers strict contracts, normalized interpretation, submitted arithmetic counts, signed integer semantics, malformed syntax, deny-by-default grammar rejection, non-execution of submitted Python, deterministic results, and consumer-facing resource limits.
 
 `tests/unit/test_error_translation.py` proves that the SymPy adapter preserves backend causes and that the service translates only its named adapter failure. Add other focused unit tests only when an isolated policy needs clearer evidence. Extend the end-to-end suite as LaTeX, indexed-domain aggregation, scenarios, dependencies, comparisons, rewrites, and unresolved-result behavior become executable.
 

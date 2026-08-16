@@ -3,5 +3,6 @@ The product boundary separates symbolic mathematical analysis from empirical and
 ## Claims
 
 ### `rule: symbolic-analysis-only`
-pi-science accepts agent-formulated symbolic or formula-oriented computation and reports its mathematical cost, structure, scaling, bounds, improvement opportunities, and unresolved quantities. Dataset statistics, source-to-model inference, experiment orchestration, implementation benchmarking, and physical validation remain outside the core analyzer; future profiler integration stays a separate layer and formula lowering is limited to downstream implementation skeletons.
+pi-science analyzes agent-formulated symbolic or formula-oriented computation and reports abstract mathematical metrics, normalized interpretation, structure, scaling, bounds, improvement opportunities, and unresolved quantities. It does not evaluate a submitted formula to produce the value that formula represents. Dataset statistics, source-to-model inference, experiment orchestration, implementation benchmarking, and physical validation remain outside the core analyzer. Formula-to-code remains an open future direction outside the current formula package scope.
 Origin: ADR-0001
+Revised-by: ADR-separate-reusable-analysis-packages-from-pi-integration

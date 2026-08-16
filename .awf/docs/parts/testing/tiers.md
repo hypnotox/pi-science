@@ -1,4 +1,4 @@
-- **Focused application tests:** `uv run --locked pytest tests/e2e/test_formula_evaluation.py`.
+- **Focused application tests:** `uv run --locked pytest tests/e2e/test_formula_analysis.py`.
 - **Application suite:** `uv run --locked pytest`.
 - **Complete gate:** `./scripts/check`.
 

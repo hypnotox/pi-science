@@ -1,17 +1,12 @@
 [project]
-name = "pi-science"
+name = "pi-science-workspace"
 version = "0.1.0"
-description = "Deterministic symbolic mathematical analysis for coding agents"
-readme = "docs/vision.md"
+description = "Development workspace for pi-science packages"
 requires-python = ">=3.13,<3.14"
-dependencies = [
-  "pydantic>=2.12,<3",
-  "sympy>=1.14,<2",
-]
+dependencies = ["py-science-formula"]
 
-[build-system]
-requires = ["hatchling>=1.28,<2"]
-build-backend = "hatchling.build"
+[tool.uv.sources]
+py-science-formula = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -20,8 +15,8 @@ dev = [
   "ruff>=0.14,<1",
 ]
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/pi_science"]
+[tool.uv.workspace]
+members = ["packages/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -29,7 +24,8 @@ addopts = ["--strict-config", "--strict-markers"]
 
 [tool.pyright]
 typeCheckingMode = "strict"
-include = ["src", "tests"]
+include = ["packages/py-science-formula/src", "tests"]
+extraPaths = ["packages/py-science-formula/src"]
 pythonVersion = "3.13"
 
 [tool.ruff]

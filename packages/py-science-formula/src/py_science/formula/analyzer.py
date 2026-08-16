@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pi_science.expressions import BinaryExpression, BinaryOperator, Expression
+from py_science.formula.expressions import BinaryExpression, BinaryOperator, Expression
 
 
 @dataclass(frozen=True, slots=True)

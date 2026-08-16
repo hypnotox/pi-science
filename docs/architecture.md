@@ -3,32 +3,32 @@
 
 <!-- awf:edit overview: from .awf/docs/parts/architecture/overview.md -->
 ## Overview
-The repository contains a typed Python evaluator for a small restricted-SymPy arithmetic grammar. It safely parses submitted formulas into a backend-independent expression tree, counts submitted operations, and returns normalized SymPy and LaTeX interpretations through a structured in-process API.
+The repository contains the independently importable `py-science-formula` Python 3.13 distribution. Its `py_science.formula` typed in-process API safely parses a small restricted-SymPy arithmetic grammar into a backend-independent expression tree, counts submitted operations, and returns normalized SymPy and LaTeX interpretations. It analyzes formulas but does not evaluate them to produce their represented values.
 
 [Vision](vision.md) owns the product boundary, [Analysis Model](analysis-model.md) owns the request and report direction plus the exact implemented subset, and [Roadmap](roadmap.md) owns uncommitted expansion work.
 
 
 <!-- awf:edit components: from .awf/docs/parts/architecture/components.md -->
 ## Components
-- `src/pi_science/models.py`: strict Pydantic request, result, and error contracts.
-- `src/pi_science/expressions.py`: backend-independent typed expression tree.
-- `src/pi_science/parser.py`: allowlisted restricted-SymPy parser built on Python expression AST inspection.
-- `src/pi_science/analyzer.py`: submitted-operation counting and unit-work aggregation.
-- `src/pi_science/sympy_backend.py`: validated-tree translation and normalized rendering.
-- `src/pi_science/service.py`: public evaluation orchestration.
+- `packages/py-science-formula/src/py_science/formula/models.py`: strict Pydantic analysis request, result, and error contracts.
+- `packages/py-science-formula/src/py_science/formula/expressions.py`: backend-independent typed expression tree.
+- `packages/py-science-formula/src/py_science/formula/parser.py`: allowlisted restricted-SymPy parser built on Python expression AST inspection.
+- `packages/py-science-formula/src/py_science/formula/analyzer.py`: submitted-operation counting and abstract-work aggregation.
+- `packages/py-science-formula/src/py_science/formula/sympy_backend.py`: validated-tree translation and normalized rendering.
+- `packages/py-science-formula/src/py_science/formula/service.py`: public analysis orchestration.
 - `tests/e2e/`: public-interface behavior and safety evidence.
 - `scripts/check`: application and awf project gate.
 - `.awf/` and `docs/`: authored workflow configuration and rendered project documentation.
 
-LaTeX parsing, richer SymPy constructs, symbolic aggregation, scenarios, dependencies, comparisons, rewrites, and an agent skill remain planned components. See [Roadmap](roadmap.md).
+LaTeX parsing, richer SymPy constructs, symbolic aggregation, scenarios, dependencies, comparisons, rewrites, formula-to-code, and an agent skill remain planned components. See [Roadmap](roadmap.md).
 
 
 <!-- awf:edit data-flow: from .awf/docs/parts/architecture/data-flow.md -->
 ## Data flow
-The implemented evaluation flow is:
+The implemented formula-analysis flow is:
 
 ```text
-typed request
+typed analysis request
     |
     v
 strict Pydantic contract
@@ -43,10 +43,10 @@ allowlisted syntax parser --> typed expression tree --> operation analyzer
                                 SymPy adapter
                                       |
                                       v
-                         typed success or failure
+                         typed analysis success or failure
 ```
 
-Submitted text is inspected as Python expression syntax but never evaluated. Input size, tree size, nesting, and integer literals are bounded before conversion. Only validated expression-tree nodes reach SymPy, and powers are constructed without eager evaluation. Parsing and analysis do not depend on the SymPy representation, and transport semantics remain outside the evaluator.
+Submitted text is inspected as Python expression syntax but never evaluated. Input size, tree size, nesting, and integer literals are bounded before conversion. Only validated expression-tree nodes reach SymPy, and powers are constructed without eager evaluation. Parsing and analysis do not depend on the SymPy representation, and transport semantics remain outside the formula-analysis package.
 
 The broader multi-frontend analysis flow remains defined by [Vision](vision.md) and [Analysis Model](analysis-model.md).
 
@@ -65,4 +65,4 @@ The broader multi-frontend analysis flow remains defined by [Vision](vision.md) 
 | awf | Generates and verifies workflow and documentation state. |
 | Git | Versions authoritative project state. |
 
-`pyproject.toml` declares dependency ranges and `uv.lock` pins resolved versions. Frontend safety and the internal expression model do not depend on evaluating submitted text or exposing SymPy as the public protocol.
+The root `pyproject.toml` declares workspace development dependencies; `packages/py-science-formula/pyproject.toml` declares the package runtime dependencies; `uv.lock` pins the workspace resolution. Frontend safety and the internal expression model do not depend on evaluating submitted text or exposing SymPy as the public protocol.

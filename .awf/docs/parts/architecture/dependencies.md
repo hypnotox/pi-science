@@ -10,4 +10,4 @@
 | awf | Generates and verifies workflow and documentation state. |
 | Git | Versions authoritative project state. |
 
-`pyproject.toml` declares dependency ranges and `uv.lock` pins resolved versions. Frontend safety and the internal expression model do not depend on evaluating submitted text or exposing SymPy as the public protocol.
+The root `pyproject.toml` declares workspace development dependencies; `packages/py-science-formula/pyproject.toml` declares the package runtime dependencies; `uv.lock` pins the workspace resolution. Frontend safety and the internal expression model do not depend on evaluating submitted text or exposing SymPy as the public protocol.

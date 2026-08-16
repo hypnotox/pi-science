@@ -9,6 +9,6 @@ uv run --locked pytest
 printf '==> pyright\n'
 uv run --locked pyright
 printf '==> ruff\n'
-uv run --locked ruff check src tests
+uv run --locked ruff check packages/py-science-formula/src tests
 printf '==> awf\n'
 ./awf check

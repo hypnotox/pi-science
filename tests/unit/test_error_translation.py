@@ -1,16 +1,15 @@
 from typing import Never
 
+import py_science.formula.service as service
+import py_science.formula.sympy_backend as sympy_backend
 import pytest
-
-import pi_science.service as service
-import pi_science.sympy_backend as sympy_backend
-from pi_science import (
-    EvaluationErrorCode,
-    EvaluationFailure,
-    EvaluationRequest,
+from py_science.formula import (
+    AnalysisErrorCode,
+    AnalysisFailure,
+    AnalysisRequest,
     FormulaSyntax,
 )
-from pi_science.expressions import Expression, Symbol
+from py_science.formula.expressions import Expression, Symbol
 
 
 def test_sympy_adapter_preserves_backend_failure_as_its_cause(
@@ -34,12 +33,12 @@ def test_service_translates_only_named_normalization_failures(
         raise sympy_backend.NormalizationError("normalization failed")
 
     monkeypatch.setattr(service, "render", fail_render)
-    request = EvaluationRequest(syntax=FormulaSyntax.SYMPY, expression="x")
+    request = AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x")
 
-    outcome = service.evaluate(request)
+    outcome = service.analyze(request)
 
-    assert isinstance(outcome, EvaluationFailure)
-    assert outcome.error.code is EvaluationErrorCode.NORMALIZATION_FAILED
+    assert isinstance(outcome, AnalysisFailure)
+    assert outcome.error.code is AnalysisErrorCode.NORMALIZATION_FAILED
 
 
 def test_service_does_not_hide_unexpected_programming_errors(
@@ -49,7 +48,7 @@ def test_service_does_not_hide_unexpected_programming_errors(
         raise RuntimeError("programming defect")
 
     monkeypatch.setattr(service, "render", fail_unexpectedly)
-    request = EvaluationRequest(syntax=FormulaSyntax.SYMPY, expression="x")
+    request = AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x")
 
     with pytest.raises(RuntimeError, match="programming defect"):
-        service.evaluate(request)
+        service.analyze(request)

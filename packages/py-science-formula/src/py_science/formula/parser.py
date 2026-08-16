@@ -7,7 +7,7 @@ import tokenize
 from dataclasses import dataclass
 from enum import StrEnum
 
-from pi_science.expressions import (
+from py_science.formula.expressions import (
     BinaryExpression,
     BinaryOperator,
     Expression,

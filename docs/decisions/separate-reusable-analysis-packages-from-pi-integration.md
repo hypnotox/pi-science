@@ -1,7 +1,7 @@
 ---
 format: current-state-v4
 slug: separate-reusable-analysis-packages-from-pi-integration
-status: Proposed
+status: Implementing
 date: 2026-08-16
 ---
 # ADR-separate-reusable-analysis-packages-from-pi-integration: Separate reusable analysis packages from Pi integration
@@ -76,3 +76,5 @@ permanent architecture.
 ## Status history
 
 - 2026-08-16: Proposed
+- 2026-08-16: Implementing; content-sha256: e76c812891748d97e40df0216ddb54578a30df5a5f028525d1022b022e3819dc
+- 2026-08-16: Applied; operations: add `product/distribution-model:concern-oriented-analysis-packages`, add `product/distribution-model:agpl-only`, add `product/distribution-model:python-313-runtime`, update `product/product-boundary:symbolic-analysis-only`

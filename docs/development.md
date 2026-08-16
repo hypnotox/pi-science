@@ -19,7 +19,7 @@ Use these repository commands:
 - `./scripts/check`: run the complete application and repository gate.
 - `uv run --locked pytest`: run the application test suite.
 - `uv run --locked pyright`: run strict static type checking.
-- `uv run --locked ruff check src tests`: run Python linting.
+- `uv run --locked ruff check packages/py-science-formula/src tests`: run Python linting.
 - `./awf render`: regenerate managed workflow and documentation artifacts.
 - `./awf check`: verify awf-managed repository authority and drift.
 - `./awf version`: report the resolved awf version.
@@ -27,7 +27,7 @@ Use these repository commands:
 
 <!-- awf:edit dependencies: from .awf/docs/parts/development/dependencies.md -->
 ## Dependencies
-Application and development dependencies live in `pyproject.toml`; `uv.lock` is the reproducible resolution. Use `uv add <package>` or `uv add --dev <package>` to change declared dependencies, then stage the manifest and lockfile together.
+The root `pyproject.toml` defines the uv workspace and development dependencies; `packages/py-science-formula/pyproject.toml` defines the independently buildable formula-analysis distribution and its runtime dependencies. `uv.lock` is the reproducible workspace resolution. Use `uv add` or `uv add --dev` at the applicable workspace member, then stage its manifest and the lockfile together.
 
-The runtime uses Pydantic v2 and SymPy. The development group supplies pytest, Pyright, and Ruff. Python 3.13 is pinned in `.python-version`.
+The formula runtime uses Pydantic v2 and SymPy. The root development group supplies pytest, Pyright, and Ruff. Python 3.13 is pinned in `.python-version`.
 

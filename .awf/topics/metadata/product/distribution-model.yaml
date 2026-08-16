@@ -4,4 +4,4 @@ paths:
     - package.json
     - packages/**
     - pyproject.toml
-    - src/pi_science/**
+    - uv.lock

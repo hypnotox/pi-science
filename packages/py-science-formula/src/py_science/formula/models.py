@@ -12,14 +12,14 @@ class FormulaSyntax(StrEnum):
     SYMPY = "sympy"
 
 
-class EvaluationErrorCode(StrEnum):
+class AnalysisErrorCode(StrEnum):
     MALFORMED_SYNTAX = "malformed_syntax"
     UNSUPPORTED_CONSTRUCT = "unsupported_construct"
     EXPRESSION_TOO_COMPLEX = "expression_too_complex"
     NORMALIZATION_FAILED = "normalization_failed"
 
 
-class EvaluationRequest(StructuredModel):
+class AnalysisRequest(StructuredModel):
     syntax: FormulaSyntax
     expression: str
 
@@ -29,8 +29,8 @@ class SourceLocation(StructuredModel):
     column: int = Field(ge=0)
 
 
-class EvaluationError(StructuredModel):
-    code: EvaluationErrorCode
+class AnalysisError(StructuredModel):
+    code: AnalysisErrorCode
     message: str
     location: SourceLocation | None = None
 
@@ -48,19 +48,19 @@ class OperationCounts(StructuredModel):
     powers: int = Field(default=0, ge=0)
 
 
-class EvaluationSuccess(StructuredModel):
+class AnalysisSuccess(StructuredModel):
     status: Literal["success"] = "success"
     interpretation: Interpretation
     operation_counts: OperationCounts
     abstract_work: int = Field(ge=0)
 
 
-class EvaluationFailure(StructuredModel):
+class AnalysisFailure(StructuredModel):
     status: Literal["failure"] = "failure"
-    error: EvaluationError
+    error: AnalysisError
 
 
-type EvaluationOutcome = Annotated[
-    EvaluationSuccess | EvaluationFailure,
+type AnalysisOutcome = Annotated[
+    AnalysisSuccess | AnalysisFailure,
     Field(discriminator="status"),
 ]

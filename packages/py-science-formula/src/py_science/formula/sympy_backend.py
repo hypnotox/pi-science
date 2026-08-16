@@ -4,8 +4,7 @@ from dataclasses import dataclass
 from typing import Protocol, cast
 
 import sympy  # pyright: ignore[reportMissingTypeStubs]
-
-from pi_science.expressions import BinaryOperator, Expression, IntegerLiteral, Symbol
+from py_science.formula.expressions import BinaryOperator, Expression, IntegerLiteral, Symbol
 
 
 class SympyExpression(Protocol):
