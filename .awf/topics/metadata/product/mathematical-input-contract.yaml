@@ -1,0 +1,4 @@
+title: Mathematical Input Contract
+summary: Safe mathematical syntax and request metadata rules.
+paths:
+    - docs/evidence-model.md

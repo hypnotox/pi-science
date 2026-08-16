@@ -462,7 +462,7 @@
       "templateId": "",
       "templateHash": "",
       "configHash": "sha256:619a4dec6900da1feb21570a9a316b719f4802bf7686ce13e6cd6114d391b3e6",
-      "outputHash": "sha256:11a3cc332843defa46cd3f11902ee60ab0db30be39495f78b30ecae9e35840bb",
+      "outputHash": "sha256:448534b98895c2fc0f8369a20e81c3521a5962d5d5baacdd09f0ea2f0ea473de",
       "regenChecked": true
     },
     "docs/debugging.md": {
@@ -501,6 +501,13 @@
       "templateHash": "sha256:94498a7670e70239ca3a9937e837836e21324ab5c58163caa4ae7e45162277c5",
       "configHash": "sha256:afa7f089af7968baeaf9a394512a871a4edbb27e49682dc056ff9e2ff748f32a",
       "outputHash": "sha256:f344fb0847454c106a62ddb81f19eb0da98667c02c10e0fdeb1f5e3ef0eaedc2"
+    },
+    "docs/domains/product.md": {
+      "templateId": "",
+      "templateHash": "",
+      "configHash": "sha256:619a4dec6900da1feb21570a9a316b719f4802bf7686ce13e6cd6114d391b3e6",
+      "outputHash": "sha256:2f071d136d1d1bada4a9ddd89fcdd542a11254f541451bc188138c8fbea141e6",
+      "regenChecked": true
     },
     "docs/evidence-model.md": {
       "templateId": "docs/local.md.tmpl",
@@ -556,6 +563,30 @@
       "templateHash": "sha256:a57a68e1550ff6762ec8021fb14948cf40b221bc228459e70af8e8be4ea16c51",
       "configHash": "sha256:d7c607ace06bbb8a8c0fc2defff0e65cece5f985f0fb25cf3082c8399a7ffdf3",
       "outputHash": "sha256:aad26966e7e0afd6df38406ff868e0d583dfdb5de93866343415e61967fdde1d"
+    },
+    "docs/topics/product/analysis-report-contract.md": {
+      "templateId": "topics/topic.md.tmpl",
+      "templateHash": "sha256:25b4ec23c7a22667f9d78b1e5883af8702d82f67896c3a42ac0ad19032d7c7bb",
+      "configHash": "sha256:58812023a4663beb5570e6b58c7e368eeae850750f4fa7f5d07ad728566018d4",
+      "outputHash": "sha256:1d2ea23e620fe8d0d984488011f3589cfe6e2f71333d821f097d4390881af4f9"
+    },
+    "docs/topics/product/index.md": {
+      "templateId": "topics/index.md.tmpl",
+      "templateHash": "sha256:58a9398b187ea9c7c2c3321299b70f8e6faf3f06778c44e6a2232224f3481ab1",
+      "configHash": "sha256:1565cb09d74824824df5c6572b083df6d1bcab4e1b1ef60f9b1da7d9040bceaa",
+      "outputHash": "sha256:7f60f5c73bad9f66155eddb6164119459d5b5edb487b4c1e8f891ebc2aa2c69f"
+    },
+    "docs/topics/product/mathematical-input-contract.md": {
+      "templateId": "topics/topic.md.tmpl",
+      "templateHash": "sha256:25b4ec23c7a22667f9d78b1e5883af8702d82f67896c3a42ac0ad19032d7c7bb",
+      "configHash": "sha256:38183ef3fe917bdaac596f7dc166b87b15a325991e030c69bd67b02914111265",
+      "outputHash": "sha256:3a9cc0916608ff7e76379be39b8927499cf180af4e720c7c903d6f10fc3773be"
+    },
+    "docs/topics/product/product-boundary.md": {
+      "templateId": "topics/topic.md.tmpl",
+      "templateHash": "sha256:25b4ec23c7a22667f9d78b1e5883af8702d82f67896c3a42ac0ad19032d7c7bb",
+      "configHash": "sha256:e32aac57b6659581a9d185daa7929b75abb7e489fb89425ae54888155da37b2c",
+      "outputHash": "sha256:ffc53a442deb7e66fd15ea2dbc7c932b6c0350b20e2408652ea1331b9b90c0be"
     },
     "docs/vision.md": {
       "templateId": "docs/local.md.tmpl",

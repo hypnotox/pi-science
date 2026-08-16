@@ -1,0 +1,4 @@
+title: Analysis Report Contract
+summary: Interpretation, qualification, and uncertainty requirements for analysis results.
+paths:
+    - docs/evidence-model.md

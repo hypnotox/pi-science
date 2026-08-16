@@ -14,3 +14,5 @@ localDocs:
   - name: evidence-model
     title: Evidence Model
     description: Scientific claims, verdicts, evidence, and reproducibility requirements
+domains:
+  - product
