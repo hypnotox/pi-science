@@ -44,7 +44,11 @@ if [[ $mode == local ]]; then
   mkdir "$snapshot"
   # HEAD plus tracked edits and intended untracked files is the exact selected tree.
   git -C "$root" archive --format=tar HEAD | tar -xf - -C "$snapshot"
-  git -C "$root" diff --binary HEAD | git -C "$snapshot" apply
+  tracked_diff="$tmp/tracked.diff"
+  git -C "$root" diff --binary HEAD >"$tracked_diff"
+  if [[ -s $tracked_diff ]]; then
+    git -C "$snapshot" apply "$tracked_diff"
+  fi
   if [[ -n $(git -C "$root" ls-files --others --exclude-standard) ]]; then
     (cd "$root" && git ls-files --others --exclude-standard -z | tar --null -T - -cf -) | tar -xf - -C "$snapshot"
   fi
