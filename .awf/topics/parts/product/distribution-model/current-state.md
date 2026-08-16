@@ -6,6 +6,10 @@ The repository develops independently importable Python analysis packages alongs
 Reusable mathematical analysis capabilities are distributed as independently importable `py-science-<concern>` Python packages. The first, `py-science-formula`, exposes its typed analysis API through `py_science.formula`; its parser, backend-independent expression tree, analysis policy, and SymPy renderer remain cohesive internal components.
 Origin: ADR-separate-reusable-analysis-packages-from-pi-integration
 
+### `rule: pinned-public-source`
+A compatible repository release snapshot distributes the Pi bridge, product guidance, and Python packages from public Git source. Pi and Python environments pin that snapshot separately; full commit SHAs and resolved locks are immutable, while tags are readable release identifiers.
+Origin: ADR-separate-reusable-analysis-packages-from-pi-integration
+
 ### `rule: agpl-only`
 Repository Python and Pi packages are distributed under AGPL-3.0-only.
 Origin: ADR-separate-reusable-analysis-packages-from-pi-integration

@@ -1,3 +1,4 @@
 - **Focused Python tests:** `uv run --locked pytest`.
 - **Focused Pi tests:** `npm run test:pi`.
-- **Complete gate:** `./scripts/check`.
+- **Fast complete gate:** `./scripts/check`.
+- **Slow clean-source release lane:** `./scripts/check-release`.

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,6 +8,18 @@ import { describe, expect, it } from "vitest";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
 describe("npm package boundary", () => {
+  it("ships one complete uniquely named readiness-gated formula skill", async () => {
+    const skill = await readFile(
+      join(root, "packages/pi-science/skills/formula-analysis/SKILL.md"),
+      "utf8",
+    );
+    expect(skill).toContain("name: pi-science-formula-analysis");
+    expect(skill).toContain("analyze_formula");
+    expect(skill).toContain("py_science.formula");
+    expect(skill).toContain("PEP 723");
+    expect(skill).not.toContain("pi_science");
+  });
+
   it("packs the required Pi sources under AGPL and production-installs externally", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pi-science-pack-"));
     const packed = execFileSync(
@@ -27,6 +39,7 @@ describe("npm package boundary", () => {
         "package/packages/pi-science/src/provision.ts",
         "package/packages/pi-science/src/process.ts",
         "package/packages/pi-science/bridge/formula_adapter.py",
+        "package/packages/pi-science/skills/formula-analysis/SKILL.md",
       ]),
     );
     expect(

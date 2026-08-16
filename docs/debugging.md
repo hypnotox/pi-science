@@ -3,7 +3,7 @@
 
 <!-- awf:edit surfaces: from .awf/docs/parts/debugging/surfaces.md -->
 ## Inspection surfaces
-Use `/pi-science-doctor` when formula analysis is unavailable. It reports the concrete failed prerequisite and the restart-based recovery path; it remains registered in both ready and disabled states. Bridge errors distinguish unavailable environments, process failures, timeout or cancellation, malformed output, and protocol mismatch. Run `./scripts/check` for combined diagnostics.
+Use `/pi-science-doctor` when formula analysis or its matching product skill is unavailable. It reports the failed prerequisite and restart-based recovery path; it remains registered in ready and disabled states. A healthy reload discovers the tool and skill together. Run `./scripts/check-release` to reproduce clean pinned-source installation diagnostics.
 
 
 <!-- awf:edit recipes: from .awf/docs/parts/debugging/recipes.md -->

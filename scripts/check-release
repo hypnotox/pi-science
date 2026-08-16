@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Slow clean-source lane. It deliberately snapshots the selected working tree instead
+# of relying on a published package or the developer's editable environments.
+set -euo pipefail
+
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/pi-science-release.XXXXXX")
+trap 'rm -rf "$tmp"' EXIT
+snapshot="$tmp/snapshot"
+mkdir "$snapshot"
+
+# HEAD plus both tracked edits and intended untracked files is the exact selected tree.
+git -C "$root" archive --format=tar HEAD | tar -xf - -C "$snapshot"
+git -C "$root" diff --binary HEAD | git -C "$snapshot" apply
+if [[ -n $(git -C "$root" ls-files --others --exclude-standard) ]]; then
+  (cd "$root" && git ls-files --others --exclude-standard -z | tar --null -T - -cf -) | tar -xf - -C "$snapshot"
+fi
+
+git -C "$snapshot" init -q
+git -C "$snapshot" add -A
+git -C "$snapshot" -c user.name=release-check -c user.email=release-check@example.invalid commit -qm snapshot
+sha=$(git -C "$snapshot" rev-parse HEAD)
+python_url="git+file://$snapshot@$sha"
+npm_url="git+file://$snapshot#$sha"
+
+printf '==> source pins resolve %s\n' "$sha"
+[[ $(git -C "$snapshot" rev-parse "$sha^{commit}") == "$sha" ]]
+python_cache="$tmp/uv-cache"
+export UV_CACHE_DIR="$python_cache"
+python_env="$tmp/python"
+uv venv --python 3.13 "$python_env" >/dev/null
+uv pip install --python "$python_env/bin/python" "$python_url#subdirectory=packages/py-science-formula" >/dev/null
+"$python_env/bin/python" - <<'PY'
+from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="n + 1"))
+assert outcome.operation_counts.additions == 1
+PY
+
+printf '==> Pi production package resolves %s\n' "$sha"
+pi_env="$tmp/pi"
+mkdir "$pi_env"
+npm install --omit=dev --ignore-scripts --prefix "$pi_env" "$npm_url" >/dev/null
+node --input-type=module - "$pi_env" <<'JS'
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+const root = process.argv[2];
+const manifest = JSON.parse(readFileSync(join(root, "node_modules/pi-science/package.json")));
+if (manifest.license !== "AGPL-3.0-only") throw new Error("missing AGPL license");
+JS
+
+# The checked runtime contract is exercised without granting this temporary package
+# access to a developer checkout: the built source has tools/skills when ready and
+# neither when provisioning is forced unavailable by its focused Vitest tests.
+(
+  cd "$snapshot"
+  npm ci --ignore-scripts >/dev/null
+  npm run test:pi -- --run packages/pi-science/tests/start.test.ts >/dev/null
+)
+printf 'check-release: OK (Pi and Python pins resolve to %s)\n' "$sha"

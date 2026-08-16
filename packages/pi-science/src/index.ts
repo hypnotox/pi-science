@@ -10,6 +10,7 @@ import { provision, type Readiness } from "./provision.js";
 
 const SHA = /^[0-9a-f]{40}$/;
 const REPOSITORY_URL = "https://github.com/hypnotox/pi-science.git";
+const PRODUCT_SKILLS = fileURLToPath(new URL("../skills", import.meta.url));
 const formulaSchema = Type.Object(
   {
     expression: Type.String({
@@ -77,6 +78,8 @@ export async function start(
     });
     return;
   }
+
+  pi.on("resources_discover", () => ({ skillPaths: [PRODUCT_SKILLS] }));
 
   pi.registerTool({
     name: "analyze_formula",

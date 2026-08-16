@@ -3,15 +3,15 @@
 
 <!-- awf:edit setup: from .awf/docs/parts/development/setup.md -->
 ## Setup
-Install uv and Node, then run `uv sync --locked` and `npm install`. The Pi extension eagerly invokes its isolated uv backend at startup. A cold cache needs Git, network, Python 3.13, and the pinned revision; restart Pi after repairing any prerequisite.
+Install Git, uv, Python 3.13, and Node, then run `uv sync --locked` and `npm install`. Pi eagerly invokes its isolated uv backend at startup. A cold source pin needs Git, network, Python 3.13, and the selected immutable revision; repair prerequisites and reload or restart Pi after `/pi-science-doctor` reports a failure.
 
 
 <!-- awf:edit command-runner: from .awf/docs/parts/development/command-runner.md -->
 ## Command runner
-Use `./scripts/check` for the combined Python, TypeScript, formatting, test, and awf gate. Focused commands are `uv run --locked pytest` and `npm run check:pi`, `npm run format:pi`, or `npm run test:pi`. Run `./awf render` after changing `.awf/` sources and `./awf check` to diagnose managed drift.
+Use `./scripts/check` for the fast combined gate. Use `./scripts/check-release` after a release-flow change to create a clean source snapshot and exercise pinned Pi and Python installation; it is intentionally not part of the fast gate. Run `./awf render` after changing `.awf/` sources and `./awf check` to diagnose managed drift.
 
 
 <!-- awf:edit dependencies: from .awf/docs/parts/development/dependencies.md -->
 ## Dependencies
-The root `pyproject.toml` and `uv.lock` define the Python workspace. Root `package.json` and `package-lock.json` define the Pi package; Pi host types are a peer dependency and available to development checks. The formula backend is provisioned separately by uv from an immutable Git revision, with `UV_CACHE_DIR` under the user cache rather than the Pi checkout.
+The root Python workspace and Node manifests define development dependencies. Production adopters declare `py-science-formula` directly from the Git subdirectory and pin `pi-science` separately in project-local Pi settings; neither imports the other's managed environment. Pi provisions the backend from its resolved full checkout commit with mutable uv state outside that checkout.
 

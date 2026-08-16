@@ -92,6 +92,30 @@ describe("readiness gate", () => {
     });
   });
 
+  it("discovers the product skill only with the ready analysis tool", async () => {
+    const ready = host();
+    await start(
+      ready.api,
+      Promise.resolve({ ready: true, command: "unused", args: [] }),
+    );
+    const readyResources = await ready.events.get("resources_discover")?.(
+      {},
+      context(false),
+    );
+    expect(readyResources).toEqual({
+      skillPaths: [expect.stringMatching(/packages\/pi-science\/skills$/)],
+    });
+
+    const disabled = host();
+    await start(
+      disabled.api,
+      Promise.resolve({ ready: false, diagnosis: "uv is missing" }),
+    );
+    expect(
+      await disabled.events.get("resources_discover")?.({}, context(false)),
+    ).toBeUndefined();
+  });
+
   it("warns once per disabled extension instance through UI and keeps doctor", async () => {
     const current = host();
     await start(

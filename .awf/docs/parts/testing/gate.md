@@ -1,1 +1,1 @@
-Run `./scripts/check` before every commit. It runs Python pytest, Pyright, Ruff, Pi TypeScript lint/type checks, Pi formatting and Vitest tests, then `./awf check`. The gate stops at its first failure.
+Run `./scripts/check` before every commit. It runs Python pytest, Pyright, Ruff, Pi TypeScript lint/type checks, formatting and Vitest, then `./awf check`. Run the slower `./scripts/check-release` after render settlement to verify a temporary clean snapshot, separate Git pins, production installation, and ready and disabled Pi resource behavior.
