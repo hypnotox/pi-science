@@ -1,0 +1,9 @@
+prefix: pi-science
+profile: full
+integrationBranch: main
+vars:
+  activeMdRegenCmd: ./awf render
+  gateCmd: ./awf check
+  gateCmdFull: ./awf check
+bootstrap:
+  enabled: true
