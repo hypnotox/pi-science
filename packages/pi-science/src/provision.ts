@@ -77,6 +77,11 @@ function failure(error: unknown): string {
   return `${diagnosis}; correct the prerequisite, then reload or restart Pi.${detail ? ` (${detail})` : ""}`;
 }
 
+function repositoryUri(repo: string): string {
+  const scp = /^([^/:]+@[^/:]+):(.+)$/.exec(repo);
+  return scp ? `ssh://${scp[1]}/${scp[2]}` : repo;
+}
+
 function cacheDirectory(explicit?: string): string | undefined {
   if (explicit !== undefined)
     return isAbsolute(explicit) ? explicit : undefined;
@@ -186,7 +191,7 @@ export async function provision(options: ProvisionOptions): Promise<Readiness> {
     };
   }
   const uv = options.uv ?? "uv";
-  const source = `py-science-formula @ git+${options.repo}@${options.revision}#subdirectory=packages/py-science-formula`;
+  const source = `py-science-formula @ git+${repositoryUri(options.repo)}@${options.revision}#subdirectory=packages/py-science-formula`;
   const args = [
     "run",
     "--isolated",

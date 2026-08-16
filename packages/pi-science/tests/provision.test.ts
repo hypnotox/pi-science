@@ -122,6 +122,21 @@ describe("eager provisioning", () => {
     expect(shared.cacheDir?.startsWith(repositoryRoot)).toBe(false);
   }, 120_000);
 
+  it("normalizes an SCP-style Git origin for uv", async () => {
+    const uv = await executable(
+      `process.stdout.write(${JSON.stringify(health)})`,
+    );
+    const state = await provision({
+      ...(await options(uv)),
+      repo: "git@github.com:hypnotox/pi-science.git",
+    });
+    expect(state).toMatchObject({ ready: true });
+    if (state.ready)
+      expect(state.args).toContain(
+        `py-science-formula @ git+ssh://git@github.com/hypnotox/pi-science.git@${revision}#subdirectory=packages/py-science-formula`,
+      );
+  });
+
   it("makes synchronized injected failures return identical diagnoses", async () => {
     const uv = await executable(`
       const fs=require("fs"),path=require("path");
