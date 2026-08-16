@@ -8,6 +8,22 @@ const MAX_DIAGNOSTIC_BYTES = 4_096;
 
 export type AnalysisRequest = { syntax: "sympy"; expression: string };
 export type BridgeResult = Record<string, unknown>;
+
+export function appendResponseChunk(
+  retained: Buffer,
+  chunk: Buffer,
+): { retained: Buffer; overflow: boolean } {
+  const remaining = MAX_RESPONSE_BYTES - retained.length;
+  if (chunk.length <= remaining)
+    return { retained: Buffer.concat([retained, chunk]), overflow: false };
+  return {
+    retained: Buffer.concat([
+      retained,
+      chunk.subarray(0, Math.max(remaining, 0)),
+    ]),
+    overflow: true,
+  };
+}
 export type BridgeFailureKind =
   | "environment"
   | "process"
@@ -126,7 +142,7 @@ export async function invokeAdapter(
     const child = spawnIsolated(command, args, {
       stdio: ["pipe", "pipe", "pipe"],
     });
-    let stdout = "";
+    let stdout: Buffer<ArrayBufferLike> = Buffer.alloc(0);
     let stderr = "";
     let settled = false;
     let cleaning = false;
@@ -167,8 +183,10 @@ export async function invokeAdapter(
       ),
     );
     child.stdout!.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString();
-      if (Buffer.byteLength(stdout) > MAX_RESPONSE_BYTES)
+      if (cleaning) return;
+      const appended = appendResponseChunk(stdout, chunk);
+      stdout = appended.retained;
+      if (appended.overflow)
         cleanup(
           "malformed-output",
           "formula adapter response exceeds its bound",
@@ -179,7 +197,7 @@ export async function invokeAdapter(
     });
     child.on("close", (code) => {
       if (cleaning || settled) return;
-      if (Buffer.byteLength(stdout) > MAX_RESPONSE_BYTES)
+      if (stdout.length > MAX_RESPONSE_BYTES)
         return finish(
           new BridgeError(
             "malformed-output",
@@ -194,7 +212,7 @@ export async function invokeAdapter(
           ),
         );
       try {
-        const envelope: unknown = JSON.parse(stdout);
+        const envelope: unknown = JSON.parse(stdout.toString("utf8"));
         if (
           !isRecord(envelope) ||
           !exactKeys(envelope, ["version", "result"]) ||

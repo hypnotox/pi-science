@@ -103,8 +103,15 @@ requires-python = ">=3.13,<3.14"
 dependencies = ["$python_source"]
 EOF
 UV_CACHE_DIR="$tmp/uv-persistent" uv sync --project "$persistent" --python 3.13 >/dev/null
-UV_CACHE_DIR="$tmp/uv-persistent" uv run --project "$persistent" python - <<'PY'
+EXPECTED_SHA="$sha" UV_CACHE_DIR="$tmp/uv-persistent" uv run --project "$persistent" python - <<'PY'
+import json
+import os
+from importlib.metadata import distribution
+
 from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+
+direct_url = json.loads(distribution("py-science-formula").read_text("direct_url.json"))
+assert direct_url["vcs_info"]["commit_id"] == os.environ["EXPECTED_SHA"]
 outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="n + 1"))
 assert outcome.operation_counts.additions == 1
 PY
@@ -116,11 +123,18 @@ cat >"$probe" <<EOF
 # requires-python = ">=3.13,<3.14"
 # dependencies = ["$python_source"]
 # ///
+import json
+import os
+from importlib.metadata import distribution
+
 from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+
+direct_url = json.loads(distribution("py-science-formula").read_text("direct_url.json"))
+assert direct_url["vcs_info"]["commit_id"] == os.environ["EXPECTED_SHA"]
 result = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x * (y + 1)"))
 assert result.operation_counts.multiplications == 1
 EOF
-UV_CACHE_DIR="$tmp/uv-probe" uv run "$probe" >/dev/null
+EXPECTED_SHA="$sha" UV_CACHE_DIR="$tmp/uv-probe" uv run "$probe" >/dev/null
 
 # Install through Pi's real project Git-package manager and interrogate the
 # noninteractive RPC host without making an LLM request.

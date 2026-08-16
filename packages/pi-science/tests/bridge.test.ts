@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  appendResponseChunk,
   BridgeError,
   invokeAdapter,
   MAX_EXPRESSION_BYTES,
@@ -176,6 +177,29 @@ describe("private formula bridge", () => {
     await expect(promise).rejects.toHaveProperty(
       "message",
       expect.stringMatching(/^formula adapter exited unsuccessfully/),
+    );
+  });
+
+  it("bounds retained output and cleans a resistant high-volume producer", async () => {
+    const retained = appendResponseChunk(
+      Buffer.from("prefix"),
+      Buffer.alloc(MAX_RESPONSE_BYTES * 4, "x"),
+    );
+    expect(retained.overflow).toBe(true);
+    expect(retained.retained.length).toBe(MAX_RESPONSE_BYTES);
+
+    await kind(
+      invokeAdapter(
+        node,
+        script(`
+          process.on("SIGTERM",()=>{});
+          const chunk=Buffer.alloc(${MAX_RESPONSE_BYTES},"x");
+          const flood=()=>{while(process.stdout.write(chunk)){};process.stdout.once("drain",flood)};
+          flood();setInterval(()=>{},1000);
+        `),
+        request(),
+      ),
+      "malformed-output",
     );
   });
 
