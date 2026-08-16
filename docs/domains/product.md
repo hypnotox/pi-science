@@ -12,6 +12,7 @@ The product domain governs what mathematical inputs pi-science accepts and what 
 [All topics](../topics/product/index.md)
 
 - [Analysis Report Contract](../topics/product/analysis-report-contract.md): Interpretation, qualification, and uncertainty requirements for analysis results.
+- [Mathematical Analysis Model](../topics/product/mathematical-analysis-model.md): The shared internal mathematical model and backend separation.
 - [Mathematical Input Contract](../topics/product/mathematical-input-contract.md): Safe mathematical syntax and request metadata rules.
 - [Product Boundary](../topics/product/product-boundary.md): The symbolic mathematical analysis scope and its exclusions.
 

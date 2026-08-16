@@ -23,6 +23,7 @@ Agents already formulate mathematics in LaTeX and SymPy conventions. The product
 
 - add `product/product-boundary:symbolic-analysis-only`
 - add `product/mathematical-input-contract:safe-familiar-inputs`
+- add `product/mathematical-analysis-model:shared-backend-independent-model`
 - add `product/analysis-report-contract:qualified-inspectable-results`
 
 ## Consequences

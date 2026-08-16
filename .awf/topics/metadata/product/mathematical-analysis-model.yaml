@@ -1,0 +1,4 @@
+title: Mathematical Analysis Model
+summary: The shared internal mathematical model and backend separation.
+paths:
+    - docs/architecture.md
