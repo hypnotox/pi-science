@@ -5,28 +5,17 @@ A deterministic pre-commit gate runs the project's checks. The documented lanes 
 
 <!-- awf:edit gate: from .awf/docs/parts/testing/gate.md -->
 ## Gate
-Run `./scripts/check` before every commit. It runs, in order:
-
-1. pytest formula-analysis end-to-end behavior and safety checks;
-2. Pyright strict static type checking;
-3. Ruff source linting;
-4. `./awf check` for repository authority and generated-output drift.
-
-The script uses the locked uv environment and stops at the first failure.
+Run `./scripts/check` before every commit. It runs Python pytest, Pyright, Ruff, Pi TypeScript lint/type checks, Pi formatting and Vitest tests, then `./awf check`. The gate stops at its first failure.
 
 
 <!-- awf:edit tiers: from .awf/docs/parts/testing/tiers.md -->
 ## Tiers and lanes
-- **Focused application tests:** `uv run --locked pytest tests/e2e/test_formula_analysis.py`.
-- **Application suite:** `uv run --locked pytest`.
+- **Focused Python tests:** `uv run --locked pytest`.
+- **Focused Pi tests:** `npm run test:pi`.
 - **Complete gate:** `./scripts/check`.
-
-There is no separate extended tier. Add one only when an executable workload cannot remain in the deterministic complete gate.
 
 
 <!-- awf:edit layout: from .awf/docs/parts/testing/layout.md -->
 ## Layout and test shape
-`tests/e2e/test_formula_analysis.py` exercises the public typed `analyze()` boundary from `py_science.formula`. It covers strict contracts, normalized interpretation, submitted arithmetic counts, signed integer semantics, malformed syntax, deny-by-default grammar rejection, non-execution of submitted Python, deterministic results, and consumer-facing resource limits.
-
-`tests/unit/test_error_translation.py` proves that the SymPy adapter preserves backend causes and that the service translates only its named adapter failure. `tests/distribution/test_python_package.py` builds the wheel, inspects its package and license contents, installs it into a fresh Python 3.13 environment outside the source tree, rejects the retired `pi_science` import, and proves coexistence with another implicit `py_science` namespace member. Add other focused unit tests only when an isolated policy needs clearer evidence. Extend the end-to-end suite as LaTeX, indexed-domain aggregation, scenarios, dependencies, comparisons, rewrites, and unresolved-result behavior become executable.
+Python tests cover the transport-free public formula API and distribution. `packages/pi-science/tests/` covers versioned successful and rejected bridge responses and proves disabled startup registers no analysis tool while retaining the diagnostic command. Provisioning tests use controlled executable paths and shared-cache barriers to cover healthy and failed concurrent starts without modifying the checkout.
 

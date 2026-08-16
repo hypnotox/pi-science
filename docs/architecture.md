@@ -3,66 +3,41 @@
 
 <!-- awf:edit overview: from .awf/docs/parts/architecture/overview.md -->
 ## Overview
-The repository contains the independently importable `py-science-formula` Python 3.13 distribution. Its `py_science.formula` typed in-process API safely parses a small restricted-SymPy arithmetic grammar into a backend-independent expression tree, counts submitted operations, and returns normalized SymPy and LaTeX interpretations. It analyzes formulas but does not evaluate them to produce their represented values.
+The repository contains the independently importable `py-science-formula` Python 3.13 distribution and the aggregate `pi-science` Pi package. Formula parsing, expression representation, policy, and SymPy rendering remain transport-free behind `py_science.formula`. Pi reaches that API only through its private versioned JSON subprocess adapter.
 
-[Vision](vision.md) owns the product boundary, [Analysis Model](analysis-model.md) owns the request and report direction plus the exact implemented subset, and [Roadmap](roadmap.md) owns uncommitted expansion work.
+At extension startup Pi provisions an isolated, immutable-revision uv environment outside its checkout. It registers formula analysis only after that readiness check; otherwise only its diagnostic command remains available. [Vision](vision.md) owns the product boundary, [Analysis Model](analysis-model.md) owns the request and report direction, and [Roadmap](roadmap.md) owns uncommitted expansion work.
 
 
 <!-- awf:edit components: from .awf/docs/parts/architecture/components.md -->
 ## Components
-- `packages/py-science-formula/src/py_science/formula/models.py`: strict Pydantic analysis request, result, and error contracts.
-- `packages/py-science-formula/src/py_science/formula/expressions.py`: backend-independent typed expression tree.
-- `packages/py-science-formula/src/py_science/formula/parser.py`: allowlisted restricted-SymPy parser built on Python expression AST inspection.
-- `packages/py-science-formula/src/py_science/formula/analyzer.py`: submitted-operation counting and abstract-work aggregation.
-- `packages/py-science-formula/src/py_science/formula/sympy_backend.py`: validated-tree translation and normalized rendering.
-- `packages/py-science-formula/src/py_science/formula/service.py`: public analysis orchestration.
-- `tests/e2e/`: public-interface behavior and safety evidence.
-- `scripts/check`: application and awf project gate.
-- `.awf/` and `docs/`: authored workflow configuration and rendered project documentation.
-
-LaTeX parsing, richer SymPy constructs, symbolic aggregation, scenarios, dependencies, comparisons, rewrites, formula-to-code, and an agent skill remain planned components. See [Roadmap](roadmap.md).
+- `packages/py-science-formula/src/py_science/formula/`: independently importable typed formula-analysis API.
+- `packages/pi-science/bridge/formula_adapter.py`: private, versioned JSON-line Python adapter.
+- `packages/pi-science/src/provision.ts`: eager isolated-uv readiness gate.
+- `packages/pi-science/src/bridge.ts`: bounded subprocess protocol client and diagnostic translation.
+- `packages/pi-science/src/index.ts`: Pi tool and always-available doctor registration.
+- `packages/pi-science/tests/`: bridge and readiness-gate regression evidence.
 
 
 <!-- awf:edit data-flow: from .awf/docs/parts/architecture/data-flow.md -->
 ## Data flow
-The implemented formula-analysis flow is:
+The formula-analysis flow is:
 
 ```text
-typed analysis request
-    |
-    v
-strict Pydantic contract
-    |
-    v
-deterministic resource budget
-    |
-    v
-allowlisted syntax parser --> typed expression tree --> operation analyzer
-                                      |
-                                      v
-                                SymPy adapter
-                                      |
-                                      v
-                         typed analysis success or failure
+Pi tool -> readiness gate -> versioned JSON adapter -> py_science.formula -> typed analysis outcome
 ```
 
-Submitted text is inspected as Python expression syntax but never evaluated. Input size, tree size, nesting, and integer literals are bounded before conversion. Only validated expression-tree nodes reach SymPy, and powers are constructed without eager evaluation. Parsing and analysis do not depend on the SymPy representation, and transport semantics remain outside the formula-analysis package.
-
-The broader multi-frontend analysis flow remains defined by [Vision](vision.md) and [Analysis Model](analysis-model.md).
+The adapter owns process, timeout, bounded-output, malformed-message, and protocol diagnostics; the Python API remains transport-free. Startup uses `uv run --isolated --no-project` with the immutable repository revision and a user cache, so mutable environments never enter the managed Pi checkout. Failed provisioning withholds analysis surfaces rather than advertising a later-failing capability.
 
 
 <!-- awf:edit dependencies: from .awf/docs/parts/architecture/dependencies.md -->
 ## Key dependencies
 | Dependency | Role |
 |---|---|
-| Python 3.13 | Application runtime. |
-| Pydantic v2 | Strict typed request and result validation. |
-| SymPy | Normalized symbolic and LaTeX rendering after validation. |
-| uv | Python provisioning, dependency locking, and command execution. |
-| pytest | End-to-end application tests. |
-| Pyright | Strict static type checking. |
-| Ruff | Python linting. |
+| Python 3.13 | Formula analysis runtime. |
+| uv | Isolated Pi backend provisioning and workspace commands. |
+| Pydantic v2 / SymPy | Formula contracts and normalized rendering. |
+| Pi host API | Aggregate tool and diagnostic-command host (peer dependency). |
+| TypeScript / Vitest / ESLint / Prettier | Pi bridge checking and tests. |
 | awf | Generates and verifies workflow and documentation state. |
-| Git | Versions authoritative project state. |
 
-The root `pyproject.toml` declares workspace development dependencies; `packages/py-science-formula/pyproject.toml` declares the package runtime dependencies; `uv.lock` pins the workspace resolution. Frontend safety and the internal expression model do not depend on evaluating submitted text or exposing SymPy as the public protocol.
+The root manifest resolves Pi production and development dependencies; `packages/py-science-formula/pyproject.toml` retains formula runtime dependencies.

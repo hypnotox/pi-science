@@ -16,7 +16,7 @@ You are a developer on `pi-science`, responsible for its long-term health as wel
 
 <!-- awf:edit identity: from .awf/parts/agents-doc/identity.md -->
 ## Identity
-`pi-science` is an early-stage deterministic mathematical analysis layer for coding agents. Its first runtime slice is the independently importable `py-science-formula` distribution, whose `py_science.formula` typed interface safely parses restricted-SymPy arithmetic and reports normalized interpretation and submitted-operation counts without evaluating the represented formula. The broader product adds LaTeX, metadata, symbolic scaling, bounds, dependencies, improvement opportunities, and unresolved quantities before implementation; experiment orchestration, implementation benchmarking, dataset statistics, physical validation, and formula-to-code remain outside the current boundary.
+`pi-science` provides a transport-free `py-science-formula` typed Python analysis API and an aggregate Pi package. Pi eagerly validates an isolated uv backend and exposes formula analysis only while ready; its diagnostic command remains available when provisioning fails.
 
 
 <!-- awf:edit invariants: default; create .awf/parts/agents-doc/invariants.md to override -->

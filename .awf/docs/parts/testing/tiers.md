@@ -1,5 +1,3 @@
-- **Focused application tests:** `uv run --locked pytest tests/e2e/test_formula_analysis.py`.
-- **Application suite:** `uv run --locked pytest`.
+- **Focused Python tests:** `uv run --locked pytest`.
+- **Focused Pi tests:** `npm run test:pi`.
 - **Complete gate:** `./scripts/check`.
-
-There is no separate extended tier. Add one only when an executable workload cannot remain in the deterministic complete gate.

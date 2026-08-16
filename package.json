@@ -1,0 +1,34 @@
+{
+  "name": "pi-science",
+  "version": "0.1.0",
+  "description": "Fail-closed formula analysis integration for Pi",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": "./packages/pi-science/src/index.ts",
+  "scripts": {
+    "test:pi": "vitest run",
+    "check:pi": "tsc --noEmit && eslint packages/pi-science/src packages/pi-science/tests",
+    "format:pi": "prettier --check packages/pi-science"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "^0.73.1"
+  },
+  "devDependencies": {
+    "@mariozechner/pi-coding-agent": "^0.73.1",
+    "@types/node": "^22.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^3.0.0"
+  },
+  "keywords": [
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "packages/pi-science/src/index.ts"
+    ]
+  }
+}

@@ -16,7 +16,7 @@ dev = [
 ]
 
 [tool.uv.workspace]
-members = ["packages/*"]
+members = ["packages/py-science-formula"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

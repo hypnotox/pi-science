@@ -1,7 +1,1 @@
-Install [uv](https://docs.astral.sh/uv/), then provision the pinned Python and locked environment from a fresh checkout:
-
-```bash
-uv sync --locked
-```
-
-uv installs the Python version named by `.python-version`. No Poetry or pyenv setup is required.
+Install uv and Node, then run `uv sync --locked` and `npm install`. The Pi extension eagerly invokes its isolated uv backend at startup. A cold cache needs Git, network, Python 3.13, and the pinned revision; restart Pi after repairing any prerequisite.

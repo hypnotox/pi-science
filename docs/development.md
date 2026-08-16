@@ -3,31 +3,15 @@
 
 <!-- awf:edit setup: from .awf/docs/parts/development/setup.md -->
 ## Setup
-Install [uv](https://docs.astral.sh/uv/), then provision the pinned Python and locked environment from a fresh checkout:
-
-```bash
-uv sync --locked
-```
-
-uv installs the Python version named by `.python-version`. No Poetry or pyenv setup is required.
+Install uv and Node, then run `uv sync --locked` and `npm install`. The Pi extension eagerly invokes its isolated uv backend at startup. A cold cache needs Git, network, Python 3.13, and the pinned revision; restart Pi after repairing any prerequisite.
 
 
 <!-- awf:edit command-runner: from .awf/docs/parts/development/command-runner.md -->
 ## Command runner
-Use these repository commands:
-
-- `./scripts/check`: run the complete application and repository gate.
-- `uv run --locked pytest`: run the application test suite.
-- `uv run --locked pyright`: run strict static type checking.
-- `uv run --locked ruff check packages/py-science-formula/src tests`: run Python linting.
-- `./awf render`: regenerate managed workflow and documentation artifacts.
-- `./awf check`: verify awf-managed repository authority and drift.
-- `./awf version`: report the resolved awf version.
+Use `./scripts/check` for the combined Python, TypeScript, formatting, test, and awf gate. Focused commands are `uv run --locked pytest` and `npm run check:pi`, `npm run format:pi`, or `npm run test:pi`. Run `./awf render` after changing `.awf/` sources and `./awf check` to diagnose managed drift.
 
 
 <!-- awf:edit dependencies: from .awf/docs/parts/development/dependencies.md -->
 ## Dependencies
-The root `pyproject.toml` defines the uv workspace and development dependencies; `packages/py-science-formula/pyproject.toml` defines the independently buildable formula-analysis distribution and its runtime dependencies. `uv.lock` is the reproducible workspace resolution. Use `uv add` or `uv add --dev` at the applicable workspace member, then stage its manifest and the lockfile together.
-
-The formula runtime uses Pydantic v2 and SymPy. The root development group supplies pytest, Pyright, and Ruff. Python 3.13 is pinned in `.python-version`.
+The root `pyproject.toml` and `uv.lock` define the Python workspace. Root `package.json` and `package-lock.json` define the Pi package; Pi host types are a peer dependency and available to development checks. The formula backend is provisioned separately by uv from an immutable Git revision, with `UV_CACHE_DIR` under the user cache rather than the Pi checkout.
 

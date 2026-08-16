@@ -1,4 +1,4 @@
-The repository develops independently importable Python analysis packages alongside its future Pi integration.
+The repository develops independently importable Python analysis packages alongside its aggregate Pi integration.
 
 ## Claims
 
@@ -12,4 +12,9 @@ Origin: ADR-separate-reusable-analysis-packages-from-pi-integration
 
 ### `rule: python-313-runtime`
 The pre-1.0 Python analysis packages support Python 3.13.
+Origin: ADR-separate-reusable-analysis-packages-from-pi-integration
+
+
+### `rule: fail-closed-pi-provisioning`
+Pi eagerly provisions and validates an isolated uv environment from an immutable source revision. It exposes formula tools only after readiness succeeds; failure emits one actionable diagnostic and retains the diagnostic command without analysis tools. Mutable cache and environment state live outside Pi's managed checkout.
 Origin: ADR-separate-reusable-analysis-packages-from-pi-integration

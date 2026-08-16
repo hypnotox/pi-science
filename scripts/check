@@ -10,5 +10,9 @@ printf '==> pyright\n'
 uv run --locked pyright
 printf '==> ruff\n'
 uv run --locked ruff check packages/py-science-formula/src tests
+printf '==> Pi TypeScript\n'
+npm run check:pi
+npm run format:pi
+npm run test:pi
 printf '==> awf\n'
 ./awf check

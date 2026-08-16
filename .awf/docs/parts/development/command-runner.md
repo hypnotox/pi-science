@@ -1,9 +1,1 @@
-Use these repository commands:
-
-- `./scripts/check`: run the complete application and repository gate.
-- `uv run --locked pytest`: run the application test suite.
-- `uv run --locked pyright`: run strict static type checking.
-- `uv run --locked ruff check packages/py-science-formula/src tests`: run Python linting.
-- `./awf render`: regenerate managed workflow and documentation artifacts.
-- `./awf check`: verify awf-managed repository authority and drift.
-- `./awf version`: report the resolved awf version.
+Use `./scripts/check` for the combined Python, TypeScript, formatting, test, and awf gate. Focused commands are `uv run --locked pytest` and `npm run check:pi`, `npm run format:pi`, or `npm run test:pi`. Run `./awf render` after changing `.awf/` sources and `./awf check` to diagnose managed drift.
