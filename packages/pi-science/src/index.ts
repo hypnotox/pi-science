@@ -9,7 +9,6 @@ import { invokeAdapter, MAX_EXPRESSION_BYTES } from "./bridge.js";
 import { provision, type Readiness } from "./provision.js";
 
 const SHA = /^[0-9a-f]{40}$/;
-const REPOSITORY_URL = "https://github.com/hypnotox/pi-science.git";
 const PRODUCT_SKILLS = fileURLToPath(new URL("../skills", import.meta.url));
 const formulaSchema = Type.Object(
   {
@@ -21,20 +20,34 @@ const formulaSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export function resolvePinnedRevision(
+export type PinnedSource = { revision: string; repo: string };
+
+export function resolvePinnedSource(
   repositoryRoot: string,
   git = "git",
-): string | undefined {
+): PinnedSource | undefined {
   try {
     const revision = execFileSync(
       git,
       ["-C", repositoryRoot, "rev-parse", "--verify", "HEAD^{commit}"],
       { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
     ).trim();
-    return SHA.test(revision) ? revision : undefined;
+    const repo = execFileSync(
+      git,
+      ["-C", repositoryRoot, "config", "--get", "remote.origin.url"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    ).trim();
+    return SHA.test(revision) && repo ? { revision, repo } : undefined;
   } catch {
     return undefined;
   }
+}
+
+export function resolvePinnedRevision(
+  repositoryRoot: string,
+  git = "git",
+): string | undefined {
+  return resolvePinnedSource(repositoryRoot, git)?.revision;
 }
 
 function toolResult(result: Record<string, unknown>) {
@@ -104,11 +117,12 @@ export default async function extension(pi: ExtensionAPI): Promise<void> {
   const adapter = fileURLToPath(
     new URL("../bridge/formula_adapter.py", import.meta.url),
   );
+  const source = resolvePinnedSource(repositoryRoot);
   await start(
     pi,
     provision({
-      revision: resolvePinnedRevision(repositoryRoot) ?? "",
-      repo: REPOSITORY_URL,
+      revision: source?.revision ?? "",
+      repo: source?.repo ?? "",
       adapter,
       checkoutRoot: repositoryRoot,
     }),

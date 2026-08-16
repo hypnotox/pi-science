@@ -4,7 +4,11 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { resolvePinnedRevision, start } from "../src/index.js";
+import {
+  resolvePinnedRevision,
+  resolvePinnedSource,
+  start,
+} from "../src/index.js";
 
 const repositoryRoot = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -164,9 +168,14 @@ describe("readiness gate", () => {
     }
   });
 
-  it("derives only a full commit from the installed repository checkout", async () => {
+  it("derives the full commit and origin from the installed repository checkout", async () => {
     expect(resolvePinnedRevision(repositoryRoot)).toMatch(/^[0-9a-f]{40}$/);
+    expect(resolvePinnedSource(repositoryRoot)).toEqual({
+      revision: expect.stringMatching(/^[0-9a-f]{40}$/),
+      repo: expect.stringContaining("pi-science"),
+    });
     const nonRepository = await mkdtemp(join(tmpdir(), "pi-science-no-git-"));
     expect(resolvePinnedRevision(nonRepository)).toBeUndefined();
+    expect(resolvePinnedSource(nonRepository)).toBeUndefined();
   });
 });

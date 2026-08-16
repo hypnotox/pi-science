@@ -194,7 +194,7 @@ describe("eager provisioning", () => {
     const uv = await executable(
       `const fs=require("fs"),cp=require("child_process");const child=cp.spawn(process.execPath,["-e",\`process.on("SIGTERM",()=>{});setInterval(()=>{},1000)\`],{stdio:"ignore"});fs.writeFileSync(${JSON.stringify(pidFile)},String(child.pid));process.on("SIGTERM",()=>{});setInterval(()=>{},1000)`,
     );
-    const promise = provision({ ...(await options(uv)), timeoutMs: 20 });
+    const promise = provision({ ...(await options(uv)), timeoutMs: 250 });
     const pid = await readRecordedPid(pidFile);
     try {
       await expect(promise).resolves.toMatchObject({

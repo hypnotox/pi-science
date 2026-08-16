@@ -549,8 +549,8 @@
     "docs/releasing.md": {
       "templateId": "docs/releasing.md.tmpl",
       "templateHash": "sha256:0683f8ceca62d4c5c91ce1058d1e2970f4336aced06b298b7ea3ef8cc328d78c",
-      "configHash": "sha256:7d4ce99169c6ad00d22d97c63be7ca5358cebb73e55618a337f32b4b8ea6fa7c",
-      "outputHash": "sha256:41253b40ff6a632431c88cc346957f001d87919656eb7eb1b28b79a53c1bdf7a"
+      "configHash": "sha256:dfff6b23de957da46a813a21ba41db68b5a3738d51406011721966d15f1ae1b5",
+      "outputHash": "sha256:36571aa0ab336392b0ea79a745a2a4d2f5ca128653c1b2e81cba9813cb40d572"
     },
     "docs/roadmap.md": {
       "templateId": "docs/roadmap.md.tmpl",
