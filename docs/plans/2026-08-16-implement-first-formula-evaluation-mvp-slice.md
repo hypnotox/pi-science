@@ -2,7 +2,7 @@
 format: plan-v2
 date: 2026-08-16
 adrs: [0001]
-status: Proposed
+status: Implemented
 ---
 # Plan: Implement First Formula Evaluation MVP Slice
 
