@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-_No decisions are in flight._
+- [ADR-adopt-compositional-indexed-equation-analysis: Adopt compositional indexed equation analysis](adopt-compositional-indexed-equation-analysis.md) (Proposed)
 
 ## History
 
