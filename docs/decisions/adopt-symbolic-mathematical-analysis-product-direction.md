@@ -1,0 +1,43 @@
+---
+format: current-state-v4
+slug: adopt-symbolic-mathematical-analysis-product-direction
+status: Proposed
+date: 2026-08-16
+---
+# ADR-adopt-symbolic-mathematical-analysis-product-direction: Adopt symbolic mathematical analysis product direction
+
+## Context
+
+Coding agents can propose plausible algorithms without a deterministic way to inspect their mathematical structure, derive symbolic cost, or understand parameter sensitivity before implementation. The project's previous evidence-workbench direction centered experiment execution, benchmarking, profiling, and verdicts, which does not address that reasoning seam.
+
+Agents already formulate mathematics in LaTeX and SymPy conventions. The product must analyze those formulations without inferring them from source code, executing implementations, or silently inventing missing assumptions and costs.
+
+## Decision
+
+1. `decision: symbolic-analysis-product-boundary` pi-science is an agent-facing deterministic mathematical analysis tool. It accepts agent-formulated symbolic or formula-oriented computations and reports their mathematical cost, structure, scaling, bounds, improvement opportunities, and unresolved quantities. Dataset statistics, source-to-model inference, experiment execution, implementation benchmarking, physical validation, and code generation are outside this product boundary.
+2. `decision: familiar-safe-mathematical-inputs` The agent-facing inputs are familiar LaTeX and a safely parsed restricted subset of actual SymPy conventions, accompanied by explicit metadata for domains, assumptions, scenarios, and opaque primitive costs. Submitted syntax is data and must not permit arbitrary Python evaluation.
+3. `decision: inspectable-qualified-analysis` Analysis reports include the normalized interpretation actually analyzed and distinguish exact results, assumption-dependent results, conservative bounds, conditional rewrites, and unresolved quantities. The analyzer must not silently fix a scaling variable, invent an unknown cost, or present sampling as a mathematical bound.
+
+## State changes
+
+None.
+
+## Consequences
+
+Agents gain a deterministic feedback loop between mathematical planning and implementation. A common normalized representation can support operation counting, symbolic complexity, scenarios, dependency and reuse analysis, candidate comparison, and qualified rewrite suggestions across both input formats.
+
+The analyzer depends on agents making domains, assumptions, and opaque costs explicit. Incomplete submissions therefore produce symbolic unknowns or qualified bounds rather than fabricated precision. Restricting the frontends reduces language coverage but creates a safe and inspectable protocol.
+
+The former experiment and evidence workbench direction is retired rather than retained as a parallel product surface.
+
+## Alternatives Considered
+
+| Alternative | Why not chosen |
+|---|---|
+| Retain the scientific experiment and evidence workbench | It evaluates implementations and empirical claims rather than strengthening the agent's mathematical formulation before code exists. |
+| Infer a mathematical model from source or an algorithm description | Formulation remains the agent's responsibility; inference would add ambiguity outside the intended reasoning seam. |
+| Introduce a bespoke mathematical language | LaTeX and SymPy conventions are already familiar to agents and avoid an unnecessary public language. |
+
+## Status history
+
+- 2026-08-16: Proposed
