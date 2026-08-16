@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import ast
+import io
+import re
+import tokenize
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -33,6 +36,8 @@ MAX_INPUT_BYTES = 65_536
 MAX_EXPRESSION_NODES = 4_096
 MAX_EXPRESSION_DEPTH = 128
 MAX_INTEGER_BITS = 3_402
+MAX_DECIMAL_INTEGER_DIGITS = 1_024
+_DECIMAL_INTEGER = re.compile(r"(?:0|[1-9](?:_?[0-9])*)\Z")
 
 
 def parse_expression(source: str) -> ParseResult:
@@ -56,6 +61,10 @@ def parse_expression(source: str) -> ParseResult:
             column=None,
         )
 
+    integer_failure = _validate_decimal_integer_tokens(source)
+    if integer_failure is not None:
+        return integer_failure
+
     try:
         parsed = ast.parse(source, mode="eval")
         complexity_failure = _validate_complexity(parsed.body)
@@ -76,6 +85,23 @@ def parse_expression(source: str) -> ParseResult:
             line=None,
             column=None,
         )
+
+
+def _validate_decimal_integer_tokens(source: str) -> ParseFailure | None:
+    try:
+        tokens = tokenize.generate_tokens(io.StringIO(source).readline)
+        for token in tokens:
+            if (
+                token.type == tokenize.NUMBER
+                and _DECIMAL_INTEGER.fullmatch(token.string) is not None
+                and sum(character.isdigit() for character in token.string)
+                > MAX_DECIMAL_INTEGER_DIGITS
+            ):
+                return _integer_too_large(token.start[0], token.start[1])
+    except (IndentationError, tokenize.TokenError):
+        # ast.parse remains authoritative for malformed syntax and its location.
+        return None
+    return None
 
 
 def _validate_complexity(root: ast.expr) -> ParseFailure | None:
@@ -101,26 +127,52 @@ def _validate_complexity(root: ast.expr) -> ParseFailure | None:
                 line=None,
                 column=None,
             )
-        if (
-            isinstance(node, ast.Constant)
-            and type(node.value) is int
-            and node.value.bit_length() > MAX_INTEGER_BITS
-        ):
-            return ParseFailure(
-                kind=ParseFailureKind.TOO_COMPLEX,
-                message=(
-                    "integer literal exceeds the maximum size of approximately "
-                    "1024 decimal digits"
-                ),
-                line=node.lineno,
-                column=node.col_offset,
+        integer = _integer_value(node)
+        if integer is not None and integer.bit_length() > MAX_INTEGER_BITS:
+            return _integer_too_large(
+                getattr(node, "lineno", None),
+                getattr(node, "col_offset", None),
             )
-        stack.extend(
-            (child, depth + 1)
-            for child in ast.iter_child_nodes(node)
-            if isinstance(child, ast.expr)
-        )
+        stack.extend((child, depth + 1) for child in _complexity_children(node))
     return None
+
+
+def _complexity_children(node: ast.expr) -> tuple[ast.expr, ...]:
+    if (
+        isinstance(node, ast.UnaryOp)
+        and isinstance(node.op, (ast.UAdd, ast.USub))
+        and isinstance(node.operand, ast.Constant)
+        and type(node.operand.value) is int
+    ):
+        return ()
+    return tuple(
+        child for child in ast.iter_child_nodes(node) if isinstance(child, ast.expr)
+    )
+
+
+def _integer_value(node: ast.expr) -> int | None:
+    if isinstance(node, ast.Constant) and type(node.value) is int:
+        return node.value
+    if (
+        isinstance(node, ast.UnaryOp)
+        and isinstance(node.op, (ast.UAdd, ast.USub))
+        and isinstance(node.operand, ast.Constant)
+        and type(node.operand.value) is int
+    ):
+        return node.operand.value
+    return None
+
+
+def _integer_too_large(line: int | None, column: int | None) -> ParseFailure:
+    return ParseFailure(
+        kind=ParseFailureKind.TOO_COMPLEX,
+        message=(
+            "integer literal exceeds the maximum size of approximately "
+            "1024 decimal digits"
+        ),
+        line=line,
+        column=column,
+    )
 
 
 def _convert(node: ast.expr) -> ParseResult:

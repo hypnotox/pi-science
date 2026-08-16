@@ -139,6 +139,25 @@ def test_numeric_powers_are_normalized_without_eager_exponentiation() -> None:
 
 
 @pytest.mark.parametrize(
+    "expression",
+    [
+        "2**100000 + x",
+        "2**100000 - x",
+        "2**100000 * x",
+        "2**100000 / x",
+        "(2**100000)**x",
+    ],
+)
+def test_compound_numeric_powers_remain_unevaluated(expression: str) -> None:
+    request = EvaluationRequest(syntax=FormulaSyntax.SYMPY, expression=expression)
+
+    outcome = evaluate(request)
+
+    assert isinstance(outcome, EvaluationSuccess)
+    assert "2**100000" in outcome.interpretation.normalized_sympy
+
+
+@pytest.mark.parametrize(
     ("expression", "normalized"),
     [("-1", "-1"), ("+1", "1"), ("- 1", "-1"), ("-(1)", "-1")],
 )
@@ -276,17 +295,47 @@ def test_excessive_nesting_reports_the_public_depth_limit() -> None:
     assert outcome.error.message == "expression nesting exceeds the maximum depth of 128"
 
 
-def test_internal_node_budget_uses_a_generic_consumer_message() -> None:
-    expressions = ["x"] * 2_049
-    while len(expressions) > 1:
+def _balanced_sum(terms: list[str]) -> str:
+    while len(terms) > 1:
         paired = [
-            f"({expressions[index]}+{expressions[index + 1]})"
-            for index in range(0, len(expressions) - 1, 2)
+            f"({terms[index]}+{terms[index + 1]})"
+            for index in range(0, len(terms) - 1, 2)
         ]
-        if len(expressions) % 2:
-            paired.append(expressions[-1])
-        expressions = paired
-    request = EvaluationRequest(syntax=FormulaSyntax.SYMPY, expression=expressions[0])
+        if len(terms) % 2:
+            paired.append(terms[-1])
+        terms = paired
+    return terms[0]
+
+
+def test_internal_node_budget_uses_a_generic_consumer_message() -> None:
+    request = EvaluationRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression=_balanced_sum(["x"] * 2_049),
+    )
+
+    outcome = evaluate(request)
+
+    assert isinstance(outcome, EvaluationFailure)
+    assert outcome.error.code is EvaluationErrorCode.EXPRESSION_TOO_COMPLEX
+    assert outcome.error.message == "expression is too complex"
+
+
+def test_signed_literals_count_as_one_internal_node() -> None:
+    request = EvaluationRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression=_balanced_sum(["-1"] * 2_048),
+    )
+
+    outcome = evaluate(request)
+
+    assert isinstance(outcome, EvaluationSuccess)
+
+
+def test_signed_literals_still_respect_the_internal_node_budget() -> None:
+    request = EvaluationRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression=_balanced_sum(["-1"] * 2_049),
+    )
 
     outcome = evaluate(request)
 
@@ -297,6 +346,18 @@ def test_internal_node_budget_uses_a_generic_consumer_message() -> None:
 
 def test_oversized_integer_reports_the_public_literal_limit() -> None:
     request = EvaluationRequest(syntax=FormulaSyntax.SYMPY, expression="9" * 1_025)
+
+    outcome = evaluate(request)
+
+    assert isinstance(outcome, EvaluationFailure)
+    assert outcome.error.code is EvaluationErrorCode.EXPRESSION_TOO_COMPLEX
+    assert outcome.error.message == (
+        "integer literal exceeds the maximum size of approximately 1024 decimal digits"
+    )
+
+
+def test_integer_above_python_parser_limit_reports_the_public_literal_limit() -> None:
+    request = EvaluationRequest(syntax=FormulaSyntax.SYMPY, expression="9" * 5_000)
 
     outcome = evaluate(request)
 

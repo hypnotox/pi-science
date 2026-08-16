@@ -30,6 +30,10 @@ class SympyPowerConstructor(Protocol):
     ) -> SympyExpression: ...
 
 
+class SympyUnevaluatedConstructor(Protocol):
+    def __call__(self, expression: object) -> SympyExpression: ...
+
+
 class NormalizationError(RuntimeError):
     pass
 
@@ -70,4 +74,5 @@ def _to_sympy(expression: Expression) -> SympyExpression:
             return left / right
         case BinaryOperator.POWER:
             power = cast(SympyPowerConstructor, sympy.Pow)
-            return power(left, right, evaluate=False)
+            unevaluated = cast(SympyUnevaluatedConstructor, sympy.UnevaluatedExpr)
+            return unevaluated(power(left, right, evaluate=False))
