@@ -20,8 +20,9 @@ project-scoped package from such a pin, while Python environments must continue 
 dependencies independently of Pi's managed checkout.
 
 The product boundary remains abstract mathematical analysis. It may calculate metrics about a
-formula, but it does not evaluate the formula to produce the value the formula represents, translate
-it into an implementation in the current scope, or claim measured application performance.
+formula, but it does not evaluate the formula to produce the value the formula represents or claim
+measured application performance. Formula-to-code translation is outside the current scope without
+being foreclosed as a future product direction.
 
 ## Decision
 
@@ -30,7 +31,8 @@ it into an implementation in the current scope, or claim measured application pe
 3. `decision: pinned-public-source-distribution` The public GitHub repository is the distribution source. A repository release identifies a compatible snapshot of the Pi integration, its guidance, and the Python distributions; Pi and direct Python environments declare their own pinned source dependencies rather than importing through one another's managed environments.
 4. `decision: eager-fail-closed-provisioning` The Pi integration eagerly provisions and validates an isolated Python analysis environment through `uv`. If its prerequisites or analysis environment are unavailable, it warns clearly and withholds analysis tools and availability-dependent guidance while retaining a diagnostic recovery path.
 5. `decision: agpl-only-distribution` The repository's Pi and Python packages are distributed under AGPL-3.0-only.
-6. `decision: analysis-not-formula-evaluation` Formula analysis may calculate abstract analysis metrics but does not evaluate a submitted formula to produce the value it represents. Formula-to-pseudocode or implementation lowering remains a possible future concern outside the current formula package scope.
+6. `decision: analysis-not-formula-evaluation` Formula analysis may calculate abstract analysis metrics but does not evaluate a submitted formula to produce the value it represents. A formula-to-code pipeline remains an open future direction outside the current formula package scope; its eventual package boundary and guarantees are undecided.
+7. `decision: python-313-runtime` The Python analysis distributions support Python 3.13 for the current pre-1.0 line.
 
 ## State changes
 
@@ -38,6 +40,7 @@ it into an implementation in the current scope, or claim measured application pe
 - add `product/distribution-model:pinned-public-source`
 - add `product/distribution-model:fail-closed-pi-provisioning`
 - add `product/distribution-model:agpl-only`
+- add `product/distribution-model:python-313-runtime`
 - update `product/product-boundary:symbolic-analysis-only`
 
 ## Consequences
@@ -50,7 +53,9 @@ Adopters who use both surfaces repeat the source pin in Pi and Python configurat
 environment owns its dependencies. The Pi integration also gains an eager startup cost and an
 explicit dependency on `uv`, but it fails before advertising unavailable tools rather than producing
 partial results later. Supporting multiple distributions adds packaging, compatibility, and
-clean-install verification work.
+clean-install verification work. A shared repository snapshot also couples releases: changes to the
+bridge, guidance, or Python packages require coordinated compatibility validation even though the
+Python distributions retain separate import boundaries.
 
 The current Python import is replaced without a compatibility shim. Concrete layouts, subprocess
 protocol details, cache placement, and migration order remain implementation choices rather than
@@ -64,6 +69,8 @@ permanent architecture.
 | Keep one Python distribution named `pi-science` | It preserves the integration/core conflation and gives future independent concerns no clear package boundary. |
 | Split every parser, model, and backend into its own distribution | Those components evolve together as one formula-analysis concern and would create tightly coupled micro-packages. |
 | Publish first through PyPI or npm | Public pinned Git source already serves the expected adopters without additional registry operations. |
+| Use separate repositories | The expected scope does not justify duplicating release coordination while the bridge and analysis packages evolve together. |
+| Version every package independently | One compatible snapshot gives pre-1.0 adopters a simpler pin and makes cross-package validation explicit. |
 | Provision on the first tool call | Lazy failure would advertise capabilities whose prerequisites have not been validated. |
 
 ## Status history
