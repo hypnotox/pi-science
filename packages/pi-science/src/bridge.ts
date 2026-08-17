@@ -268,6 +268,7 @@ export function appendResponseChunk(
 export type BridgeFailureKind =
   | "environment"
   | "process"
+  | "request"
   | "timeout"
   | "cancelled"
   | "malformed-output"
@@ -283,6 +284,22 @@ export class BridgeError extends Error {
 
 export function decodeUtf8Strict(value: Uint8Array): string {
   return new TextDecoder("utf-8", { fatal: true }).decode(value);
+}
+
+function requestErrorMessage(envelope: unknown): string | undefined {
+  if (
+    !isRecord(envelope) ||
+    !exactKeys(envelope, ["version", "error"]) ||
+    envelope.version !== PROTOCOL_VERSION ||
+    !isRecord(envelope.error) ||
+    !exactKeys(envelope.error, ["kind", "message"]) ||
+    envelope.error.kind !== "request" ||
+    typeof envelope.error.message !== "string" ||
+    envelope.error.message.length === 0 ||
+    Buffer.byteLength(envelope.error.message, "utf8") > MAX_DIAGNOSTIC_BYTES
+  )
+    return undefined;
+  return envelope.error.message;
 }
 
 export function parseStrictJson(source: string): unknown {
@@ -1164,13 +1181,25 @@ export async function invokeAdapter(
             "formula adapter response exceeds its bound",
           ),
         );
-      if (code !== 0)
+      if (code !== 0) {
+        if (code === 2) {
+          try {
+            const message = requestErrorMessage(
+              parseStrictJson(decodeUtf8Strict(stdout)),
+            );
+            if (message !== undefined)
+              return finish(new BridgeError("request", message));
+          } catch {
+            // Only an exact bounded request-error envelope changes process failure.
+          }
+        }
         return finish(
           new BridgeError(
             "process",
             `formula adapter exited unsuccessfully${stderr ? `: ${boundedText(stderr)}` : ""}`,
           ),
         );
+      }
       try {
         const envelope = parseStrictJson(decodeUtf8Strict(stdout));
         if (

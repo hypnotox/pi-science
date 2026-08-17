@@ -394,6 +394,43 @@ describe("readiness gate", () => {
     });
   });
 
+  it("surfaces Python request diagnostics through the registered tool", async () => {
+    const current = host();
+    const adapter = fileURLToPath(
+      new URL("../bridge/formula_adapter.py", import.meta.url),
+    );
+    await start(
+      current.api,
+      Promise.resolve({
+        ready: true,
+        command: "uv",
+        args: ["run", "--locked", "python", adapter],
+      }),
+    );
+    const invalidParameters = {
+      expression: "x",
+      queries: [
+        {
+          name: "missing_direction",
+          kind: "limit",
+          variable: "x",
+          point: "0",
+        },
+      ],
+    } as unknown as FormulaParameters;
+    expect(Value.Check(current.tools[0]!.parameters, invalidParameters)).toBe(
+      true,
+    );
+    await expect(
+      current.tools[0]!.execute("id", invalidParameters),
+    ).rejects.toMatchObject({
+      kind: "request",
+      message: expect.stringMatching(
+        /queries\.0\.limit[\s\S]*finite points require direction/,
+      ),
+    });
+  });
+
   it("discovers the product skill only with the ready analysis tool", async () => {
     const ready = host();
     await start(

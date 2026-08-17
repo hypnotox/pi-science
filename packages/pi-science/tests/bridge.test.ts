@@ -186,6 +186,12 @@ const responder = (result: unknown = success) =>
       JSON.stringify({ version: PROTOCOL_VERSION, result }),
     )}))`,
   );
+const exitingResponder = (envelope: unknown, code = 2) =>
+  script(
+    `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
+      JSON.stringify(envelope),
+    )},()=>process.exit(${code})))`,
+  );
 
 function request(expression = "x") {
   return { syntax: "sympy" as const, expression };
@@ -298,6 +304,121 @@ describe("private formula bridge", () => {
         },
       ],
     });
+  });
+
+  it("preserves Python request validation diagnostics from the real adapter", async () => {
+    const adapter = fileURLToPath(
+      new URL("../bridge/formula_adapter.py", import.meta.url),
+    );
+    const invalidRequest = {
+      syntax: "sympy",
+      expression: "x",
+      queries: [
+        {
+          name: "missing_direction",
+          kind: "limit",
+          variable: "x",
+          point: "0",
+        },
+      ],
+    } as unknown as AnalysisRequest;
+
+    await expect(
+      invokeAdapter(
+        "uv",
+        ["run", "--locked", "python", adapter],
+        invalidRequest,
+      ),
+    ).rejects.toMatchObject({
+      kind: "request",
+      message: expect.stringMatching(
+        /queries\.0\.limit[\s\S]*finite points require direction/,
+      ),
+    });
+  });
+
+  it.each([
+    ["success envelope", { version: PROTOCOL_VERSION, result: success }, 2],
+    [
+      "wrong exit status",
+      {
+        version: PROTOCOL_VERSION,
+        error: { kind: "request", message: "validation failed" },
+      },
+      3,
+    ],
+    [
+      "wrong protocol version",
+      {
+        version: PROTOCOL_VERSION - 1,
+        error: { kind: "request", message: "bad" },
+      },
+      2,
+    ],
+    [
+      "surplus envelope key",
+      {
+        version: PROTOCOL_VERSION,
+        error: { kind: "request", message: "bad" },
+        extra: true,
+      },
+      2,
+    ],
+    [
+      "surplus error key",
+      {
+        version: PROTOCOL_VERSION,
+        error: { kind: "request", message: "bad", extra: true },
+      },
+      2,
+    ],
+    [
+      "wrong error kind",
+      {
+        version: PROTOCOL_VERSION,
+        error: { kind: "internal", message: "bad" },
+      },
+      2,
+    ],
+    [
+      "oversized request diagnostic",
+      {
+        version: PROTOCOL_VERSION,
+        error: { kind: "request", message: "x".repeat(4_097) },
+      },
+      2,
+    ],
+  ])(
+    "keeps non-exact request error %s as a process failure",
+    async (_name, envelope, code) => {
+      await kind(
+        invokeAdapter(node, exitingResponder(envelope, code), request()),
+        "process",
+      );
+    },
+  );
+
+  it("keeps malformed request-error output as a process failure", async () => {
+    await kind(
+      invokeAdapter(
+        node,
+        script(
+          'process.stdin.resume();process.stdin.on("end",()=>process.stdout.write("not json",()=>process.exit(2)))',
+        ),
+        request(),
+      ),
+      "process",
+    );
+    await kind(
+      invokeAdapter(
+        node,
+        script(
+          "process.stdin.resume();process.stdin.on('end',()=>process.stdout.write(Buffer.from([255]),()=>process.exit(2)))",
+        ),
+        request(),
+      ),
+      "process",
+    );
   });
 
   it("accepts complete diagnostics and rejects missing, surplus, and malformed nested fields", async () => {
