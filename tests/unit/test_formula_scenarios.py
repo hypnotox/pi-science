@@ -871,6 +871,80 @@ def test_scenarios_reject_duplicate_canonical_choices_and_honor_open_real_interv
     assert interval.supremum_attained
 
 
+def test_exact_scenario_intervals_intersect_domains_and_global_affine_facts() -> None:
+    positive_real = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="x",
+            variables={"x": declared(MathematicalDomain.POSITIVE_REAL)},
+            scenarios=(
+                Scenario(name="crosses_zero", bounds={"x": IntervalBound(lower=-1, upper=1)}),
+            ),
+        )
+    )
+    integer = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="x",
+            variables={"x": declared(MathematicalDomain.INTEGER)},
+            scenarios=(
+                Scenario(
+                    name="contains_integer",
+                    bounds={"x": IntervalBound(lower="1/2", upper="3/2")},
+                ),
+            ),
+        )
+    )
+    equality_outside = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="x",
+            variables={"x": declared(MathematicalDomain.REAL)},
+            assumptions=(Assumption(name="fixed", relationship="x == 2"),),
+            scenarios=(
+                Scenario(name="misses_fixed", bounds={"x": IntervalBound(lower=0, upper=1)}),
+            ),
+        )
+    )
+    affine_outside = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="x",
+            variables={"x": declared(MathematicalDomain.REAL)},
+            assumptions=(Assumption(name="positive", relationship="x + 1 > 0"),),
+            scenarios=(
+                Scenario(name="misses_affine", bounds={"x": IntervalBound(lower=-3, upper=-2)}),
+            ),
+        )
+    )
+
+    assert positive_real.status == "success"
+    assert integer.status == "success"
+    assert equality_outside.status == "failure"
+    assert "global assumptions" in equality_outside.error.message
+    assert affine_outside.status == "failure"
+    assert "global assumptions" in affine_outside.error.message
+
+
+def test_negative_definition_contradicts_nonnegative_real_domain() -> None:
+    result = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="x",
+            variables={"x": declared(MathematicalDomain.NONNEGATIVE_REAL)},
+            scenarios=(
+                Scenario(
+                    name="negative_definition",
+                    definitions=(DirectedDefinition(variable="x", expression="-1"),),
+                ),
+            ),
+        )
+    )
+
+    assert result.status == "failure"
+    assert "contradicts declared domain" in result.error.message
+
+
 def test_scenario_values_and_intervals_must_intersect_assumptions() -> None:
     fixed = analyze(
         AnalysisRequest(

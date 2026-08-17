@@ -32,6 +32,7 @@ const domain = Type.Union([
   Type.Literal("positive_integer"),
   Type.Literal("real"),
   Type.Literal("positive_real"),
+  Type.Literal("nonnegative_real"),
 ]);
 const indexDomain = Type.Object(
   { lower: formula, upper: formula },

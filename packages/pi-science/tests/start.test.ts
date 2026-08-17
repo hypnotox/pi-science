@@ -113,6 +113,27 @@ describe("readiness gate", () => {
         scenarios: [{ name: "scale", asymptotic: ["N"] }],
       }),
     ).toBe(true);
+    expect(
+      Value.Check(parameters, {
+        expression: "x",
+        variables: { x: { domain: "nonnegative_real" } },
+        scenarios: [
+          {
+            name: "exact",
+            fixed: { x: "1/2" },
+            choices: { y: [0, "1.20"] },
+            bounds: {
+              z: {
+                lower: "-3/4",
+                upper: "1.20",
+                lower_inclusive: false,
+                upper_inclusive: true,
+              },
+            },
+          },
+        ],
+      }),
+    ).toBe(true);
     for (const invalid of [
       {},
       { expression: "x", equations: [{ name: "a", expression: "Eq(a, x)" }] },

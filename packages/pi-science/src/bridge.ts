@@ -12,7 +12,8 @@ export type MathematicalDomain =
   | "nonnegative_integer"
   | "positive_integer"
   | "real"
-  | "positive_real";
+  | "positive_real"
+  | "nonnegative_real";
 export type IndexDomain = { lower: string; upper: string };
 export type VariableDeclaration = { domain: MathematicalDomain };
 export type EquationRequest = {

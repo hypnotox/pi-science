@@ -36,7 +36,6 @@ from py_science.formula.models import (
     AnalysisOutcome,
     AnalysisRequest,
     AnalysisSuccess,
-    Assumption,
     AsymptoticQuery,
     EquationReport,
     EquationRequest,
@@ -174,9 +173,6 @@ def analyze(request: AnalysisRequest) -> AnalysisOutcome:
     request_failure = _request_size_failure(request)
     if request_failure is not None:
         return request_failure
-    scenario_failure = _scenario_domain_failure(request)
-    if scenario_failure is not None:
-        return scenario_failure
     loader = FormulaLoader()
     definitions_or_failure = _parse_definitions(request, loader)
     if isinstance(definitions_or_failure, AnalysisFailure):
@@ -194,6 +190,18 @@ def analyze(request: AnalysisRequest) -> AnalysisOutcome:
     if isinstance(knowledge_or_failure, AnalysisFailure):
         return knowledge_or_failure
     knowledge = knowledge_or_failure
+    if request.scenarios:
+        try:
+            scenario_reasoning = ReasoningContext.build(
+                {name: declaration.domain for name, declaration in request.variables.items()},
+                knowledge.definitions,
+                knowledge.assumptions,
+            )
+        except ExpressionTooComplex:
+            return _complexity_failure("scenario assumptions exceed the reasoning bound")
+        scenario_failure = _scenario_domain_failure(request, scenario_reasoning)
+        if scenario_failure is not None:
+            return scenario_failure
     try:
         if request.expression is not None:
             outcome = _analyze_single(
@@ -439,7 +447,9 @@ def _definition_domain_result(
             in {MathematicalDomain.POSITIVE_INTEGER, MathematicalDomain.POSITIVE_REAL}
             and value <= 0
         ) or (
-            declaration.domain is MathematicalDomain.NONNEGATIVE_INTEGER and value < 0
+            declaration.domain
+            in {MathematicalDomain.NONNEGATIVE_INTEGER, MathematicalDomain.NONNEGATIVE_REAL}
+            and value < 0
         )
         if contradicts:
             return _invalid(f"definition contradicts declared domain for {variable}")
@@ -1874,7 +1884,9 @@ def _topological(edges: dict[str, set[str]]) -> list[str] | None:
     return result
 
 
-def _scenario_domain_failure(request: AnalysisRequest) -> AnalysisFailure | None:
+def _scenario_domain_failure(
+    request: AnalysisRequest, reasoning: ReasoningContext
+) -> AnalysisFailure | None:
     def valid(value: str | int, domain: MathematicalDomain) -> bool:
         exact = _exact_fraction(value)
         if domain in {MathematicalDomain.POSITIVE_INTEGER, MathematicalDomain.POSITIVE_REAL}:
@@ -1900,7 +1912,6 @@ def _scenario_domain_failure(request: AnalysisRequest) -> AnalysisFailure | None
         values_by_name = {
             **{name: (value,) for name, value in scenario.fixed.items()},
             **scenario.choices,
-            **{name: (bound.lower, bound.upper) for name, bound in scenario.bounds.items()},
         }
         for name, values in values_by_name.items():
             declaration = request.variables.get(name)
@@ -1967,7 +1978,7 @@ def _scenario_domain_failure(request: AnalysisRequest) -> AnalysisFailure | None
                             f"scenario {scenario.name} treatment contradicts assumption {assumption.name}"
                         )
         for name, bound in scenario.bounds.items():
-            if not _interval_intersects_assumptions(name, bound, request.assumptions):
+            if not _interval_intersects_assumptions(name, bound, reasoning):
                 return _invalid(
                     f"scenario {scenario.name} interval misses global assumptions for {name}"
                 )
@@ -1975,44 +1986,35 @@ def _scenario_domain_failure(request: AnalysisRequest) -> AnalysisFailure | None
 
 
 def _interval_intersects_assumptions(
-    name: str, interval: object, assumptions: tuple[Assumption, ...]
+    name: str, interval: IntervalBound, reasoning: ReasoningContext
 ) -> bool:
-    """Intersect a scalar scenario interval with direct affine constant assumptions."""
-    assert isinstance(interval, IntervalBound)
+    """Check an interval against the same bounded facts used by query reasoning."""
     lower, upper = _exact_fraction(interval.lower), _exact_fraction(interval.upper)
     lower_closed, upper_closed = interval.lower_inclusive, interval.upper_inclusive
-    reverse = {
-        RelationshipOperator.LESS: RelationshipOperator.GREATER,
-        RelationshipOperator.LESS_EQUAL: RelationshipOperator.GREATER_EQUAL,
-        RelationshipOperator.GREATER: RelationshipOperator.LESS,
-        RelationshipOperator.GREATER_EQUAL: RelationshipOperator.LESS_EQUAL,
-        RelationshipOperator.EQUAL: RelationshipOperator.EQUAL,
-    }
-    for assumption in assumptions:
-        parsed = parse_expression(assumption.relationship)
-        if not isinstance(parsed, Relationship):
-            continue
-        constant = _constant_value(parsed.right)
-        symbol, operator = parsed.left, parsed.operator
-        if constant is None:
-            constant = _constant_value(parsed.left)
-            symbol, operator = parsed.right, reverse[operator]
-        if not isinstance(symbol, Symbol) or symbol.name != name or constant is None:
-            continue
-        if operator is RelationshipOperator.EQUAL:
-            lower, upper, lower_closed, upper_closed = constant, constant, True, True
-        elif operator in {RelationshipOperator.GREATER, RelationshipOperator.GREATER_EQUAL}:
-            closed = operator is RelationshipOperator.GREATER_EQUAL
-            if constant > lower:
-                lower, lower_closed = constant, closed
-            elif constant == lower:
-                lower_closed = lower_closed and closed
-        else:
-            closed = operator is RelationshipOperator.LESS_EQUAL
-            if constant < upper:
-                upper, upper_closed = constant, closed
-            elif constant == upper:
-                upper_closed = upper_closed and closed
+    replacement = reasoning.replacements.get(name)
+    if replacement is not None:
+        fixed = _constant_value(reasoning.apply(replacement))
+        if fixed is not None:
+            return (lower < fixed < upper) or (
+                fixed == lower and lower_closed
+            ) or (fixed == upper and upper_closed)
+    fact = reasoning.facts.get(name)
+    if fact is None:
+        return True
+    if fact.lower is not None:
+        if fact.lower > lower:
+            lower, lower_closed = fact.lower, not fact.lower_strict
+        elif fact.lower == lower:
+            lower_closed = lower_closed and not fact.lower_strict
+    if fact.upper is not None:
+        if fact.upper < upper:
+            upper, upper_closed = fact.upper, not fact.upper_strict
+        elif fact.upper == upper:
+            upper_closed = upper_closed and not fact.upper_strict
+    if fact.integer:
+        least = ceil(lower) if lower_closed else floor(lower) + 1
+        greatest = floor(upper) if upper_closed else ceil(upper) - 1
+        return least <= greatest
     return lower < upper or (lower == upper and lower_closed and upper_closed)
 
 
