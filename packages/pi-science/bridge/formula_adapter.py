@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Private JSON-lines adapter; stdout is reserved for exactly one response."""
+"""Private bounded JSON adapter; stdout is reserved for exactly one response."""
 
 from __future__ import annotations
 
@@ -7,15 +7,62 @@ import json
 import sys
 from typing import Any, cast
 
-from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+from py_science.formula import AnalysisRequest, analyze
 from pydantic import ValidationError
 
-PROTOCOL_VERSION = 1
-MAX_ENVELOPE_BYTES = 66_560
+PROTOCOL_VERSION = 2
+# The public request permits 262,144 UTF-8 source bytes. This whole-envelope
+# limit also covers JSON escaping and every bounded collection/name field.
+MAX_ENVELOPE_BYTES = 2_097_152
+# The Python result policy is 262,144 bytes; this adds bounded protocol framing.
+MAX_RESPONSE_BYTES = 262_400
+MAX_DIAGNOSTIC_BYTES = 4_096
 
 
-def response(payload: dict[str, Any]) -> None:
-    print(json.dumps(payload, separators=(",", ":"), sort_keys=True))
+def _strict_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("duplicate JSON object key")
+        value[key] = item
+    return value
+
+
+def _encoded(payload: dict[str, Any]) -> bytes | None:
+    encoder = json.JSONEncoder(
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    chunks: list[bytes] = []
+    size = 0
+    for chunk in encoder.iterencode(payload):
+        encoded = chunk.encode("utf-8")
+        size += len(encoded)
+        if size + 1 > MAX_RESPONSE_BYTES:
+            return None
+        chunks.append(encoded)
+    chunks.append(b"\n")
+    return b"".join(chunks)
+
+
+def response(payload: dict[str, Any]) -> bool:
+    encoded = _encoded(payload)
+    if encoded is None:
+        return False
+    sys.stdout.buffer.write(encoded)
+    return True
+
+
+def _request_error(error: Exception) -> int:
+    message = str(error).encode("utf-8")[:MAX_DIAGNOSTIC_BYTES].decode("utf-8", "replace")
+    response(
+        {
+            "version": PROTOCOL_VERSION,
+            "error": {"kind": "request", "message": message},
+        }
+    )
+    return 2
 
 
 def main() -> int:
@@ -25,8 +72,8 @@ def main() -> int:
     try:
         raw = sys.stdin.buffer.read(MAX_ENVELOPE_BYTES + 1)
         if len(raw) > MAX_ENVELOPE_BYTES:
-            raise ValueError("protocol envelope exceeds its byte bound")
-        envelope = json.loads(raw)
+            raise ValueError("protocol envelope exceeds its 2,097,152-byte UTF-8 bound")
+        envelope = json.loads(raw, object_pairs_hook=_strict_object)
         if not isinstance(envelope, dict):
             raise ValueError("invalid protocol envelope")
         typed_envelope = cast(dict[str, object], envelope)
@@ -37,28 +84,32 @@ def main() -> int:
         request_payload = typed_envelope["request"]
         if not isinstance(request_payload, dict):
             raise ValueError("invalid analysis request")
-        typed_request = cast(dict[str, object], request_payload)
-        if set(typed_request) != {"syntax", "expression"}:
-            raise ValueError("invalid analysis request")
-        if typed_request["syntax"] != "sympy" or not isinstance(
-            typed_request["expression"], str
-        ):
-            raise ValueError("invalid analysis request")
-        request = AnalysisRequest(
-            syntax=FormulaSyntax.SYMPY,
-            expression=typed_request["expression"],
+        # JSON validation preserves the strict frozen public contract while accepting
+        # JSON arrays for tuple fields. Mathematical policy remains in AnalysisRequest.
+        request = AnalysisRequest.model_validate_json(
+            json.dumps(request_payload, ensure_ascii=False, separators=(",", ":"))
         )
         result = analyze(request).model_dump(mode="json", exclude_none=True)
-        response({"version": PROTOCOL_VERSION, "result": result})
+        if not response({"version": PROTOCOL_VERSION, "result": result}):
+            response(
+                {
+                    "version": PROTOCOL_VERSION,
+                    "error": {
+                        "kind": "internal",
+                        "message": "formula adapter response exceeds its bound",
+                    },
+                }
+            )
+            return 3
     except (
         ValueError,
         TypeError,
         json.JSONDecodeError,
         UnicodeDecodeError,
+        UnicodeEncodeError,
         ValidationError,
     ) as error:
-        response({"version": PROTOCOL_VERSION, "error": {"kind": "request", "message": str(error)}})
-        return 2
+        return _request_error(error)
     return 0
 
 

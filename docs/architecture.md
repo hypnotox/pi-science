@@ -3,19 +3,19 @@
 
 <!-- awf:edit overview: from .awf/docs/parts/architecture/overview.md -->
 ## Overview
-The repository contains the independently importable `py-science-formula` Python 3.13 distribution and the aggregate `pi-science` Pi package. Formula parsing, expression representation, policy, and SymPy rendering remain transport-free behind `py_science.formula`. Pi reaches that API only through its private versioned JSON subprocess adapter.
+The repository contains the independently importable `py-science-formula` Python 3.13 distribution and the aggregate `pi-science` Pi package. Formula parsing, expression representation, mathematical policy, and SymPy rendering remain transport-free behind `py_science.formula`. Pi carries the same strict expression-or-equation-system request and qualified report through a private bounded JSON subprocess adapter.
 
-At extension startup Pi provisions an isolated, immutable-revision uv environment outside its checkout. It registers formula analysis only after that readiness check; otherwise only its diagnostic command remains available. [Vision](vision.md) owns the product boundary, [Analysis Model](analysis-model.md) owns the request and report direction, and [Roadmap](roadmap.md) owns uncommitted expansion work.
+At extension startup Pi provisions an isolated, immutable-revision uv environment outside its checkout. It registers formula analysis and its product skill only after that readiness check; otherwise only its diagnostic command remains available. [Vision](vision.md) owns the product boundary, [Analysis Model](analysis-model.md) owns request and report semantics, and [Roadmap](roadmap.md) owns uncommitted expansion work.
 
 
 <!-- awf:edit components: from .awf/docs/parts/architecture/components.md -->
 ## Components
-- `packages/py-science-formula/src/py_science/formula/`: independently importable typed formula-analysis API.
-- `packages/pi-science/bridge/formula_adapter.py`: private, versioned JSON-line Python adapter.
+- `packages/py-science-formula/src/py_science/formula/`: independently importable typed formula and equation-system analysis API.
+- `packages/pi-science/bridge/formula_adapter.py`: private, versioned, whole-request and output-bounded JSON adapter.
 - `packages/pi-science/src/provision.ts`: eager isolated-uv readiness gate.
-- `packages/pi-science/src/bridge.ts`: bounded subprocess protocol client and diagnostic translation.
-- `packages/pi-science/src/index.ts`: Pi tool and always-available doctor registration.
-- `packages/pi-science/tests/`: bridge and readiness-gate regression evidence.
+- `packages/pi-science/src/bridge.ts`: exact request/result translation, bounded subprocess client, and diagnostic translation.
+- `packages/pi-science/src/index.ts`: strict expression-or-system Pi schema, tool registration, and always-available doctor.
+- `packages/pi-science/tests/`: bridge, AFMM round-trip, package, and readiness-gate regression evidence.
 
 
 <!-- awf:edit data-flow: from .awf/docs/parts/architecture/data-flow.md -->
@@ -23,10 +23,10 @@ At extension startup Pi provisions an isolated, immutable-revision uv environmen
 The formula-analysis flow is:
 
 ```text
-Pi tool -> readiness gate -> versioned JSON adapter -> py_science.formula -> typed analysis outcome
+strict Pi expression/system request -> readiness gate -> bounded versioned JSON adapter -> py_science.formula -> validated qualified report
 ```
 
-The adapter owns process, timeout, bounded-output, malformed-message, and protocol diagnostics; the Python API remains transport-free. Startup uses `uv run --isolated --no-project` with the immutable repository revision and a user cache, so mutable environments never enter the managed Pi checkout. Failed provisioning withholds analysis surfaces rather than advertising a later-failing capability.
+Pi injects restricted-SymPy syntax and translates the public formula contract without owning mathematical policy. The adapter owns whole-envelope and serialized-output bounds; the TypeScript bridge owns process, timeout, cancellation, cleanup, malformed-message, response-shape, and protocol diagnostics. The Python API remains transport-free and owns mathematical validation and analysis. Startup uses `uv run --isolated --no-project` with the immutable repository revision and a user cache, so mutable environments never enter the managed Pi checkout. Failed provisioning withholds the tool and product skill together rather than advertising a later-failing capability.
 
 
 <!-- awf:edit dependencies: from .awf/docs/parts/architecture/dependencies.md -->

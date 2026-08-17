@@ -16,7 +16,7 @@ You are a developer on `pi-science`, responsible for its long-term health as wel
 
 <!-- awf:edit identity: from .awf/parts/agents-doc/identity.md -->
 ## Identity
-`pi-science` provides the transport-free `py-science-formula` typed Python analysis API and an aggregate Pi package from one pinned public-source snapshot. Pi eagerly validates an isolated uv backend, then exposes formula tools and product skills only while ready; its diagnostic command remains available when provisioning fails.
+`pi-science` provides the transport-free `py-science-formula` typed Python analysis API and an aggregate Pi package from one pinned public-source snapshot. Python and Pi accept strict restricted-SymPy expression or equation-system requests and return bounded qualified reports. Pi eagerly validates an isolated uv backend, then exposes the matching formula tool and product skill only while ready; its diagnostic command remains available when provisioning fails.
 
 
 <!-- awf:edit invariants: default; create .awf/parts/agents-doc/invariants.md to override -->

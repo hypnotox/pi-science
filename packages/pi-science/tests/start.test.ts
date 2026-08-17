@@ -3,8 +3,11 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { TSchema } from "typebox";
+import { Value } from "typebox/value";
 import { describe, expect, it, vi } from "vitest";
 import {
+  type FormulaParameters,
   resolvePinnedRevision,
   resolvePinnedSource,
   start,
@@ -19,10 +22,10 @@ type Command = {
   handler(args: string, context: unknown): Promise<void>;
 };
 type Tool = {
-  parameters: { properties: { expression: { maxLength?: number } } };
+  parameters: TSchema;
   execute(
     id: string,
-    params: { expression: string },
+    params: FormulaParameters,
     signal?: AbortSignal,
   ): Promise<{
     content: Array<{ type: string; text: string }>;
@@ -80,21 +83,144 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 1, result: response }),
+            JSON.stringify({ version: 2, result: response }),
           )}))`,
         ],
       }),
     );
     expect(current.commands.has("pi-science-doctor")).toBe(true);
     expect(current.tools).toHaveLength(1);
-    expect(current.tools[0]?.parameters.properties.expression.maxLength).toBe(
-      65_536,
-    );
+    const parameters = current.tools[0]!.parameters;
+    expect(Value.Check(parameters, { expression: "x" })).toBe(true);
+    expect(
+      Value.Check(parameters, {
+        equations: [
+          {
+            name: "stage",
+            expression: "Eq(y[i], x[i] + 1)",
+            domains: { i: { lower: "0", upper: "N - 1" } },
+          },
+        ],
+        variables: { N: { domain: "positive_integer" } },
+        functions: [{ name: "f", parameters: ["x"], body: "x + 1" }],
+        primitive_costs: [{ name: "g", parameters: ["x"], work: "x" }],
+        assumptions: [{ name: "known", relationship: "N > 0" }],
+        definitions: [{ variable: "p", expression: "N + 1" }],
+        scenarios: [{ name: "scale", asymptotic: ["N"] }],
+      }),
+    ).toBe(true);
+    for (const invalid of [
+      {},
+      { expression: "x", equations: [{ name: "a", expression: "Eq(a, x)" }] },
+      { equations: [] },
+      { expression: "x", syntax: "latex" },
+      { expression: "x", extra: true },
+      {
+        expression: "x",
+        scenarios: [
+          { name: "unsafe", fixed: { N: Number.MAX_SAFE_INTEGER + 1 } },
+        ],
+      },
+      { equations: [{ name: "a", expression: "Eq(a, x)", extra: true }] },
+    ])
+      expect(Value.Check(parameters, invalid)).toBe(false);
     const result = await current.tools[0]?.execute("id", { expression: "x" });
     expect(result).toEqual({
       content: [{ type: "text", text: JSON.stringify(response) }],
       details: response,
     });
+  });
+
+  it("round trips an AFMM-like system through the registered tool callback", async () => {
+    const current = host();
+    const adapter = fileURLToPath(
+      new URL("../bridge/formula_adapter.py", import.meta.url),
+    );
+    await start(
+      current.api,
+      Promise.resolve({
+        ready: true,
+        command: "uv",
+        args: ["run", "--locked", "python", adapter],
+      }),
+    );
+    const params: FormulaParameters = {
+      equations: [
+        {
+          name: "multipoles",
+          expression: "Eq(M[b], Sum(basis(i), (i, 0, n[b] - 1)))",
+          domains: { b: { lower: "0", upper: "B - 1" } },
+        },
+        {
+          name: "translation",
+          expression: "Eq(L[b], translate(M[b]) + M[b])",
+          domains: { b: { lower: "0", upper: "B - 1" } },
+        },
+      ],
+      variables: {
+        B: { domain: "positive_integer" },
+        N: { domain: "positive_integer" },
+        n: { domain: "nonnegative_integer" },
+      },
+      primitive_costs: [{ name: "basis", parameters: ["i"], work: "i + 1" }],
+      assumptions: [
+        {
+          name: "population",
+          relationship: "Sum(n[b], (b, 0, B - 1)) == N",
+        },
+      ],
+      scenarios: [{ name: "fixed_boxes", fixed: { B: 4 }, asymptotic: ["N"] }],
+    };
+    const result = await current.tools[0]!.execute("id", params);
+    expect(result.details).toMatchObject({
+      status: "success",
+      system: {
+        equations: [
+          {
+            name: "multipoles",
+            interpretation: {
+              normalized_sympy: "Eq(M[b], Sum(basis(i), (i, 0, n[b] - 1)))",
+            },
+          },
+          {
+            name: "translation",
+            interpretation: {
+              normalized_sympy: "Eq(L[b], translate(M[b]) + M[b])",
+            },
+            dependencies: ["multipoles"],
+          },
+        ],
+        dependency_edges: [["multipoles", "translation"]],
+        reuse: [
+          {
+            producer: "multipoles",
+            consumer: "translation",
+            references: 2,
+          },
+        ],
+        total_work:
+          "B + N*(i + 1) + Sum(C_translate(M[b]), (b, 0, B - 1)) + Sum(Max(0, n[b] - 1), (b, 0, B - 1))",
+        relationships_used: [
+          {
+            name: "population",
+            relationship: "Sum(n[b], (b, 0, B - 1)) == N",
+          },
+        ],
+        unknown_costs: ["C_translate"],
+      },
+      scenarios: [
+        {
+          name: "fixed_boxes",
+          qualifications: [
+            "exact general symbolic work preserved",
+            "fixed values substituted exactly",
+          ],
+        },
+      ],
+    });
+    expect(result.content).toEqual([
+      { type: "text", text: JSON.stringify(result.details) },
+    ]);
   });
 
   it("discovers the product skill only with the ready analysis tool", async () => {

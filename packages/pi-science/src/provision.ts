@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { PROTOCOL_VERSION } from "./bridge.js";
 import { spawnIsolated, terminateTree } from "./process.js";
 
 const MAX_DIAGNOSTIC_BYTES = 4_096;
@@ -115,7 +116,7 @@ function healthy(value: unknown): boolean {
   const envelope = value as Record<string, unknown>;
   if (
     Object.keys(envelope).length !== 2 ||
-    envelope.version !== 1 ||
+    envelope.version !== PROTOCOL_VERSION ||
     typeof envelope.result !== "object" ||
     envelope.result === null ||
     Array.isArray(envelope.result)

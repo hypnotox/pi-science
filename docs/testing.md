@@ -10,10 +10,7 @@ Run `./scripts/check` before every commit. It runs Python pytest, Pyright, Ruff,
 
 <!-- awf:edit tiers: from .awf/docs/parts/testing/tiers.md -->
 ## Tiers and lanes
-- **Focused Python tests:** `uv run --locked pytest`.
-- **Focused Pi tests:** `npm run test:pi`.
-- **Fast complete gate:** `./scripts/check`.
-- **Slow clean-source release lane:** `./scripts/check-release`.
+Python tests cover the transport-free public formula API, qualified equation systems, AFMM-like acceptance, and distribution. `packages/pi-science/tests/` exercises the actual full-request adapter, strict Pi schema and rich result shapes, whole-envelope and output bounds, AFMM system translation through the registered callback, stderr draining, process failure, timeout and cancellation cleanup, readiness withholding, immutable checkout identity, package contents, and prerequisite-specific diagnostics. A barrier wrapper around real uv proves concurrent healthy starts reuse one immutable-source cache without modifying the checkout; a synchronized failure proves identical fail-closed results.
 
 
 <!-- awf:edit layout: from .awf/docs/parts/testing/layout.md -->

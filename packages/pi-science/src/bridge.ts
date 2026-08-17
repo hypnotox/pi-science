@@ -1,13 +1,142 @@
 import { spawnIsolated, terminateTree } from "./process.js";
 
-export const PROTOCOL_VERSION = 1;
-export const MAX_RESPONSE_BYTES = 65_536;
-export const MAX_EXPRESSION_BYTES = 65_536;
-export const MAX_ENVELOPE_BYTES = 66_560;
+export const PROTOCOL_VERSION = 2;
+export const MAX_FORMULA_BYTES = 65_536;
+export const MAX_ENVELOPE_BYTES = 2_097_152;
+export const MAX_RESPONSE_BYTES = 262_400;
 const MAX_DIAGNOSTIC_BYTES = 4_096;
 
-export type AnalysisRequest = { syntax: "sympy"; expression: string };
-export type BridgeResult = Record<string, unknown>;
+export type MathematicalDomain =
+  | "integer"
+  | "nonnegative_integer"
+  | "positive_integer"
+  | "real"
+  | "positive_real";
+export type IndexDomain = { lower: string; upper: string };
+export type VariableDeclaration = { domain: MathematicalDomain };
+export type EquationRequest = {
+  name: string;
+  expression: string;
+  domains?: Record<string, IndexDomain>;
+};
+export type FunctionDefinition = {
+  name: string;
+  parameters: string[];
+  body: string;
+};
+export type PrimitiveCost = {
+  name: string;
+  parameters: string[];
+  work: string;
+};
+export type Assumption = { name: string; relationship: string };
+export type DirectedDefinition = { variable: string; expression: string };
+export type IntervalBound = { lower: number; upper: number };
+export type Scenario = {
+  name: string;
+  fixed?: Record<string, number>;
+  choices?: Record<string, number[]>;
+  definitions?: DirectedDefinition[];
+  asymptotic?: string[];
+  bounds?: Record<string, IntervalBound>;
+};
+type RequestMetadata = {
+  variables?: Record<string, VariableDeclaration>;
+  functions?: FunctionDefinition[];
+  primitive_costs?: PrimitiveCost[];
+  assumptions?: Assumption[];
+  definitions?: DirectedDefinition[];
+  scenarios?: Scenario[];
+};
+export type AnalysisRequest =
+  | (RequestMetadata & {
+      syntax: "sympy";
+      expression: string;
+      equations?: never;
+    })
+  | (RequestMetadata & {
+      syntax: "sympy";
+      equations: EquationRequest[];
+      expression?: never;
+    });
+
+export type Interpretation = {
+  normalized_sympy: string;
+  normalized_latex: string;
+};
+export type OperationCounts = {
+  additions: number;
+  subtractions: number;
+  multiplications: number;
+  divisions: number;
+  powers: number;
+};
+export type SymbolicOperationCounts = {
+  additions: string;
+  subtractions: string;
+  multiplications: string;
+  divisions: string;
+  powers: string;
+};
+export type RelationshipUse = { name: string; relationship: string };
+export type EquationReport = {
+  name: string;
+  interpretation: Interpretation;
+  operation_counts: OperationCounts;
+  aggregate_operation_counts: SymbolicOperationCounts;
+  aggregate_work: string;
+  dependencies: string[];
+  primitive_invocations: Record<string, string>;
+  unknown_costs: string[];
+  unresolved: string[];
+  relationships_used: RelationshipUse[];
+};
+export type ScenarioResult = {
+  name: string;
+  substituted_work: string;
+  choice_work: Record<string, string>;
+  asymptotic?: string;
+  interval?: { lower_work: string; upper_work: string; conservative: boolean };
+  substitutions: Record<string, string>;
+  relationships_used: RelationshipUse[];
+  qualifications: string[];
+  unresolved: string[];
+};
+export type SystemReport = {
+  equations: EquationReport[];
+  aggregate_operation_counts: SymbolicOperationCounts;
+  total_work: string;
+  dependency_edges: [string, string][];
+  reuse: Array<{ producer: string; consumer: string; references: number }>;
+  primitive_invocations: Record<string, string>;
+  unknown_costs: string[];
+  unresolved: string[];
+  extraction_opportunities: string[];
+  relationships_used: RelationshipUse[];
+  unused_assumptions: string[];
+};
+export type AnalysisSuccess = {
+  status: "success";
+  interpretation: Interpretation;
+  operation_counts: OperationCounts;
+  abstract_work: number;
+  system?: SystemReport;
+  scenarios: ScenarioResult[];
+};
+export type AnalysisFailure = {
+  status: "failure";
+  error: {
+    code:
+      | "malformed_syntax"
+      | "unsupported_construct"
+      | "expression_too_complex"
+      | "normalization_failed"
+      | "invalid_system";
+    message: string;
+    location?: { line: number; column: number };
+  };
+};
+export type BridgeResult = AnalysisSuccess | AnalysisFailure;
 
 export function appendResponseChunk(
   retained: Buffer,
@@ -143,6 +272,41 @@ function validEquationReport(value: unknown): boolean {
     validRelationshipUses(value.relationships_used)
   );
 }
+function validIntervalResult(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    exactKeys(value, ["lower_work", "upper_work", "conservative"]) &&
+    typeof value.lower_work === "string" &&
+    typeof value.upper_work === "string" &&
+    typeof value.conservative === "boolean"
+  );
+}
+function validScenarioResult(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  const keys = [
+    "name",
+    "substituted_work",
+    "choice_work",
+    "substitutions",
+    "relationships_used",
+    "qualifications",
+    "unresolved",
+  ];
+  if ("asymptotic" in value) keys.push("asymptotic");
+  if ("interval" in value) keys.push("interval");
+  return (
+    exactKeys(value, keys) &&
+    typeof value.name === "string" &&
+    typeof value.substituted_work === "string" &&
+    validStringMap(value.choice_work) &&
+    (!("asymptotic" in value) || typeof value.asymptotic === "string") &&
+    (!("interval" in value) || validIntervalResult(value.interval)) &&
+    validStringMap(value.substitutions) &&
+    validRelationshipUses(value.relationships_used) &&
+    validStringArray(value.qualifications) &&
+    validStringArray(value.unresolved)
+  );
+}
 function validSystemReport(value: unknown): boolean {
   if (
     !isRecord(value) ||
@@ -212,7 +376,7 @@ function validResult(value: unknown): value is BridgeResult {
       nonNegativeInteger(value.abstract_work) &&
       (!("system" in value) || validSystemReport(value.system)) &&
       Array.isArray(value.scenarios) &&
-      value.scenarios.length === 0
+      value.scenarios.every(validScenarioResult)
     );
   }
   if (value.status === "failure") {
@@ -241,6 +405,29 @@ function validResult(value: unknown): value is BridgeResult {
   return false;
 }
 
+function formulaSources(request: AnalysisRequest): string[] {
+  const sources: string[] = [];
+  if ("expression" in request && request.expression !== undefined)
+    sources.push(request.expression);
+  if ("equations" in request && request.equations !== undefined)
+    for (const equation of request.equations) {
+      sources.push(equation.expression);
+      for (const domain of Object.values(equation.domains ?? {}))
+        sources.push(domain.lower, domain.upper);
+    }
+  for (const definition of request.functions ?? [])
+    sources.push(definition.body);
+  for (const cost of request.primitive_costs ?? []) sources.push(cost.work);
+  for (const assumption of request.assumptions ?? [])
+    sources.push(assumption.relationship);
+  for (const definition of request.definitions ?? [])
+    sources.push(definition.expression);
+  for (const scenario of request.scenarios ?? [])
+    for (const definition of scenario.definitions ?? [])
+      sources.push(definition.expression);
+  return sources;
+}
+
 export async function invokeAdapter(
   command: string,
   args: string[],
@@ -248,10 +435,14 @@ export async function invokeAdapter(
   timeoutMs = 10_000,
   signal?: AbortSignal,
 ): Promise<BridgeResult> {
-  if (Buffer.byteLength(request.expression, "utf8") > MAX_EXPRESSION_BYTES)
+  if (
+    formulaSources(request).some(
+      (source) => Buffer.byteLength(source, "utf8") > MAX_FORMULA_BYTES,
+    )
+  )
     throw new BridgeError(
       "protocol",
-      "formula expression exceeds 65,536 UTF-8 bytes",
+      "formula field exceeds 65,536 UTF-8 bytes",
     );
   const payload = JSON.stringify({ version: PROTOCOL_VERSION, request });
   if (Buffer.byteLength(payload, "utf8") > MAX_ENVELOPE_BYTES)

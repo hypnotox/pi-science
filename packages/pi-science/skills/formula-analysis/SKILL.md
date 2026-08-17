@@ -1,17 +1,13 @@
 ---
 name: pi-science-formula-analysis
-description: Analyze a restricted SymPy arithmetic formula for its normalized interpretation and abstract operation metrics. Use when you need formula structure or abstract work, not a numeric result, benchmark, or generated implementation.
+description: Analyze one restricted SymPy expression or named equation system for normalized interpretation, symbolic work, reuse, provenance, scenarios, and unresolved costs. Use for formula structure and qualified abstract work, not numeric evaluation, benchmarking, physical validation, or implementation generation.
 ---
 
 # Formula analysis
 
-Use the `analyze_formula` Pi tool for an ordinary, bounded formula-analysis request:
+Use the `analyze_formula` Pi tool for one bounded restricted-SymPy expression or one nonempty list of uniquely named equations. System requests may include per-equation output domains, variable domains, mathematical function definitions, scalar primitive costs, named assumptions, directed definitions, and scenarios. Pi supplies `syntax: sympy`; LaTeX input is not supported.
 
-```json
-{ "expression": "x * (y + 1)" }
-```
-
-Inspect the returned normalized SymPy and LaTeX interpretations before relying on its operation counts or abstract work. The tool analyzes submitted syntax; it does not evaluate the formula's represented value, measure implementation performance, or generate code.
+Inspect the returned normalized SymPy and LaTeX equations, symbolic total work, dependency reuse, relationship provenance, scenario qualifications, unknown costs, and unresolved items before relying on a conclusion. The tool analyzes submitted formula structure; it does not infer formulas from source, evaluate represented values, validate physics, measure implementation performance, model hardware, or generate code.
 
 For a persistent project dependency, declare the Python package independently of Pi's managed environment. Replace `<release-ref>` with the same compatible full commit SHA (preferred) or readable release tag used for the project Pi package:
 

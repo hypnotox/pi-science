@@ -4,21 +4,148 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
-import { invokeAdapter, MAX_EXPRESSION_BYTES } from "./bridge.js";
+import { Type, type Static } from "typebox";
+import { invokeAdapter, MAX_FORMULA_BYTES } from "./bridge.js";
 import { provision, type Readiness } from "./provision.js";
 
 const SHA = /^[0-9a-f]{40}$/;
 const PRODUCT_SKILLS = fileURLToPath(new URL("../skills", import.meta.url));
-const formulaSchema = Type.Object(
+const identifier = Type.String({
+  pattern: "^[A-Za-z][A-Za-z0-9_]*$",
+  maxLength: 128,
+});
+const formula = Type.String({ maxLength: MAX_FORMULA_BYTES });
+const safeInteger = Type.Integer({
+  minimum: Number.MIN_SAFE_INTEGER,
+  maximum: Number.MAX_SAFE_INTEGER,
+});
+const domain = Type.Union([
+  Type.Literal("integer"),
+  Type.Literal("nonnegative_integer"),
+  Type.Literal("positive_integer"),
+  Type.Literal("real"),
+  Type.Literal("positive_real"),
+]);
+const indexDomain = Type.Object(
+  { lower: formula, upper: formula },
+  { additionalProperties: false },
+);
+const directedDefinition = Type.Object(
+  { variable: identifier, expression: formula },
+  { additionalProperties: false },
+);
+const metadata = {
+  variables: Type.Optional(
+    Type.Record(
+      identifier,
+      Type.Object({ domain }, { additionalProperties: false }),
+      { maxProperties: 256 },
+    ),
+  ),
+  functions: Type.Optional(
+    Type.Array(
+      Type.Object(
+        {
+          name: identifier,
+          parameters: Type.Array(identifier, { maxItems: 32 }),
+          body: formula,
+        },
+        { additionalProperties: false },
+      ),
+      { maxItems: 128 },
+    ),
+  ),
+  primitive_costs: Type.Optional(
+    Type.Array(
+      Type.Object(
+        {
+          name: identifier,
+          parameters: Type.Array(identifier, { maxItems: 32 }),
+          work: formula,
+        },
+        { additionalProperties: false },
+      ),
+      { maxItems: 128 },
+    ),
+  ),
+  assumptions: Type.Optional(
+    Type.Array(
+      Type.Object(
+        { name: identifier, relationship: formula },
+        { additionalProperties: false },
+      ),
+      { maxItems: 128 },
+    ),
+  ),
+  definitions: Type.Optional(Type.Array(directedDefinition, { maxItems: 128 })),
+  scenarios: Type.Optional(
+    Type.Array(
+      Type.Object(
+        {
+          name: identifier,
+          fixed: Type.Optional(
+            Type.Record(identifier, safeInteger, { maxProperties: 64 }),
+          ),
+          choices: Type.Optional(
+            Type.Record(
+              identifier,
+              Type.Array(safeInteger, { minItems: 1, maxItems: 32 }),
+              { maxProperties: 64 },
+            ),
+          ),
+          definitions: Type.Optional(
+            Type.Array(directedDefinition, { maxItems: 64 }),
+          ),
+          asymptotic: Type.Optional(
+            Type.Array(identifier, { maxItems: 64, uniqueItems: true }),
+          ),
+          bounds: Type.Optional(
+            Type.Record(
+              identifier,
+              Type.Object(
+                { lower: safeInteger, upper: safeInteger },
+                { additionalProperties: false },
+              ),
+              { maxProperties: 64 },
+            ),
+          ),
+        },
+        { additionalProperties: false },
+      ),
+      { maxItems: 64 },
+    ),
+  ),
+};
+const equation = Type.Object(
   {
-    expression: Type.String({
-      description: "Restricted SymPy arithmetic expression",
-      maxLength: MAX_EXPRESSION_BYTES,
-    }),
+    name: identifier,
+    expression: formula,
+    domains: Type.Optional(
+      Type.Record(identifier, indexDomain, { maxProperties: 32 }),
+    ),
   },
   { additionalProperties: false },
 );
+export const formulaSchema = Type.Union([
+  Type.Object(
+    {
+      expression: Type.String({
+        description: "Restricted SymPy arithmetic expression",
+        maxLength: MAX_FORMULA_BYTES,
+      }),
+      ...metadata,
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      equations: Type.Array(equation, { minItems: 1, maxItems: 128 }),
+      ...metadata,
+    },
+    { additionalProperties: false },
+  ),
+]);
+export type FormulaParameters = Static<typeof formulaSchema>;
 
 export type PinnedSource = { revision: string; repo: string };
 
@@ -97,13 +224,14 @@ export async function start(
   pi.registerTool({
     name: "analyze_formula",
     label: "Analyze formula",
-    description: "Analyze restricted SymPy arithmetic without evaluating it",
+    description:
+      "Analyze one restricted SymPy expression or named equation system without evaluating it",
     parameters: formulaSchema,
-    async execute(_id, params, signal) {
+    async execute(_id, params: FormulaParameters, signal) {
       const result = await invokeAdapter(
         state.command,
         state.args,
-        { syntax: "sympy", expression: params.expression },
+        { syntax: "sympy", ...params },
         10_000,
         signal,
       );

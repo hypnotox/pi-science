@@ -8,8 +8,9 @@ import {
   appendResponseChunk,
   BridgeError,
   invokeAdapter,
-  MAX_EXPRESSION_BYTES,
+  MAX_FORMULA_BYTES,
   MAX_RESPONSE_BYTES,
+  PROTOCOL_VERSION,
 } from "../src/bridge.js";
 
 const node = process.execPath;
@@ -140,11 +141,30 @@ const richSuccess = {
     relationships_used: [],
     unused_assumptions: [],
   },
+  scenarios: [
+    {
+      name: "bounded",
+      substituted_work: "N + 1",
+      choice_work: { "p=2": "N + 1" },
+      asymptotic: "Theta(N)",
+      interval: {
+        lower_work: "2",
+        upper_work: "11",
+        conservative: true,
+      },
+      substitutions: { p: "2" },
+      relationships_used: [
+        { name: "population", relationship: "Sum(n[b], (b, 0, B - 1)) == N" },
+      ],
+      qualifications: ["under declared positive integer domains"],
+      unresolved: [],
+    },
+  ],
 };
 const responder = (result: unknown = success) =>
   script(
     `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-      JSON.stringify({ version: 1, result }),
+      JSON.stringify({ version: PROTOCOL_VERSION, result }),
     )}))`,
   );
 
@@ -185,6 +205,80 @@ describe("private formula bridge", () => {
         dependency_edges: [],
       },
     });
+    const system = await invokeAdapter("uv", args, {
+      syntax: "sympy",
+      equations: [
+        {
+          name: "multipoles",
+          expression: "Eq(M[b], Sum(basis(i), (i, 0, n[b] - 1)))",
+          domains: { b: { lower: "0", upper: "B - 1" } },
+        },
+        {
+          name: "translation",
+          expression: "Eq(L[b], translate(M[b]) + M[b])",
+          domains: { b: { lower: "0", upper: "B - 1" } },
+        },
+      ],
+      variables: {
+        B: { domain: "positive_integer" },
+        N: { domain: "positive_integer" },
+        n: { domain: "nonnegative_integer" },
+      },
+      primitive_costs: [{ name: "basis", parameters: ["i"], work: "i + 1" }],
+      assumptions: [
+        {
+          name: "population",
+          relationship: "Sum(n[b], (b, 0, B - 1)) == N",
+        },
+      ],
+      scenarios: [{ name: "fixed_boxes", fixed: { B: 4 }, asymptotic: ["N"] }],
+    });
+    expect(system).toMatchObject({
+      status: "success",
+      system: {
+        equations: [
+          {
+            name: "multipoles",
+            interpretation: {
+              normalized_sympy: "Eq(M[b], Sum(basis(i), (i, 0, n[b] - 1)))",
+            },
+          },
+          {
+            name: "translation",
+            interpretation: {
+              normalized_sympy: "Eq(L[b], translate(M[b]) + M[b])",
+            },
+            dependencies: ["multipoles"],
+          },
+        ],
+        dependency_edges: [["multipoles", "translation"]],
+        reuse: [
+          {
+            producer: "multipoles",
+            consumer: "translation",
+            references: 2,
+          },
+        ],
+        total_work:
+          "B + N*(i + 1) + Sum(C_translate(M[b]), (b, 0, B - 1)) + Sum(Max(0, n[b] - 1), (b, 0, B - 1))",
+        relationships_used: [
+          {
+            name: "population",
+            relationship: "Sum(n[b], (b, 0, B - 1)) == N",
+          },
+        ],
+        unknown_costs: ["C_translate"],
+      },
+      scenarios: [
+        {
+          name: "fixed_boxes",
+          qualifications: [
+            "exact general symbolic work preserved",
+            "fixed values substituted exactly",
+          ],
+        },
+      ],
+    });
   });
 
   it("strictly rejects malformed envelopes and result shapes", async () => {
@@ -192,17 +286,17 @@ describe("private formula bridge", () => {
       "no",
       JSON.stringify(null),
       JSON.stringify([]),
-      JSON.stringify({ version: 2, result: success }),
-      JSON.stringify({ version: 1, result: success, extra: true }),
-      JSON.stringify({ version: 1, result: null }),
-      JSON.stringify({ version: 1, result: [] }),
-      JSON.stringify({ version: 1, result: { status: "success" } }),
+      JSON.stringify({ version: 1, result: success }),
+      JSON.stringify({ version: 2, result: success, extra: true }),
+      JSON.stringify({ version: 2, result: null }),
+      JSON.stringify({ version: 2, result: [] }),
+      JSON.stringify({ version: 2, result: { status: "success" } }),
       JSON.stringify({
-        version: 1,
+        version: 2,
         result: { ...success, unexpected: true },
       }),
       JSON.stringify({
-        version: 1,
+        version: 2,
         result: {
           ...richSuccess,
           system: { ...richSuccess.system, extra: true },
@@ -290,11 +384,16 @@ describe("private formula bridge", () => {
       },
     ],
     [
-      "expression-only scenarios",
+      "scenario qualification",
       (value: typeof richSuccess) => {
-        (value as Record<string, unknown>).scenarios = [
-          { name: "not-transported" },
-        ];
+        (value.scenarios[0] as Record<string, unknown>).qualifications = [1];
+      },
+    ],
+    [
+      "scenario interval",
+      (value: typeof richSuccess) => {
+        (value.scenarios[0].interval as Record<string, unknown>).conservative =
+          "yes";
       },
     ],
   ])("fails closed for malformed rich response %s", async (_name, mutate) => {
@@ -307,7 +406,7 @@ describe("private formula bridge", () => {
     await expect(
       invokeAdapter(node, responder(), request("")),
     ).resolves.toEqual(success);
-    const boundary = "é".repeat(MAX_EXPRESSION_BYTES / 2);
+    const boundary = "é".repeat(MAX_FORMULA_BYTES / 2);
     await expect(
       invokeAdapter(node, responder(), request(boundary)),
     ).resolves.toEqual(success);
@@ -377,9 +476,20 @@ describe("private formula bridge", () => {
     );
   });
 
-  it("rejects escape-heavy envelopes that exceed the adapter byte bound", async () => {
+  it("rejects aggregate and escape-heavy envelopes that exceed the adapter byte bound", async () => {
     await kind(
-      invokeAdapter(node, responder(), request("\u0000".repeat(20_000))),
+      invokeAdapter(node, responder(), {
+        syntax: "sympy",
+        expression: "x",
+        assumptions: Array.from({ length: 40 }, (_, index) => ({
+          name: `a${index}`,
+          relationship: "x".repeat(MAX_FORMULA_BYTES),
+        })),
+      }),
+      "protocol",
+    );
+    await kind(
+      invokeAdapter(node, responder(), request("\u0000".repeat(400_000))),
       "protocol",
     );
   });
