@@ -337,6 +337,32 @@ describe("private formula bridge", () => {
     });
   });
 
+  it("preserves a real-adapter diagnostic truncated at a multibyte boundary", async () => {
+    const adapter = fileURLToPath(
+      new URL("../bridge/formula_adapter.py", import.meta.url),
+    );
+    const boundaryKey = `${"a".repeat(4_055)}€`;
+    const invalidRequest = {
+      syntax: "sympy",
+      expression: "x",
+      [boundaryKey]: true,
+    } as unknown as AnalysisRequest;
+
+    try {
+      await invokeAdapter(
+        "uv",
+        ["run", "--locked", "python", adapter],
+        invalidRequest,
+      );
+      expect.fail("expected request validation to fail");
+    } catch (error) {
+      expect(error).toMatchObject({ kind: "request" });
+      const message = (error as { message: string }).message;
+      expect(Buffer.byteLength(message, "utf8")).toBeLessThanOrEqual(4_096);
+      expect(message).not.toContain("�");
+    }
+  });
+
   it.each([
     ["ASCII", "x".repeat(4_096)],
     ["multibyte UTF-8", "é".repeat(2_048)],

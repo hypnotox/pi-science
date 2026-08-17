@@ -55,7 +55,7 @@ def response(payload: dict[str, Any]) -> bool:
 
 
 def _request_error(error: Exception) -> int:
-    message = str(error).encode("utf-8")[:MAX_DIAGNOSTIC_BYTES].decode("utf-8", "replace")
+    message = str(error).encode("utf-8")[:MAX_DIAGNOSTIC_BYTES].decode("utf-8", "ignore")
     response(
         {
             "version": PROTOCOL_VERSION,
