@@ -753,7 +753,7 @@ describe("private formula bridge", () => {
     await expect(
       invokeAdapter(
         node,
-        responder({ ...success, queries: [reorderedSystemQuery] }),
+        responder({ ...richSuccess, queries: [reorderedSystemQuery] }),
         systemRequest,
       ),
     ).resolves.toMatchObject({ queries: [reorderedSystemQuery] });
@@ -789,6 +789,10 @@ describe("private formula bridge", () => {
         ...requestWithQuery,
         expression: undefined,
       } as unknown as AnalysisRequest),
+      "protocol",
+    );
+    await kind(
+      invokeAdapter(node, responder(success), systemRequest),
       "protocol",
     );
   });

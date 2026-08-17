@@ -983,6 +983,7 @@ function validResult(
     if ("system" in value) keys.push("system");
     return (
       exactKeys(value, keys) &&
+      (isExpressionRequest(request) || "system" in value) &&
       validInterpretation(value.interpretation) &&
       validOperationCounts(value.operation_counts) &&
       (value.abstract_work === null ||

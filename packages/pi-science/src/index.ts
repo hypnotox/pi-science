@@ -42,25 +42,6 @@ const directedDefinition = Type.Object(
   { variable: identifier, expression: formula },
   { additionalProperties: false },
 );
-const equationTarget = Type.Object(
-  { kind: Type.Literal("equation"), name: identifier },
-  { additionalProperties: false },
-);
-const propertyCheck = Type.Union([
-  Type.Object({ kind: Type.Literal("sign") }, { additionalProperties: false }),
-  Type.Object(
-    { kind: Type.Literal("valid_domain"), variable: identifier },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    { kind: Type.Literal("singularities"), variable: identifier },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    { kind: Type.Literal("monotonicity"), variable: identifier },
-    { additionalProperties: false },
-  ),
-]);
 const finitePoint = exactScenarioScalar;
 const infinityPoint = Type.Union([Type.Literal("oo"), Type.Literal("-oo")]);
 const direction = Type.Union([
