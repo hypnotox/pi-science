@@ -338,6 +338,25 @@ describe("private formula bridge", () => {
   });
 
   it.each([
+    ["ASCII", "x".repeat(4_096)],
+    ["multibyte UTF-8", "é".repeat(2_048)],
+  ])(
+    "preserves a request diagnostic at the exact byte bound for %s",
+    async (_name, message) => {
+      await expect(
+        invokeAdapter(
+          node,
+          exitingResponder({
+            version: PROTOCOL_VERSION,
+            error: { kind: "request", message },
+          }),
+          request(),
+        ),
+      ).rejects.toMatchObject({ kind: "request", message });
+    },
+  );
+
+  it.each([
     ["success envelope", { version: PROTOCOL_VERSION, result: success }, 2],
     [
       "wrong exit status",
@@ -381,10 +400,26 @@ describe("private formula bridge", () => {
       2,
     ],
     [
+      "empty request diagnostic",
+      {
+        version: PROTOCOL_VERSION,
+        error: { kind: "request", message: "" },
+      },
+      2,
+    ],
+    [
       "oversized request diagnostic",
       {
         version: PROTOCOL_VERSION,
         error: { kind: "request", message: "x".repeat(4_097) },
+      },
+      2,
+    ],
+    [
+      "oversized multibyte request diagnostic",
+      {
+        version: PROTOCOL_VERSION,
+        error: { kind: "request", message: "é".repeat(2_049) },
       },
       2,
     ],
