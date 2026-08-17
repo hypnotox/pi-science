@@ -1,6 +1,7 @@
 import pytest
 from py_science.formula import (
     AnalysisRequest,
+    Assumption,
     DirectedDefinition,
     EquationRequest,
     FormulaSyntax,
@@ -162,6 +163,44 @@ def test_definition_substitution_reclassifies_direct_work_as_nonfinite(
     assert outcome.status == "success"
     assert outcome.direct_work_applicability == "not_finite"
     assert outcome.abstract_work is None
+
+
+def test_integral_decimal_assumption_specializes_work_like_an_integer() -> None:
+    def specialized(relationship: str) -> str | None:
+        outcome = analyze(
+            AnalysisRequest(
+                syntax=FormulaSyntax.SYMPY,
+                expression="Sum(x[i], (i, 0, n - 1))",
+                variables={
+                    "n": VariableDeclaration(
+                        domain=MathematicalDomain.NONNEGATIVE_INTEGER
+                    )
+                },
+                assumptions=(Assumption(name="fixed", relationship=relationship),),
+            )
+        )
+        assert outcome.status == "success"
+        assert outcome.system is not None
+        return outcome.system.total_work
+
+    assert specialized("n == 2.0") == specialized("n == 2") == "1"
+
+
+def test_integral_decimal_exponent_preserves_definition_domain() -> None:
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="Sum(x[i], (i, 0, q))",
+            variables={
+                "m": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER),
+                "q": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER),
+            },
+            definitions=(DirectedDefinition(variable="q", expression="m**2.0"),),
+        )
+    )
+    assert outcome.status == "success"
+    assert outcome.system is not None
+    assert not any("domain preservation is unproved" in item for item in outcome.system.unresolved)
 
 
 def test_infinity_is_rejected_in_scenario_work_definitions() -> None:

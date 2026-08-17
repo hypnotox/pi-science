@@ -22,6 +22,7 @@ from py_science.formula.expressions import (
     RelationshipOperator,
     Sum,
     Symbol,
+    exact_integer_value,
     expression_children,
     expression_node_count,
     substitute,
@@ -343,10 +344,11 @@ def _is_real_expression(expression: Expression, context: WorkContext) -> bool:
         return (denominator is not None and denominator != 0) or is_positive_expression(
             expression.right, context
         )
+    exponent = exact_integer_value(expression.right)
     return (
         expression.operator is BinaryOperator.POWER
-        and isinstance(expression.right, IntegerLiteral)
-        and expression.right.value >= 0
+        and exponent is not None
+        and exponent >= 0
     )
 
 
@@ -1322,10 +1324,16 @@ def _canonical_equality_replacement(
     left, right = relation.left, relation.right
     if left == right:
         return None
-    if isinstance(left, IntegerLiteral):
-        return (right, left) if not isinstance(right, IntegerLiteral) else None
-    if isinstance(right, IntegerLiteral):
-        return left, right
+    left_integer = exact_integer_value(left)
+    right_integer = exact_integer_value(right)
+    if left_integer is not None:
+        return (
+            (right, IntegerLiteral(left_integer))
+            if right_integer is None
+            else None
+        )
+    if right_integer is not None:
+        return left, IntegerLiteral(right_integer)
     left_nodes = expression_node_count(left)
     right_nodes = expression_node_count(right)
     if left_nodes > right_nodes:

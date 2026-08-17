@@ -96,6 +96,14 @@ type Expression = IntegerLiteral | RationalLiteral | InfinityLiteral | Symbol | 
 type Formula = Expression | Equation | Relationship
 
 
+def exact_integer_value(expression: Expression) -> int | None:
+    if isinstance(expression, IntegerLiteral):
+        return expression.value
+    if isinstance(expression, RationalLiteral) and expression.positive_denominator == 1:
+        return expression.numerator
+    return None
+
+
 def expression_children(expression: Expression) -> tuple[Expression, ...]:
     if isinstance(expression, BinaryExpression):
         return (expression.left, expression.right)

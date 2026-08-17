@@ -15,6 +15,7 @@ from py_science.formula.expressions import (
     RationalLiteral,
     Sum,
     Symbol,
+    exact_integer_value,
     expression_children,
     expression_node_count,
     substitute,
@@ -214,8 +215,10 @@ def cardinality(
 ) -> tuple[Expression, str | None]:
     if _contains_infinity(lower) or _contains_infinity(upper):
         return IntegerLiteral(0), "infinite iterator has no finite direct-evaluation work"
-    if isinstance(lower, IntegerLiteral) and isinstance(upper, IntegerLiteral):
-        return IntegerLiteral(max(upper.value - lower.value + 1, 0)), None
+    lower_value = exact_integer_value(lower)
+    upper_value = exact_integer_value(upper)
+    if lower_value is not None and upper_value is not None:
+        return IntegerLiteral(max(upper_value - lower_value + 1, 0)), None
     extent_value = _zero_to_nonnegative_extent(lower, upper, context)
     if extent_value is not None:
         return extent_value, None
@@ -272,11 +275,10 @@ def is_nonnegative_expression(expression: Expression, context: WorkContext) -> b
             return is_nonnegative_expression(
                 expression.left, context
             ) and is_nonnegative_expression(expression.right, context)
-        if expression.operator is BinaryOperator.POWER and isinstance(
-            expression.right, IntegerLiteral
-        ):
-            return expression.right.value >= 0 and (
-                expression.right.value % 2 == 0
+        if expression.operator is BinaryOperator.POWER:
+            exponent = exact_integer_value(expression.right)
+            return exponent is not None and exponent >= 0 and (
+                exponent % 2 == 0
                 or is_nonnegative_expression(expression.left, context)
             )
     return False
@@ -307,10 +309,11 @@ def is_positive_expression(expression: Expression, context: WorkContext) -> bool
     if (
         isinstance(expression, BinaryExpression)
         and expression.operator is BinaryOperator.POWER
-        and isinstance(expression.right, IntegerLiteral)
-        and expression.right.value > 0
     ):
-        return is_positive_expression(expression.left, context)
+        exponent = exact_integer_value(expression.right)
+        return exponent is not None and exponent > 0 and is_positive_expression(
+            expression.left, context
+        )
     return False
 
 
@@ -337,10 +340,11 @@ def is_integer_expression(expression: Expression, context: WorkContext) -> bool:
                 expression.right, context
             )
         if expression.operator is BinaryOperator.POWER:
+            exponent = exact_integer_value(expression.right)
             return (
                 is_integer_expression(expression.left, context)
-                and isinstance(expression.right, IntegerLiteral)
-                and expression.right.value >= 0
+                and exponent is not None
+                and exponent >= 0
             )
         return False
     if isinstance(expression, Call):
