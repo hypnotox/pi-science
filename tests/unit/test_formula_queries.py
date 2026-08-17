@@ -401,10 +401,12 @@ def test_later_consumers_preserve_exact_answer_shape_and_check_order():
     assert outcome.status == "success"
     assert [answer.check.kind for answer in outcome.queries[0].answers] == ["sign", "valid_domain"]
     assert isinstance(outcome.queries[0].answers[0].check, SignPropertyCheck)
-    assert all(answer.evidence is None and answer.derived_candidates == () for result in outcome.queries for answer in result.answers)
+    assert outcome.queries[1].answers[0].evidence is not None
+    assert outcome.queries[2].answers[0].evidence is None
+    assert all(answer.derived_candidates == () for result in outcome.queries for answer in result.answers)
     dumped = outcome.model_dump(mode="json")
     assert dumped["queries"][1]["answers"][0]["check"] is None
-    assert dumped["queries"][1]["answers"][0]["evidence"] is None
+    assert dumped["queries"][1]["answers"][0]["evidence"]["kind"] == "limit"
 
 
 def test_counterexample_model_rejects_noncanonical_values():

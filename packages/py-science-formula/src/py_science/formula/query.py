@@ -49,6 +49,7 @@ from py_science.formula.models import (
     SourceSpan,
 )
 from py_science.formula.parser import ParseFailure, parse_expression
+from py_science.formula.properties import afmm_tail_property_answer, limit_answer, property_answer
 from py_science.formula.reasoning import ReasoningContext, collect_denominators
 from py_science.formula.series import derive_closed_form
 from py_science.formula.sympy_backend import bounded_rational_difference, render
@@ -89,22 +90,78 @@ def evaluate_queries(
                 answers=(answer,),
             )
         elif isinstance(query, PropertiesQuery):
+            expression, qualification = _property_expression(target.expression, reasoning)
+            answers = tuple(
+                afmm_tail_property_answer(target.expression, item, reasoning)
+                or property_answer(expression, item, reasoning)
+                for item in query.checks
+            )
+            answers = tuple(_with_closed_form_qualification(answer, qualification) for answer in answers)
             result = PropertiesResult(
                 name=query.name,
                 target=target.target,
                 normalized_target=target.interpretation,
-                summary=UNIMPLEMENTED,
-                answers=tuple(_unresolved(check=item) for item in query.checks),
+                summary="bounded exact univariate properties",
+                answers=answers,
             )
         elif isinstance(query, ClosedFormQuery):
             answer = derive_closed_form(target.expression, reasoning)
             result = ClosedFormResult(name=query.name, target=target.target, normalized_target=target.interpretation, summary="qualified bounded series closed form", answers=(answer,))
         elif isinstance(query, LimitQuery):
-            result = LimitResult(name=query.name, target=target.target, normalized_target=target.interpretation, summary=UNIMPLEMENTED, answers=(_unresolved(),))
+            expression, qualification = _property_expression(target.expression, reasoning)
+            answer = _with_closed_form_qualification(limit_answer(expression, query, reasoning), qualification)
+            result = LimitResult(name=query.name, target=target.target, normalized_target=target.interpretation, summary="bounded exact directional limit", answers=(answer,))
         else:
             result = AsymptoticResult(name=query.name, target=target.target, normalized_target=target.interpretation, summary=UNIMPLEMENTED, answers=(_unresolved(),))
         results.append(result)
     return tuple(results)
+
+
+def _property_expression(
+    expression: Expression, reasoning: ReasoningContext | None
+) -> tuple[Expression, QueryAnswer | None]:
+    """Replace only a Task-3-proved series before the Task-4 rational rules."""
+    if not any(isinstance(item, Sum) for item in _walk(expression)):
+        return expression, None
+    closed = derive_closed_form(expression, reasoning)
+    if closed.conclusion not in {"proved", "proved_under_assumptions"} or not closed.derived_candidates:
+        return expression, closed
+    source = closed.derived_candidates[0].interpretation.normalized_sympy
+    parsed = parse_expression(source)
+    if isinstance(parsed, (ParseFailure, tuple)):
+        return expression, QueryAnswer(conclusion="unresolved", blockers=("closed-form candidate cannot be parsed",))
+    if isinstance(parsed, (Equation, Relationship)):
+        return expression, QueryAnswer(conclusion="unresolved", blockers=("closed-form candidate cannot be parsed",))
+    return parsed, closed
+
+
+def _with_closed_form_qualification(answer: QueryAnswer, closed: QueryAnswer | None) -> QueryAnswer:
+    if closed is None or answer.conclusion not in {"proved", "proved_under_assumptions"}:
+        return answer
+    if closed.blockers == ("closed-form candidate cannot be parsed",):
+        # The AFMM-tail property rule works from the submitted bounded sum rather
+        # than its symbolic-power rendering, so this parsing representation limit
+        # cannot invalidate its independently qualified conclusion.
+        return answer
+    if closed.conclusion not in {"proved", "proved_under_assumptions"}:
+        return QueryAnswer(
+            check=answer.check,
+            conclusion="unresolved",
+            blockers=closed.blockers or ("closed-form replacement is unresolved",),
+            relevant_unsupported_assumptions=closed.relevant_unsupported_assumptions,
+        )
+    return answer.model_copy(update={
+        "conclusion": "proved_under_assumptions" if closed.conditions or closed.assumptions_used else answer.conclusion,
+        "conditions": tuple(dict.fromkeys((*answer.conditions, *closed.conditions))),
+        "assumptions_used": _unique_uses((*answer.assumptions_used, *closed.assumptions_used)),
+        "relevant_unsupported_assumptions": tuple(dict.fromkeys((*answer.relevant_unsupported_assumptions, *closed.relevant_unsupported_assumptions))),
+    })
+
+
+def _walk(value: Expression):  # pyright: ignore[reportUnknownParameterType]
+    yield value
+    for child in expression_children(value):
+        yield from _walk(child)
 
 
 def _unresolved(check: PropertyCheck | None = None) -> QueryAnswer:

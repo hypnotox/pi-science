@@ -1,3 +1,5 @@
+# ruff: noqa: E501
+# pyright: basic, reportArgumentType=false, reportOptionalMemberAccess=false, reportAttributeAccessIssue=false, reportOperatorIssue=false, reportUnknownMemberType=false, reportUnknownVariableType=false
 import py_science.formula.service as formula_service
 import py_science.formula.work as formula_work
 import pytest
@@ -55,6 +57,18 @@ def test_named_rhs_query_is_local_and_preserves_system_work() -> None:
     assert queried.system.total_work == baseline.system.total_work
     assert queried.system.equations == baseline.system.equations
     assert queried.queries[0].answers[0].conclusion == "proved"
+
+
+def test_named_rhs_property_query_is_local_to_the_selected_equation() -> None:
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(EquationRequest(name="value", expression="Eq(y, 1/(x - 1))"),),
+        variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
+        queries=({"name": "properties", "kind": "properties", "target": {"kind": "equation", "name": "value"}, "checks": ({"kind": "singularities", "variable": "x"},)},),
+    ))
+    assert isinstance(outcome, AnalysisSuccess)
+    assert outcome.system is not None and outcome.queries[0].target.name == "value"
+    assert "pole of order 1" in outcome.queries[0].answers[0].evidence.value
 
 
 def test_named_rhs_closed_form_query_is_local_to_the_selected_equation() -> None:
@@ -681,7 +695,7 @@ def test_afmm_like_request_reports_structural_work_scenarios_and_uncertainty() -
 def test_infinite_output_domain_is_rejected_as_a_finite_computational_bound() -> None:
     outcome = analyze(AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,
-        equations=(EquationRequest(name="a", expression="Eq(A[i], x[i])", domains={"i": IndexDomain(lower="0", upper="oo")}),),  # noqa: E501
+        equations=(EquationRequest(name="a", expression="Eq(A[i], x[i])", domains={"i": IndexDomain(lower="0", upper="oo")}),),
         variables=variables("x"),
     ))
     assert outcome.status == "failure"

@@ -1,3 +1,5 @@
+# ruff: noqa: E501
+# pyright: basic, reportArgumentType=false, reportOptionalMemberAccess=false, reportAttributeAccessIssue=false, reportOperatorIssue=false, reportUnknownMemberType=false, reportUnknownVariableType=false
 from pathlib import Path
 from typing import assert_never
 
@@ -54,6 +56,25 @@ def test_general_query_results_do_not_change_submitted_expression_work() -> None
     assert queried.direct_work_applicability == baseline.direct_work_applicability
     assert queried.queries[0].answers[0].conclusion == "proved"
     assert queried.queries[1].answers[0].conclusion == "unresolved"
+
+
+def test_property_and_directional_limit_queries_preserve_submitted_work() -> None:
+    baseline = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="1/(x - 1)"))
+    queried = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="1/(x - 1)",
+        variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
+        queries=(
+            {"name": "properties", "kind": "properties", "checks": ({"kind": "valid_domain", "variable": "x"}, {"kind": "singularities", "variable": "x"}, {"kind": "sign"})},
+            {"name": "limit", "kind": "limit", "variable": "x", "point": "1", "direction": "both"},
+        ),
+    ))
+    assert isinstance(baseline, AnalysisSuccess) and isinstance(queried, AnalysisSuccess)
+    assert queried.operation_counts == baseline.operation_counts
+    assert queried.abstract_work == baseline.abstract_work
+    assert queried.queries[0].answers[0].conclusion == "proved"
+    limit = queried.queries[1].answers[0].evidence
+    assert limit is not None and limit.kind == "limit" and limit.exists is False
 
 
 def test_closed_form_query_preserves_submitted_nonfinite_work() -> None:
