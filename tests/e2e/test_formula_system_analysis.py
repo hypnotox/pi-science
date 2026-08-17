@@ -3,8 +3,11 @@ import py_science.formula.work as formula_work
 import pytest
 from py_science.formula import (
     AnalysisRequest,
+    AnalysisSuccess,
     Assumption,
     EquationRequest,
+    EquationTarget,
+    EquivalenceQuery,
     FormulaSyntax,
     FunctionDefinition,
     IndexDomain,
@@ -22,6 +25,35 @@ def variables(*names: str) -> dict[str, VariableDeclaration]:
     return {
         name: VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER) for name in names
     }
+
+
+def test_named_rhs_query_is_local_and_preserves_system_work() -> None:
+    base = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(EquationRequest(name="value", expression="Eq(y, x + 1)"),),
+        variables=variables("x", "y"),
+    )
+    baseline = analyze(base)
+    queried = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=base.equations,
+            variables=base.variables,
+            queries=(
+                EquivalenceQuery(
+                    name="same",
+                    target=EquationTarget(name="value"),
+                    comparison="1 + x",
+                ),
+            ),
+        )
+    )
+    assert isinstance(baseline, AnalysisSuccess)
+    assert isinstance(queried, AnalysisSuccess)
+    assert baseline.system is not None and queried.system is not None
+    assert queried.system.total_work == baseline.system.total_work
+    assert queried.system.equations == baseline.system.equations
+    assert queried.queries[0].answers[0].conclusion == "proved"
 
 
 def test_named_indexed_equations_reuse_producer_and_sum_work() -> None:

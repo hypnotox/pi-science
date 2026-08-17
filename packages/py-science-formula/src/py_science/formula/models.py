@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from enum import StrEnum
 from typing import Annotated, Literal
 
-from py_science.formula.exact_values import parse_exact_scalar
+from py_science.formula.exact_values import parse_exact_scalar, render_exact
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 MAX_NAME_LENGTH = 128
@@ -218,15 +218,16 @@ class ExpressionTarget(StructuredModel):
     kind: Literal["expression"] = "expression"
 
 
-class PropertyCheck(StructuredModel):
-    kind: Literal["valid_domain", "singularities", "sign", "monotonicity"]
-    variable: str | None = Field(default=None, min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
+class VariablePropertyCheck(StructuredModel):
+    kind: Literal["valid_domain", "singularities", "monotonicity"]
+    variable: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
 
-    @model_validator(mode="after")
-    def variable_shape(self) -> "PropertyCheck":
-        if (self.kind in {"valid_domain", "singularities", "monotonicity"}) != (self.variable is not None):
-            raise ValueError("property check variable is required only for variable checks")
-        return self
+
+class SignPropertyCheck(StructuredModel):
+    kind: Literal["sign"] = "sign"
+
+
+type PropertyCheck = Annotated[VariablePropertyCheck | SignPropertyCheck, Field(discriminator="kind")]
 
 
 class QueryBase(StructuredModel):
@@ -260,11 +261,14 @@ class LimitQuery(QueryBase):
     point: str | int
     direction: Literal["left", "right", "both"] | None = None
 
-
     @model_validator(mode="after")
     def valid_point(self) -> "LimitQuery":
+        if isinstance(self.point, int) and abs(self.point) > 9_007_199_254_740_991:
+            raise ValueError("numeric point must be a JavaScript-safe integer")
         if str(self.point) not in {"oo", "-oo"} and parse_exact_scalar(str(self.point)) is None:
             raise ValueError("point must be an exact scalar or infinity")
+        if (str(self.point) in {"oo", "-oo"}) == (self.direction is not None):
+            raise ValueError("finite points require direction and infinity forbids it")
         return self
 
 
@@ -277,6 +281,8 @@ class AsymptoticQuery(QueryBase):
 
     @model_validator(mode="after")
     def valid_point(self) -> "AsymptoticQuery":
+        if isinstance(self.point, int) and abs(self.point) > 9_007_199_254_740_991:
+            raise ValueError("numeric point must be a JavaScript-safe integer")
         if str(self.point) not in {"oo", "-oo"} and parse_exact_scalar(str(self.point)) is None:
             raise ValueError("point must be an exact scalar or infinity")
         if (str(self.point) in {"oo", "-oo"}) == (self.direction is not None):
@@ -287,29 +293,164 @@ class AsymptoticQuery(QueryBase):
 QueryRequest = Annotated[EquivalenceQuery | ClosedFormQuery | PropertiesQuery | LimitQuery | AsymptoticQuery, Field(discriminator="kind")]
 
 
+type ResolvedTarget = Annotated[ExpressionTarget | EquationTarget, Field(discriminator="kind")]
+
+
 class DerivedCandidate(StructuredModel):
     interpretation: "Interpretation"
     operation_counts: "OperationCounts"
 
 
+class IdentityEvidence(StructuredModel):
+    kind: Literal["identity"] = "identity"
+    statement: str = Field(min_length=1, max_length=4096)
+
+
+class CounterexampleEvidence(StructuredModel):
+    kind: Literal["counterexample"] = "counterexample"
+    substitutions: dict[str, str] = Field(max_length=256)
+    target_value: str = Field(min_length=1, max_length=4096)
+    comparison_value: str = Field(min_length=1, max_length=4096)
+
+    @model_validator(mode="after")
+    def canonical_substitutions(self) -> "CounterexampleEvidence":
+        parsed = (parse_exact_scalar(value) for value in self.substitutions.values())
+        if any(item is None or render_exact(item) != value for item, value in zip(parsed, self.substitutions.values(), strict=True)):
+            raise ValueError("counterexample substitutions must be canonical exact scalars")
+        return self
+
+
+class ClosedFormEvidence(StructuredModel):
+    kind: Literal["closed_form"] = "closed_form"
+    verification: Literal["finite_antidifference", "infinite_partial_sum"]
+    statement: str = Field(min_length=1, max_length=4096)
+
+
+class PropertyEvidence(StructuredModel):
+    kind: Literal["property"] = "property"
+    value: str = Field(min_length=1, max_length=4096)
+    intervals: tuple[str, ...] = Field(default=(), max_length=256)
+
+
+type BoundedQueryText = Annotated[str, Field(min_length=1, max_length=4096)]
+
+
+class LimitEvidence(StructuredModel):
+    kind: Literal["limit"] = "limit"
+    exists: bool
+    value: BoundedQueryText | None
+    left: BoundedQueryText | None
+    right: BoundedQueryText | None
+
+
+class AsymptoticRemainder(StructuredModel):
+    local_parameter: str = Field(min_length=1, max_length=4096)
+    exponent: int
+    normalized_big_o: str = Field(min_length=1, max_length=4096)
+
+
+class AsymptoticEvidence(StructuredModel):
+    kind: Literal["asymptotic"] = "asymptotic"
+    statement: str = Field(min_length=1, max_length=4096)
+    remainder: AsymptoticRemainder | None
+
+
+type QueryEvidence = Annotated[
+    IdentityEvidence | CounterexampleEvidence | ClosedFormEvidence | PropertyEvidence | LimitEvidence | AsymptoticEvidence,
+    Field(discriminator="kind"),
+]
+
+
 class QueryAnswer(StructuredModel):
     check: PropertyCheck | None = None
     conclusion: Literal["proved", "proved_under_assumptions", "disproved", "unresolved", "inapplicable"]
-    conditions: tuple[str, ...] = ()
-    assumptions_used: tuple["RelationshipUse", ...] = ()
-    relevant_unsupported_assumptions: tuple[str, ...] = ()
-    blockers: tuple[str, ...] = ()
-    evidence: dict[str, object] | None = None
-    derived_candidates: tuple[DerivedCandidate, ...] = ()
+    conditions: tuple[str, ...] = Field(default=(), max_length=256)
+    assumptions_used: tuple["RelationshipUse", ...] = Field(default=(), max_length=128)
+    relevant_unsupported_assumptions: tuple[str, ...] = Field(default=(), max_length=128)
+    blockers: tuple[str, ...] = Field(default=(), max_length=128)
+    evidence: QueryEvidence | None = None
+    derived_candidates: tuple[DerivedCandidate, ...] = Field(default=(), max_length=32)
+
+    @model_validator(mode="after")
+    def terminal_shape(self) -> "QueryAnswer":
+        bounded = (*self.conditions, *self.relevant_unsupported_assumptions, *self.blockers)
+        if any(not value or len(value) > 4096 for value in bounded):
+            raise ValueError("query qualification strings must be nonempty and bounded")
+        if self.conclusion in {"unresolved", "inapplicable"} and self.derived_candidates:
+            raise ValueError("unresolved and inapplicable answers cannot carry candidates")
+        return self
 
 
-class QueryResultBase(StructuredModel):
-    name: str
-    kind: Literal["equivalence", "closed_form", "properties", "limit", "asymptotic"]
-    target: ExpressionTarget | EquationTarget
+class QueryResultCommon(StructuredModel):
+    name: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
+    target: ResolvedTarget
     normalized_target: "Interpretation"
-    summary: str
+    summary: str = Field(min_length=1, max_length=4096)
     answers: tuple[QueryAnswer, ...]
+
+
+class EquivalenceResult(QueryResultCommon):
+    kind: Literal["equivalence"] = "equivalence"
+
+    @model_validator(mode="after")
+    def exact_answer(self) -> "EquivalenceResult":
+        _validate_query_answers(self.answers, None, {"identity", "counterexample"})
+        return self
+
+
+class ClosedFormResult(QueryResultCommon):
+    kind: Literal["closed_form"] = "closed_form"
+
+    @model_validator(mode="after")
+    def exact_answer(self) -> "ClosedFormResult":
+        _validate_query_answers(self.answers, None, {"closed_form"})
+        return self
+
+
+class PropertiesResult(QueryResultCommon):
+    kind: Literal["properties"] = "properties"
+
+    @model_validator(mode="after")
+    def property_answers(self) -> "PropertiesResult":
+        if not self.answers or any(answer.check is None for answer in self.answers):
+            raise ValueError("properties results require checked answers")
+        checks = tuple(answer.check.model_dump_json() for answer in self.answers if answer.check is not None)
+        if len(checks) != len(set(checks)):
+            raise ValueError("properties result checks must be unique")
+        if any(answer.evidence is not None and answer.evidence.kind != "property" for answer in self.answers):
+            raise ValueError("properties results require property evidence")
+        return self
+
+
+class LimitResult(QueryResultCommon):
+    kind: Literal["limit"] = "limit"
+
+    @model_validator(mode="after")
+    def exact_answer(self) -> "LimitResult":
+        _validate_query_answers(self.answers, None, {"limit"})
+        return self
+
+
+class AsymptoticResult(QueryResultCommon):
+    kind: Literal["asymptotic"] = "asymptotic"
+
+    @model_validator(mode="after")
+    def exact_answer(self) -> "AsymptoticResult":
+        _validate_query_answers(self.answers, None, {"asymptotic"})
+        return self
+
+
+def _validate_query_answers(answers: tuple[QueryAnswer, ...], check: None, evidence_kinds: set[str]) -> None:
+    if len(answers) != 1 or answers[0].check is not check:
+        raise ValueError("query result requires exactly one unchecked answer")
+    if answers[0].evidence is not None and answers[0].evidence.kind not in evidence_kinds:
+        raise ValueError("query evidence kind does not match result kind")
+
+
+type QueryResult = Annotated[
+    EquivalenceResult | ClosedFormResult | PropertiesResult | LimitResult | AsymptoticResult,
+    Field(discriminator="kind"),
+]
 
 
 
@@ -560,7 +701,7 @@ class AnalysisSuccess(StructuredModel):
     direct_work_blockers: tuple[str, ...] = ()
     system: SystemReport | None = None
     scenarios: tuple[ScenarioResult, ...] = ()
-    queries: tuple[QueryResultBase, ...] = ()
+    queries: tuple[QueryResult, ...] = ()
 
     @model_validator(mode="after")
     def validate_direct_work(self) -> "AnalysisSuccess":

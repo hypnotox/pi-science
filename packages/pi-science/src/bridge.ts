@@ -139,13 +139,40 @@ export type AnalysisSuccess = {
   scenarios: ScenarioResult[];
   queries: QueryResult[];
 };
+export type ResolvedTarget =
+  { kind: "expression" } | { kind: "equation"; name: string };
+export type PropertyCheck =
+  | { kind: "sign" }
+  | {
+      kind: "valid_domain" | "singularities" | "monotonicity";
+      variable: string;
+    };
+export type DerivedCandidate = {
+  interpretation: Interpretation;
+  operation_counts: OperationCounts;
+};
+export type QueryAnswer = {
+  check: PropertyCheck | null;
+  conclusion:
+    | "proved"
+    | "proved_under_assumptions"
+    | "disproved"
+    | "unresolved"
+    | "inapplicable";
+  conditions: string[];
+  assumptions_used: RelationshipUse[];
+  relevant_unsupported_assumptions: string[];
+  blockers: string[];
+  evidence: Record<string, unknown> | null;
+  derived_candidates: DerivedCandidate[];
+};
 export type QueryResult = {
   name: string;
-  kind: string;
-  target: { kind: string };
+  kind: "equivalence" | "closed_form" | "properties" | "limit" | "asymptotic";
+  target: ResolvedTarget;
   normalized_target: Interpretation;
   summary: string;
-  answers: unknown[];
+  answers: QueryAnswer[];
 };
 export type AnalysisFailure = {
   status: "failure";
@@ -571,30 +598,201 @@ function validDiagnosticLocationRelation(
   if (source.span === null) return true;
   return isRecord(source.span) && sameLocation(location, source.span.start);
 }
-function validQueryResult(value: unknown): boolean {
+function boundedQueryText(value: unknown): value is string {
+  return (
+    typeof value === "string" && value.length > 0 && [...value].length <= 4096
+  );
+}
+function validResolvedTarget(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (value.kind === "expression") return exactKeys(value, ["kind"]);
+  return (
+    value.kind === "equation" &&
+    exactKeys(value, ["kind", "name"]) &&
+    typeof value.name === "string" &&
+    value.name.length > 0
+  );
+}
+function validPropertyCheck(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (value.kind === "sign") return exactKeys(value, ["kind"]);
+  return (
+    ["valid_domain", "singularities", "monotonicity"].includes(
+      String(value.kind),
+    ) &&
+    exactKeys(value, ["kind", "variable"]) &&
+    typeof value.variable === "string" &&
+    value.variable.length > 0
+  );
+}
+function validDerivedCandidate(value: unknown): boolean {
   return (
     isRecord(value) &&
-    exactKeys(value, [
+    exactKeys(value, ["interpretation", "operation_counts"]) &&
+    validInterpretation(value.interpretation) &&
+    validOperationCounts(value.operation_counts)
+  );
+}
+function validNullableQueryText(value: unknown): boolean {
+  return value === null || boundedQueryText(value);
+}
+function validQueryEvidence(value: unknown): boolean {
+  if (!isRecord(value) || typeof value.kind !== "string") return false;
+  if (value.kind === "identity")
+    return (
+      exactKeys(value, ["kind", "statement"]) &&
+      boundedQueryText(value.statement)
+    );
+  if (value.kind === "counterexample")
+    return (
+      exactKeys(value, [
+        "kind",
+        "substitutions",
+        "target_value",
+        "comparison_value",
+      ]) &&
+      validStringMap(value.substitutions) &&
+      Object.values(value.substitutions as Record<string, string>).every(
+        (item) => /^-?(0|[1-9][0-9]*)(\/[1-9][0-9]*)?$/.test(item),
+      ) &&
+      boundedQueryText(value.target_value) &&
+      boundedQueryText(value.comparison_value)
+    );
+  if (value.kind === "closed_form")
+    return (
+      exactKeys(value, ["kind", "verification", "statement"]) &&
+      ["finite_antidifference", "infinite_partial_sum"].includes(
+        String(value.verification),
+      ) &&
+      boundedQueryText(value.statement)
+    );
+  if (value.kind === "property")
+    return (
+      exactKeys(value, ["kind", "value", "intervals"]) &&
+      boundedQueryText(value.value) &&
+      validStringArray(value.intervals) &&
+      value.intervals.length <= 256 &&
+      value.intervals.every(boundedQueryText)
+    );
+  if (value.kind === "limit")
+    return (
+      exactKeys(value, ["kind", "exists", "value", "left", "right"]) &&
+      typeof value.exists === "boolean" &&
+      validNullableQueryText(value.value) &&
+      validNullableQueryText(value.left) &&
+      validNullableQueryText(value.right)
+    );
+  if (value.kind === "asymptotic") {
+    const remainder = value.remainder;
+    return (
+      exactKeys(value, ["kind", "statement", "remainder"]) &&
+      boundedQueryText(value.statement) &&
+      (remainder === null ||
+        (isRecord(remainder) &&
+          exactKeys(remainder, [
+            "local_parameter",
+            "exponent",
+            "normalized_big_o",
+          ]) &&
+          boundedQueryText(remainder.local_parameter) &&
+          Number.isSafeInteger(remainder.exponent) &&
+          boundedQueryText(remainder.normalized_big_o)))
+    );
+  }
+  return false;
+}
+function validQueryAnswer(value: unknown): boolean {
+  if (
+    !isRecord(value) ||
+    !exactKeys(value, [
+      "check",
+      "conclusion",
+      "conditions",
+      "assumptions_used",
+      "relevant_unsupported_assumptions",
+      "blockers",
+      "evidence",
+      "derived_candidates",
+    ]) ||
+    ![
+      "proved",
+      "proved_under_assumptions",
+      "disproved",
+      "unresolved",
+      "inapplicable",
+    ].includes(String(value.conclusion)) ||
+    !(value.check === null || validPropertyCheck(value.check)) ||
+    !validStringArray(value.conditions) ||
+    value.conditions.length > 256 ||
+    !value.conditions.every(boundedQueryText) ||
+    !validRelationshipUses(value.assumptions_used) ||
+    !validStringArray(value.relevant_unsupported_assumptions) ||
+    value.relevant_unsupported_assumptions.length > 128 ||
+    !value.relevant_unsupported_assumptions.every(boundedQueryText) ||
+    !validStringArray(value.blockers) ||
+    value.blockers.length > 128 ||
+    !value.blockers.every(boundedQueryText) ||
+    !(value.evidence === null || validQueryEvidence(value.evidence)) ||
+    !Array.isArray(value.derived_candidates) ||
+    value.derived_candidates.length > 32 ||
+    !value.derived_candidates.every(validDerivedCandidate)
+  )
+    return false;
+  return !(
+    ["unresolved", "inapplicable"].includes(String(value.conclusion)) &&
+    value.derived_candidates.length > 0
+  );
+}
+function validQueryResult(value: unknown): boolean {
+  if (
+    !isRecord(value) ||
+    !exactKeys(value, [
       "name",
       "kind",
       "target",
       "normalized_target",
       "summary",
       "answers",
-    ]) &&
-    typeof value.name === "string" &&
-    [
+    ]) ||
+    typeof value.name !== "string" ||
+    value.name.length === 0 ||
+    ![
       "equivalence",
       "closed_form",
       "properties",
       "limit",
       "asymptotic",
-    ].includes(String(value.kind)) &&
-    isRecord(value.target) &&
-    typeof value.target.kind === "string" &&
-    validInterpretation(value.normalized_target) &&
-    typeof value.summary === "string" &&
-    Array.isArray(value.answers)
+    ].includes(String(value.kind)) ||
+    !validResolvedTarget(value.target) ||
+    !validInterpretation(value.normalized_target) ||
+    !boundedQueryText(value.summary) ||
+    !Array.isArray(value.answers) ||
+    !value.answers.every(validQueryAnswer)
+  )
+    return false;
+  const answers = value.answers as QueryAnswer[];
+  if (value.kind === "properties")
+    return (
+      answers.length > 0 &&
+      answers.every(
+        (answer) =>
+          answer.check !== null &&
+          (answer.evidence === null || answer.evidence.kind === "property"),
+      )
+    );
+  if (answers.length !== 1 || answers[0]?.check !== null) return false;
+  const allowedEvidence: Record<string, string> = {
+    equivalence: "identity|counterexample",
+    closed_form: "closed_form",
+    limit: "limit",
+    asymptotic: "asymptotic",
+  };
+  const evidence = answers[0]?.evidence;
+  return (
+    evidence === null ||
+    new RegExp(`^(${allowedEvidence[String(value.kind)]})$`).test(
+      String(evidence.kind),
+    )
   );
 }
 

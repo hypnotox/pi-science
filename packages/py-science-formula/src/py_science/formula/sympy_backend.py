@@ -1,3 +1,4 @@
+# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -49,6 +50,63 @@ class NormalizationError(RuntimeError):
 class NormalizedRendering:
     sympy: str
     latex: str
+
+
+@dataclass(frozen=True, slots=True)
+class BoundedRationalDifference:
+    left: Any
+    right: Any
+    numerator: Any
+    denominator: Any
+    symbols: tuple[Any, ...]
+
+
+def bounded_rational_difference(
+    left: Expression,
+    right: Expression,
+    *,
+    max_intermediate_nodes: int = 4096,
+    max_degree: int = 8,
+    max_exponent: int = 32,
+    max_coefficient_bits: int = 1024,
+) -> BoundedRationalDifference | None:
+    """Normalize one pre-allowlisted rational pair under explicit resource caps."""
+    try:
+        lhs: Any = _to_sympy(left)
+        rhs: Any = _to_sympy(right)
+        if sum(1 for _ in sympy.preorder_traversal(lhs)) > max_intermediate_nodes:
+            return None
+        if sum(1 for _ in sympy.preorder_traversal(rhs)) > max_intermediate_nodes:
+            return None
+        difference = sympy.cancel(lhs - rhs)
+        if sum(1 for _ in sympy.preorder_traversal(difference)) > max_intermediate_nodes:
+            return None
+        numerator, denominator = sympy.fraction(difference)
+        symbols = tuple(sorted(numerator.free_symbols | denominator.free_symbols, key=str))
+        for value in (numerator, denominator):
+            polynomial = sympy.Poly(value, *symbols) if symbols else None
+            if polynomial is not None:
+                if polynomial.total_degree() > max_degree:
+                    return None
+                if any(
+                    abs(int(exponent)) > max_exponent
+                    for monomial in polynomial.monoms()
+                    for exponent in monomial
+                ):
+                    return None
+                for coefficient in polynomial.coeffs():
+                    numerator_part, denominator_part = sympy.fraction(coefficient)
+                    if not numerator_part.is_Integer or not denominator_part.is_Integer:
+                        return None
+                    coefficient_bits = max(
+                        abs(int(numerator_part)).bit_length(),
+                        abs(int(denominator_part)).bit_length(),
+                    )
+                    if coefficient_bits > max_coefficient_bits:
+                        return None
+        return BoundedRationalDifference(lhs, rhs, numerator, denominator, symbols)
+    except Exception:
+        return None
 
 
 def render(formula: Expression | Equation) -> NormalizedRendering:

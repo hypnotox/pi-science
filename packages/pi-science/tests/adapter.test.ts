@@ -122,6 +122,33 @@ print(module._encoded({"result": "x" * 262401}) is None)
     expect(result.stdout.trim()).toBe("True");
   });
 
+  it("preserves mandatory nulls in populated protocol-v4 query answers", () => {
+    const result = invoke(
+      JSON.stringify({
+        version: 4,
+        request: {
+          syntax: "sympy",
+          expression: "x",
+          queries: [
+            { name: "same", kind: "equivalence", comparison: "x" },
+            { name: "later", kind: "closed_form" },
+          ],
+        },
+      }),
+    );
+    expect(result.status).toBe(0);
+    const envelope = JSON.parse(result.stdout);
+    expect(envelope.result.queries[0].answers[0]).toMatchObject({
+      check: null,
+      evidence: { kind: "identity" },
+    });
+    expect(envelope.result.queries[1].answers[0]).toMatchObject({
+      check: null,
+      evidence: null,
+      derived_candidates: [],
+    });
+  });
+
   it("round trips a complete equation-system request through the real adapter", () => {
     const result = invoke(
       JSON.stringify({ version: 4, request: systemRequest }),

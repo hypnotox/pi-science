@@ -9,7 +9,9 @@ from py_science.formula import (
     AnalysisOutcome,
     AnalysisRequest,
     AnalysisSuccess,
+    ClosedFormQuery,
     EquationReport,
+    EquivalenceQuery,
     FormulaSyntax,
     Interpretation,
     OperationCounts,
@@ -27,6 +29,27 @@ def describe_outcome(outcome: AnalysisOutcome) -> str:
     if outcome.status == "failure":
         return outcome.error.code.value
     assert_never(outcome)
+
+
+def test_general_query_results_do_not_change_submitted_expression_work() -> None:
+    baseline = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 1"))
+    queried = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="x + 1",
+            queries=(
+                EquivalenceQuery(name="same", comparison="1 + x"),
+                ClosedFormQuery(name="later"),
+            ),
+        )
+    )
+    assert isinstance(baseline, AnalysisSuccess)
+    assert isinstance(queried, AnalysisSuccess)
+    assert queried.operation_counts == baseline.operation_counts
+    assert queried.abstract_work == baseline.abstract_work
+    assert queried.direct_work_applicability == baseline.direct_work_applicability
+    assert queried.queries[0].answers[0].conclusion == "proved"
+    assert queried.queries[1].answers[0].conclusion == "unresolved"
 
 
 def test_structured_contract_is_strict_frozen_and_discriminated() -> None:

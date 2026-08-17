@@ -1,68 +1,107 @@
 # ruff: noqa: E501
-# pyright: reportMissingTypeStubs=false, reportPrivateUsage=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false, reportCallIssue=false, reportArgumentType=false, reportUnusedImport=false
+# pyright: reportMissingTypeStubs=false, reportPrivateUsage=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false, reportCallIssue=false, reportArgumentType=false
 """Bounded general-context query evaluation; it never contributes submitted work."""
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import product
 from typing import Any
 
 import sympy
-from py_science.formula.expressions import Expression, Relationship, RelationshipOperator
+from py_science.formula.exact_values import ExactRational, render_exact
+from py_science.formula.expressions import (
+    BinaryExpression,
+    BinaryOperator,
+    Equation,
+    Expression,
+    InfinityLiteral,
+    IntegerLiteral,
+    RationalLiteral,
+    Relationship,
+    Sum,
+    Symbol,
+    expression_children,
+    expression_node_count,
+)
 from py_science.formula.models import (
     AnalysisError,
     AnalysisErrorCode,
     AnalysisFailure,
-    EquationTarget,
+    AsymptoticResult,
+    ClosedFormQuery,
+    ClosedFormResult,
+    CounterexampleEvidence,
     EquivalenceQuery,
-    ExpressionTarget,
+    EquivalenceResult,
+    IdentityEvidence,
     Interpretation,
+    LimitQuery,
+    LimitResult,
     PropertiesQuery,
+    PropertiesResult,
     PropertyCheck,
     QueryAnswer,
     QueryRequest,
-    QueryResultBase,
-    RelationshipUse,
+    QueryResult,
+    ResolvedTarget,
+    SourceLocation,
     SourceReference,
+    SourceSpan,
 )
 from py_science.formula.parser import ParseFailure, parse_expression
-from py_science.formula.sympy_backend import _to_sympy, render
+from py_science.formula.reasoning import ReasoningContext, collect_denominators
+from py_science.formula.sympy_backend import bounded_rational_difference, render
 
 UNIMPLEMENTED = "query kind is not implemented in this release slice"
 MAX_TARGET_NODES = 512
-MAX_DEGREE = 8
+MAX_SIBLING_SUMS = 8
 MAX_EXPONENT = 32
+MAX_COEFFICIENT_BITS = 1024
+MAX_COUNTEREXAMPLE_STEPS = 256
 
 
 @dataclass(frozen=True, slots=True)
 class QueryTarget:
-    target: ExpressionTarget | EquationTarget
+    target: ResolvedTarget
     expression: Expression
+    interpretation: Interpretation
 
 
 def evaluate_queries(
-    queries: tuple[QueryRequest, ...], target: QueryTarget, assumptions: tuple[Any, ...]
-) -> tuple[QueryResultBase, ...] | AnalysisFailure:
-    results: list[QueryResultBase] = []
-    try:
-        interpretation_render = render(target.expression)
-    except Exception:
-        return _failure("normalized query target cannot be rendered", "queries")
-    interpretation = Interpretation(normalized_sympy=interpretation_render.sympy, normalized_latex=interpretation_render.latex)
+    queries: tuple[QueryRequest, ...],
+    target: QueryTarget,
+    reasoning: ReasoningContext,
+) -> tuple[QueryResult, ...] | AnalysisFailure:
+    results: list[QueryResult] = []
     for position, query in enumerate(queries):
         if query.target is not None and query.target != target.target:
-            # Service calls once per selected target; this catches unknown names defensively.
             return _failure("query target is unknown", f"queries[{position}].target")
         if isinstance(query, EquivalenceQuery):
-            answer = _equivalence(query, target.expression, assumptions, position)
+            answer = _equivalence(query, target.expression, reasoning, position)
             if isinstance(answer, AnalysisFailure):
                 return answer
-            answers = (answer,)
+            result: QueryResult = EquivalenceResult(
+                name=query.name,
+                target=target.target,
+                normalized_target=target.interpretation,
+                summary="equivalence comparison",
+                answers=(answer,),
+            )
         elif isinstance(query, PropertiesQuery):
-            answers = tuple(_unresolved(check=item) for item in query.checks)
+            result = PropertiesResult(
+                name=query.name,
+                target=target.target,
+                normalized_target=target.interpretation,
+                summary=UNIMPLEMENTED,
+                answers=tuple(_unresolved(check=item) for item in query.checks),
+            )
+        elif isinstance(query, ClosedFormQuery):
+            result = ClosedFormResult(name=query.name, target=target.target, normalized_target=target.interpretation, summary=UNIMPLEMENTED, answers=(_unresolved(),))
+        elif isinstance(query, LimitQuery):
+            result = LimitResult(name=query.name, target=target.target, normalized_target=target.interpretation, summary=UNIMPLEMENTED, answers=(_unresolved(),))
         else:
-            answers = (_unresolved(),)
-        results.append(QueryResultBase(name=query.name, kind=query.kind, target=target.target,
-            normalized_target=interpretation, summary=("equivalence comparison" if query.kind == "equivalence" else UNIMPLEMENTED), answers=answers))
+            result = AsymptoticResult(name=query.name, target=target.target, normalized_target=target.interpretation, summary=UNIMPLEMENTED, answers=(_unresolved(),))
+        results.append(result)
     return tuple(results)
 
 
@@ -70,68 +109,211 @@ def _unresolved(check: PropertyCheck | None = None) -> QueryAnswer:
     return QueryAnswer(check=check, conclusion="unresolved", blockers=(UNIMPLEMENTED,))
 
 
-def _failure(message: str, path: str) -> AnalysisFailure:
-    return AnalysisFailure(error=AnalysisError(code=AnalysisErrorCode.MALFORMED_SYNTAX, message=message, source=SourceReference(path=path)))
+def _failure(
+    message: str,
+    path: str,
+    excerpt: str | None = None,
+    parsed_failure: ParseFailure | None = None,
+) -> AnalysisFailure:
+    location = None
+    span = None
+    if (
+        parsed_failure is not None
+        and parsed_failure.line is not None
+        and parsed_failure.column is not None
+    ):
+        location = SourceLocation(line=parsed_failure.line, column=parsed_failure.column)
+        if parsed_failure.end_line is not None and parsed_failure.end_column is not None:
+            span = SourceSpan(
+                start=location,
+                end=SourceLocation(
+                    line=parsed_failure.end_line,
+                    column=parsed_failure.end_column,
+                ),
+            )
+    return AnalysisFailure(
+        error=AnalysisError(
+            code=AnalysisErrorCode.MALFORMED_SYNTAX,
+            message=message,
+            location=location,
+            source=SourceReference(
+                path=path,
+                span=span,
+                excerpt=excerpt[:160] if excerpt is not None else None,
+            ),
+        )
+    )
 
 
-def _equivalence(query: EquivalenceQuery, expression: Expression, assumptions: tuple[Any, ...], position: int) -> QueryAnswer | AnalysisFailure:
+def _equivalence(
+    query: EquivalenceQuery,
+    expression: Expression,
+    reasoning: ReasoningContext,
+    position: int,
+) -> QueryAnswer | AnalysisFailure:
     parsed = parse_expression(query.comparison)
-    if isinstance(parsed, (ParseFailure, Relationship)):
-        return _failure("equivalence comparison must be an expression", f"queries[{position}].comparison")
-    try:
-        lhs: Any = _to_sympy(expression)
-        rhs: Any = _to_sympy(parsed)
-    except Exception:
+    if isinstance(parsed, ParseFailure):
+        return _failure(
+            "equivalence comparison must be a valid expression",
+            f"queries[{position}].comparison",
+            query.comparison,
+            parsed,
+        )
+    if isinstance(parsed, (Equation, Relationship)):
+        return _failure("equivalence comparison must be an expression", f"queries[{position}].comparison", query.comparison)
+    if not _allowed_rational(expression) or not _allowed_rational(parsed):
         return _unresolved_with("query family is unsupported")
-    if _unsafe(lhs) or _unsafe(rhs):
-        return _unresolved_with("query family is unsupported")
-    used: list[RelationshipUse] = []
-    substitutions: dict[Any, Any] = {}
-    unsupported: list[str] = []
-    for item in assumptions:
-        value = item.value
-        if value.operator is RelationshipOperator.EQUAL:
-            left, right = _to_sympy(value.left), _to_sympy(value.right)
-            if getattr(left, "is_Symbol", False):
-                substitutions[left] = right
-                used.append(RelationshipUse(name=item.name, relationship=item.source))
-        else:
-            unsupported.append(item.name)
-    lhs, rhs = lhs.xreplace(substitutions), rhs.xreplace(substitutions)
-    denominators = [part for part in (sympy.denom(lhs), sympy.denom(rhs)) if part != 1]
-    obligations = tuple(f"{part} != 0" for part in denominators)
+    original_symbols = _symbol_names(expression) | _symbol_names(parsed)
     try:
-        difference = sympy.cancel(lhs - rhs)
-        numerator, denominator = sympy.fraction(difference)
-        symbols = tuple(sorted(numerator.free_symbols | denominator.free_symbols, key=str))
-        poly = sympy.Poly(numerator, *symbols) if symbols else None
-        if poly is not None and (poly.total_degree() > MAX_DEGREE or any(abs(int(e)) > MAX_EXPONENT for monomial in poly.monoms() for e in monomial)):
-            return _unresolved_with("query polynomial exceeds its bound", unsupported)
+        left = reasoning.apply(expression)
+        right = reasoning.apply(parsed)
     except Exception:
-        return _unresolved_with("query family is unsupported", unsupported)
-    conditions = obligations
-    if numerator == 0:
-        conclusion = "proved_under_assumptions" if used or conditions else "proved"
-        return QueryAnswer(conclusion=conclusion, conditions=conditions, assumptions_used=tuple(used), relevant_unsupported_assumptions=tuple(unsupported), evidence={"kind":"identity", "statement":"normalized difference is zero"})
-    if not symbols and numerator.is_number:
-        return QueryAnswer(conclusion="disproved", conditions=conditions, assumptions_used=tuple(used), relevant_unsupported_assumptions=tuple(unsupported), evidence={"kind":"counterexample", "substitutions":{}, "target_value":str(lhs), "comparison_value":str(rhs)})
-    # Deterministic small rational assignment is evidence only when all denominators remain defined.
-    for integer in (0, 1, -1, 2, -2):
-        values = {symbol: sympy.Rational(integer) for symbol in symbols}
+        return _unresolved_with("query reasoning exceeds its bound")
+    if not _allowed_rational(left) or not _allowed_rational(right):
+        return _unresolved_with("query family is unsupported")
+    symbols = _symbol_names(left) | _symbol_names(right)
+    relevant_symbols = symbols | original_symbols
+    unsupported = reasoning.relevant_unsupported(relevant_symbols)
+    original_denominators = (*collect_denominators(left), *collect_denominators(right))
+    conditions: list[str] = []
+    obligation_uses = []
+    for denominator in original_denominators:
         try:
-            if all(part.subs(values) != 0 for part in denominators) and numerator.subs(values) != 0:
-                return QueryAnswer(conclusion="disproved", conditions=conditions, assumptions_used=tuple(used), relevant_unsupported_assumptions=tuple(unsupported), evidence={"kind":"counterexample", "substitutions":{str(k):str(v) for k,v in values.items()}, "target_value":str(lhs.subs(values)), "comparison_value":str(rhs.subs(values))})
+            statement = f"{render(denominator).sympy} != 0"
         except Exception:
-            pass
+            return _unresolved_with("query denominator cannot be rendered", unsupported)
+        if len(statement) > 4096:
+            return _unresolved_with("query denominator rendering exceeds its bound", unsupported)
+        if statement not in conditions:
+            conditions.append(statement)
+        proved, uses = reasoning.prove_nonzero(denominator)
+        if proved:
+            obligation_uses.extend(uses)
+    normalized = bounded_rational_difference(left, right)
+    if normalized is None:
+        return _unresolved_with("query rational normalization exceeds its bound", unsupported)
+    used = reasoning.relevant_uses(relevant_symbols, include_facts=bool(original_denominators))
+    used = _unique_uses((*used, *obligation_uses))
+    if normalized.numerator == 0:
+        conclusion = "proved_under_assumptions" if used or conditions else "proved"
+        return QueryAnswer(
+            conclusion=conclusion,
+            conditions=tuple(conditions),
+            assumptions_used=used,
+            relevant_unsupported_assumptions=unsupported,
+            evidence=IdentityEvidence(statement="normalized difference is zero"),
+        )
+    if not normalized.symbols and normalized.numerator.is_number:
+        target_rendered = str(normalized.left)
+        comparison_rendered = str(normalized.right)
+        if max(len(target_rendered), len(comparison_rendered)) > 4096:
+            return _unresolved_with("query evidence rendering exceeds its bound", unsupported)
+        return QueryAnswer(
+            conclusion="disproved",
+            conditions=tuple(conditions),
+            assumptions_used=used,
+            relevant_unsupported_assumptions=unsupported,
+            evidence=CounterexampleEvidence(
+                substitutions={},
+                target_value=target_rendered,
+                comparison_value=comparison_rendered,
+            ),
+        )
+    candidates = (
+        sympy.Rational(0), sympy.Rational(1), sympy.Rational(-1),
+        sympy.Rational(2), sympy.Rational(-2), sympy.Rational(1, 2), sympy.Rational(-1, 2),
+    )
+    steps = 0
+    for items in product(candidates, repeat=len(normalized.symbols)):
+        steps += 1
+        if steps > MAX_COUNTEREXAMPLE_STEPS:
+            break
+        values = dict(zip(normalized.symbols, items, strict=True))
+        try:
+            if not reasoning.assignment_valid(values):
+                continue
+            if any(_sympy_denominator(denominator).subs(values) == 0 for denominator in original_denominators):
+                continue
+            if normalized.denominator.subs(values) == 0 or normalized.numerator.subs(values) == 0:
+                continue
+            target_value = normalized.left.subs(values)
+            comparison_value = normalized.right.subs(values)
+            if target_value.free_symbols or comparison_value.free_symbols:
+                continue
+            target_rendered = str(target_value)
+            comparison_rendered = str(comparison_value)
+            if max(len(target_rendered), len(comparison_rendered)) > 4096:
+                return _unresolved_with("query evidence rendering exceeds its bound", unsupported)
+            return QueryAnswer(
+                conclusion="disproved",
+                conditions=tuple(conditions),
+                assumptions_used=reasoning.relevant_uses(relevant_symbols, include_facts=True),
+                relevant_unsupported_assumptions=unsupported,
+                evidence=CounterexampleEvidence(
+                    substitutions={str(key): _canonical_exact(value) for key, value in values.items()},
+                    target_value=target_rendered,
+                    comparison_value=comparison_rendered,
+                ),
+            )
+        except Exception:
+            continue
     return _unresolved_with("no bounded counterexample satisfies the supported assumptions", unsupported)
 
 
-def _unsafe(value: Any) -> bool:
-    try:
-        return sum(1 for _ in sympy.preorder_traversal(value)) > MAX_TARGET_NODES or value.has(sympy.Sum)
-    except Exception:
+def _allowed_rational(expression: Expression) -> bool:
+    if expression_node_count(expression) > MAX_TARGET_NODES:
+        return False
+    sibling_sums = sum(isinstance(child, Sum) for child in expression_children(expression))
+    if sibling_sums > MAX_SIBLING_SUMS:
+        return False
+    if isinstance(expression, (InfinityLiteral, Sum)):
+        return False
+    if isinstance(expression, IntegerLiteral):
+        return expression.value.bit_length() <= MAX_COEFFICIENT_BITS
+    if isinstance(expression, RationalLiteral):
+        return max(abs(expression.numerator).bit_length(), expression.positive_denominator.bit_length()) <= MAX_COEFFICIENT_BITS
+    if isinstance(expression, Symbol):
         return True
+    if not isinstance(expression, BinaryExpression):
+        return False
+    if expression.operator is BinaryOperator.POWER:
+        exponent = expression.right
+        if not isinstance(exponent, (IntegerLiteral, RationalLiteral)):
+            return False
+        value = exponent.value if isinstance(exponent, IntegerLiteral) else (exponent.numerator if exponent.positive_denominator == 1 else MAX_EXPONENT + 1)
+        if abs(value) > MAX_EXPONENT:
+            return False
+    return all(_allowed_rational(child) for child in expression_children(expression))
 
 
-def _unresolved_with(blocker: str, unsupported: list[str] | tuple[str, ...] = ()) -> QueryAnswer:
-    return QueryAnswer(conclusion="unresolved", blockers=(blocker,), relevant_unsupported_assumptions=tuple(unsupported))
+def _symbol_names(expression: Expression) -> set[str]:
+    names = {expression.name} if isinstance(expression, Symbol) else set()
+    for child in expression_children(expression):
+        names |= _symbol_names(child)
+    return names
+
+
+def _sympy_denominator(expression: Expression) -> Any:
+    normalized = bounded_rational_difference(expression, IntegerLiteral(0))
+    if normalized is None:
+        raise ValueError("unsupported denominator")
+    return normalized.left
+
+
+def _canonical_exact(value: Any) -> str:
+    return render_exact(ExactRational(int(value.p), int(value.q)))
+
+
+def _unique_uses(values: tuple[Any, ...]) -> tuple[Any, ...]:
+    seen: set[tuple[str, str]] = set()
+    result = []
+    for value in values:
+        key = (value.name, value.relationship)
+        if key not in seen:
+            seen.add(key)
+            result.append(value)
+    return tuple(result)
+
+
+def _unresolved_with(blocker: str, unsupported: tuple[str, ...] = ()) -> QueryAnswer:
+    return QueryAnswer(conclusion="unresolved", blockers=(blocker,), relevant_unsupported_assumptions=unsupported)

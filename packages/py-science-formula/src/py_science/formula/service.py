@@ -35,14 +35,18 @@ from py_science.formula.models import (
     AnalysisOutcome,
     AnalysisRequest,
     AnalysisSuccess,
+    AsymptoticQuery,
     EquationReport,
     EquationRequest,
+    EquivalenceQuery,
     ExpressionTarget,
     Interpretation,
     IntervalResult,
+    LimitQuery,
     MathematicalDomain,
     OperationCounts,
-    QueryResultBase,
+    PropertiesQuery,
+    QueryResult,
     RelationshipUse,
     ReuseReport,
     Scenario,
@@ -51,9 +55,11 @@ from py_science.formula.models import (
     SourceReference,
     SourceSpan,
     SystemReport,
+    VariablePropertyCheck,
 )
 from py_science.formula.parser import ParseFailure, ParseFailureKind, parse_expression
 from py_science.formula.query import QueryTarget, evaluate_queries
+from py_science.formula.reasoning import ReasoningContext
 from py_science.formula.sympy_backend import (
     NormalizationError,
     NormalizedRendering,
@@ -203,21 +209,27 @@ def _attach_queries(
     request: AnalysisRequest, outcome: AnalysisSuccess, knowledge: Knowledge
 ) -> AnalysisOutcome:
     """Resolve whole-expression/equation RHS targets only after normal analysis succeeds."""
-    results: list[QueryResultBase] = []
+    results: list[QueryResult] = []
+    reasoning = ReasoningContext.build(
+        {name: declaration.domain for name, declaration in request.variables.items()},
+        knowledge.definitions,
+        knowledge.assumptions,
+    )
     for position, query in enumerate(request.queries):
         if request.expression is not None:
             parsed = parse_expression(request.expression)
-            target = QueryTarget(ExpressionTarget(), parsed) if not isinstance(parsed, (ParseFailure, Equation, Relationship)) else None
+            target = QueryTarget(ExpressionTarget(), parsed, outcome.interpretation) if not isinstance(parsed, (ParseFailure, Equation, Relationship)) else None
         else:
             assert query.target is not None
             selected = next((item for item in request.equations if item.name == query.target.name), None)
-            if selected is None:
+            report = next((item for item in outcome.system.equations if item.name == query.target.name), None) if outcome.system is not None else None
+            if selected is None or report is None:
                 return _invalid("query target is unknown", source=SourceReference(path=f"queries[{position}].target"))
             parsed = parse_expression(selected.expression)
-            target = QueryTarget(query.target, parsed.right) if isinstance(parsed, Equation) else None
+            target = QueryTarget(query.target, parsed.right, report.interpretation) if isinstance(parsed, Equation) else None
         if target is None:
             return _invalid("query target could not be resolved", source=SourceReference(path=f"queries[{position}].target"))
-        evaluated = evaluate_queries((query,), target, knowledge.assumptions)
+        evaluated = evaluate_queries((query,), target, reasoning)
         if isinstance(evaluated, AnalysisFailure):
             return evaluated
         results.extend(evaluated)
@@ -1883,6 +1895,21 @@ def _request_size_failure(request: AnalysisRequest) -> AnalysisFailure | None:
             sources.extend((assumption.name, assumption.relationship))
         for definition in request.definitions:
             sources.extend((definition.variable, definition.expression))
+        for query in request.queries:
+            sources.append(query.name)
+            if query.target is not None:
+                sources.append(query.target.name)
+            if isinstance(query, EquivalenceQuery):
+                sources.append(query.comparison)
+            if isinstance(query, (LimitQuery, AsymptoticQuery)):
+                sources.extend((query.variable, str(query.point)))
+                if query.direction is not None:
+                    sources.append(query.direction)
+            if isinstance(query, PropertiesQuery):
+                for check in query.checks:
+                    sources.append(check.kind)
+                    if isinstance(check, VariablePropertyCheck):
+                        sources.append(check.variable)
         for scenario in request.scenarios:
             sources.append(scenario.name)
             for name, value in scenario.fixed.items():

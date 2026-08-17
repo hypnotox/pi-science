@@ -355,6 +355,195 @@ describe("private formula bridge", () => {
       await kind(invokeAdapter(node, responder(value), request()), "protocol");
   });
 
+  it("strictly validates populated protocol-v4 query result unions", async () => {
+    const identityAnswer = {
+      check: null,
+      conclusion: "proved",
+      conditions: [],
+      assumptions_used: [],
+      relevant_unsupported_assumptions: [],
+      blockers: [],
+      evidence: {
+        kind: "identity",
+        statement: "normalized difference is zero",
+      },
+      derived_candidates: [],
+    };
+    const query = {
+      name: "same",
+      kind: "equivalence",
+      target: { kind: "expression" },
+      normalized_target: success.interpretation,
+      summary: "equivalence comparison",
+      answers: [identityAnswer],
+    };
+    const populated = { ...success, queries: [query] };
+    await expect(
+      invokeAdapter(node, responder(populated), request()),
+    ).resolves.toMatchObject(populated);
+
+    const counterexample = {
+      ...query,
+      name: "different",
+      answers: [
+        {
+          ...identityAnswer,
+          conclusion: "disproved",
+          evidence: {
+            kind: "counterexample",
+            substitutions: { x: "1/2" },
+            target_value: "1/2",
+            comparison_value: "0",
+          },
+        },
+      ],
+    };
+    const futureEvidence = [
+      {
+        ...query,
+        name: "closed",
+        kind: "closed_form",
+        answers: [
+          {
+            ...identityAnswer,
+            evidence: {
+              kind: "closed_form",
+              verification: "finite_antidifference",
+              statement: "n*(n+1)/2",
+            },
+          },
+        ],
+      },
+      {
+        ...query,
+        name: "properties",
+        kind: "properties",
+        answers: [
+          {
+            ...identityAnswer,
+            check: { kind: "sign" },
+            evidence: {
+              kind: "property",
+              value: "positive",
+              intervals: ["(0, oo)"],
+            },
+          },
+        ],
+      },
+      {
+        ...query,
+        name: "limit",
+        kind: "limit",
+        answers: [
+          {
+            ...identityAnswer,
+            evidence: {
+              kind: "limit",
+              exists: false,
+              value: null,
+              left: "-oo",
+              right: "oo",
+            },
+          },
+        ],
+      },
+      {
+        ...query,
+        name: "asymptotic",
+        kind: "asymptotic",
+        answers: [
+          {
+            ...identityAnswer,
+            evidence: { kind: "asymptotic", statement: "x", remainder: null },
+          },
+        ],
+      },
+    ];
+    await expect(
+      invokeAdapter(
+        node,
+        responder({ ...success, queries: [counterexample, ...futureEvidence] }),
+        request(),
+      ),
+    ).resolves.toMatchObject({ queries: [counterexample, ...futureEvidence] });
+
+    const unresolved = {
+      ...query,
+      name: "later",
+      kind: "closed_form",
+      answers: [
+        {
+          ...identityAnswer,
+          conclusion: "unresolved",
+          blockers: ["query kind is not implemented in this release slice"],
+          evidence: null,
+        },
+      ],
+    };
+    await expect(
+      invokeAdapter(
+        node,
+        responder({ ...success, queries: [unresolved] }),
+        request(),
+      ),
+    ).resolves.toMatchObject({ queries: [unresolved] });
+
+    const invalid = [
+      { ...query, target: { kind: "expression", extra: true } },
+      { ...query, target: { kind: "equation" } },
+      { ...query, answers: [{ ...identityAnswer, check: undefined }] },
+      { ...query, answers: [identityAnswer, identityAnswer] },
+      {
+        ...query,
+        answers: [
+          {
+            ...identityAnswer,
+            evidence: { ...identityAnswer.evidence, extra: true },
+          },
+        ],
+      },
+      {
+        ...query,
+        answers: [
+          {
+            ...identityAnswer,
+            evidence: {
+              kind: "limit",
+              exists: true,
+              value: "0",
+              left: "0",
+              right: "0",
+            },
+          },
+        ],
+      },
+      {
+        ...unresolved,
+        answers: [
+          {
+            ...unresolved.answers[0],
+            derived_candidates: [
+              {
+                interpretation: success.interpretation,
+                operation_counts: success.operation_counts,
+                abstract_work: 0,
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    for (const malformedQuery of invalid)
+      await kind(
+        invokeAdapter(
+          node,
+          responder({ ...success, queries: [malformedQuery] }),
+          request(),
+        ),
+        "protocol",
+      );
+  });
+
   it("strictly correlates finite and non-finite direct-work variants", async () => {
     const invalid = [
       { ...success, abstract_work: null },

@@ -93,6 +93,7 @@ def main() -> int:
         result = outcome.model_dump(mode="json", exclude_none=True)
         if outcome.status == "success":
             result["abstract_work"] = outcome.abstract_work
+            result["queries"] = [query.model_dump(mode="json") for query in outcome.queries]
             if outcome.system is not None:
                 system_result = result["system"]
                 system_result.update({

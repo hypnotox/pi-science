@@ -1,13 +1,22 @@
 # ruff: noqa: E501, E701
-# pyright: basic
+# pyright: basic, reportArgumentType=false, reportOptionalMemberAccess=false
 import pytest
 from py_science.formula import (
     AnalysisRequest,
     Assumption,
+    CounterexampleEvidence,
+    DirectedDefinition,
     EquationRequest,
     EquationTarget,
+    EquivalenceResult,
     FormulaSyntax,
+    FunctionDefinition,
+    IdentityEvidence,
+    Interpretation,
     MathematicalDomain,
+    OperationCounts,
+    QueryAnswer,
+    SignPropertyCheck,
     VariableDeclaration,
     analyze,
 )
@@ -43,3 +52,124 @@ def test_query_contract_rejects_invalid_context_and_points():
     with pytest.raises(ValidationError): request(queries=({"name":"q", "kind":"limit", "variable":"x", "point":"0"},))
     with pytest.raises(ValidationError): request(queries=({"name":"q", "kind":"limit", "variable":"x", "point":"oo", "direction":"left"},))
     with pytest.raises(ValidationError): request(queries=({"name":"q", "kind":"properties", "checks":[]},))
+    with pytest.raises(ValidationError): request(queries=({"name":"q", "kind":"properties", "checks":[{"kind":"sign", "variable":"x"}]},))
+    with pytest.raises(ValidationError): request(queries=({"name":"q", "kind":"properties", "checks":[{"kind":"sign"}, {"kind":"sign"}]},))
+
+
+def test_counterexamples_obey_domains_and_all_supported_assumptions():
+    outcome = analyze(request(
+        variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
+        assumptions=(
+            Assumption(name="lower", relationship="x > 0"),
+            Assumption(name="upper", relationship="x < 1"),
+        ),
+        queries=({"name":"q", "kind":"equivalence", "comparison":"0"},),
+    ))
+    assert outcome.status == "success"
+    bounded_evidence = outcome.queries[0].answers[0].evidence
+    assert isinstance(bounded_evidence, CounterexampleEvidence)
+    assert bounded_evidence.substitutions == {"x": "1/2"}
+
+    disproved = analyze(request(
+        variables={"x": VariableDeclaration(domain=MathematicalDomain.POSITIVE_REAL)},
+        queries=({"name":"q", "kind":"equivalence", "comparison":"0"},),
+    ))
+    assert disproved.status == "success"
+    evidence = disproved.queries[0].answers[0].evidence
+    assert isinstance(evidence, CounterexampleEvidence)
+    assert evidence.substitutions["x"] in {"1", "2", "1/2"}
+
+
+def test_original_denominators_survive_normalization_and_use_domain_facts():
+    conditional = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="x/x",
+        queries=({"name":"q", "kind":"equivalence", "comparison":"1"},),
+    ))
+    assert conditional.status == "success"
+    answer = conditional.queries[0].answers[0]
+    assert answer.conclusion == "proved_under_assumptions"
+    assert answer.conditions == ("x != 0",)
+
+    qualified = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="x/x",
+        variables={"x": VariableDeclaration(domain=MathematicalDomain.POSITIVE_REAL)},
+        assumptions=(Assumption(name="positive", relationship="x > 0"),),
+        queries=({"name":"q", "kind":"equivalence", "comparison":"1"},),
+    ))
+    assert qualified.status == "success"
+    assert qualified.queries[0].answers[0].conditions == ("x != 0",)
+
+
+def test_equivalence_rejects_equations_and_relationships_with_source_identity():
+    for comparison in ("Eq(x, x)", "x == x"):
+        outcome = analyze(request(queries=({"name":"q", "kind":"equivalence", "comparison":comparison},)))
+        assert outcome.status == "failure"
+        assert outcome.error.source is not None
+        assert outcome.error.source.path == "queries[0].comparison"
+        assert outcome.error.source.excerpt == comparison
+
+
+def test_definitions_and_safe_equalities_are_applied_with_provenance():
+    outcome = analyze(request(
+        variables={
+            "x": VariableDeclaration(domain=MathematicalDomain.REAL),
+            "y": VariableDeclaration(domain=MathematicalDomain.REAL),
+        },
+        definitions=(DirectedDefinition(variable="y", expression="x + 1"),),
+        assumptions=(Assumption(name="value", relationship="2 == x"),),
+        queries=({"name":"q", "kind":"equivalence", "comparison":"y - 1"},),
+    ))
+    assert outcome.status == "success"
+    answer = outcome.queries[0].answers[0]
+    assert answer.conclusion == "proved_under_assumptions"
+    assert {item.name for item in answer.assumptions_used} == {"value", "y"}
+
+
+def test_later_consumers_preserve_exact_answer_shape_and_check_order():
+    outcome = analyze(request(queries=(
+        {"name":"p", "kind":"properties", "checks":({"kind":"sign"}, {"kind":"valid_domain", "variable":"x"})},
+        {"name":"l", "kind":"limit", "variable":"x", "point":"0", "direction":"both"},
+        {"name":"a", "kind":"asymptotic", "variable":"x", "point":"oo", "order":2},
+    )))
+    assert outcome.status == "success"
+    assert [answer.check.kind for answer in outcome.queries[0].answers] == ["sign", "valid_domain"]
+    assert isinstance(outcome.queries[0].answers[0].check, SignPropertyCheck)
+    assert all(answer.evidence is None and answer.derived_candidates == () for result in outcome.queries for answer in result.answers)
+    dumped = outcome.model_dump(mode="json")
+    assert dumped["queries"][1]["answers"][0]["check"] is None
+    assert dumped["queries"][1]["answers"][0]["evidence"] is None
+
+
+def test_result_models_reject_wrong_evidence_and_answer_cardinality():
+    interpretation = Interpretation(normalized_sympy="x", normalized_latex="x")
+    answer = QueryAnswer(conclusion="proved", evidence=IdentityEvidence(statement="same"))
+    EquivalenceResult(name="q", target={"kind":"expression"}, normalized_target=interpretation, summary="same", answers=(answer,))
+    with pytest.raises(ValidationError):
+        EquivalenceResult(name="q", target={"kind":"expression"}, normalized_target=interpretation, summary="same", answers=(answer, answer))
+    with pytest.raises(ValidationError):
+        QueryAnswer(conclusion="unresolved", blockers=("unsupported",), derived_candidates=({"interpretation": interpretation, "operation_counts": OperationCounts()},))
+
+
+def test_equivalence_resource_refusals_are_localized_unresolved():
+    for comparison in ("x**33", f"{1 << 1024}*x"):
+        outcome = analyze(request(queries=({"name":"q", "kind":"equivalence", "comparison":comparison},)))
+        assert outcome.status == "success"
+        assert outcome.queries[0].answers[0].conclusion == "unresolved"
+
+
+def test_query_sources_participate_in_whole_request_byte_accounting():
+    functions = tuple(
+        FunctionDefinition(name=f"f{index}", parameters=(), body="x" * 65_000)
+        for index in range(4)
+    )
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="x",
+        functions=functions,
+        queries=({"name":"q", "kind":"equivalence", "comparison":"x" * 5_000},),
+    ))
+    assert outcome.status == "failure"
+    assert outcome.error.code.value == "expression_too_complex"
+    assert outcome.error.message == "analysis request exceeds its byte bound"
