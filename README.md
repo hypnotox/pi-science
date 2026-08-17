@@ -40,6 +40,19 @@ print(analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="n + 1")))
 
 Pi eagerly provisions its isolated backend on first startup. Install `uv`, Git, Python 3.13, and allow network access for an uncached pin. When readiness succeeds, `analyze_formula` and its matching `pi-science-formula-analysis` skill appear together. If prerequisites fail, they are withheld and `/pi-science-doctor` reports the diagnosis; repair it, then reload or restart Pi. Upgrade by changing both declarations to a newly tested compatible ref and refreshing the Python lock.
 
+## Formulate an analysis
+
+Use one expression for an isolated calculation. Use named equations when results have separate output domains or downstream formulas reuse them. Express vector and tensor components through indexed scalar algebra, declare every free output index and external variable domain, and attach only explicit mathematical knowledge:
+
+- a function body when the mathematical definition is known;
+- scalar primitive work when the body is opaque but its work is known;
+- assumptions and directed definitions for relationships the analyzer may use;
+- scenarios for fixed values, choices, bounds, derived values, or selected asymptotic variables.
+
+The installed `pi-science-formula-analysis` skill contains a compact `analyze_formula` system request. The [`py-science-formula` package guide](packages/py-science-formula/README.md) contains the matching direct-Python pattern. In either interface, inspect normalized SymPy and LaTeX, dependency reuse, provenance, qualifications, unknown costs, and unresolved items before relying on the work report.
+
+Only formulas and directly attached mathematical schema are inputs. Analysis does not infer from source code, validate physics, profile implementations, predict runtime or hardware behavior, or generate code. LaTeX is an output representation, not an input syntax.
+
 ## Verification and releases
 
 `./scripts/check` is the fast development gate. `./scripts/check-release` builds a temporary clean Git snapshot from the current working tree and drives Pi's real Git-package startup plus both Python dependency forms without publishing. Before a real release, run it after render settlement, tag and push the immutable commit, then verify the public tag and its intended commit:

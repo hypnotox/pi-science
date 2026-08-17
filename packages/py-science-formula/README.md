@@ -1,6 +1,6 @@
 # py-science-formula
 
-`py-science-formula` is the independently importable Python 3.13, AGPL-3.0-only formula-analysis distribution from `pi-science`. It safely parses restricted arithmetic syntax and reports normalized SymPy and LaTeX interpretations plus submitted-operation metrics. It does not evaluate a submitted formula, benchmark application performance, or generate code; formula-to-code remains open but out of scope.
+`py-science-formula` is the independently importable Python 3.13, AGPL-3.0-only formula-analysis distribution from `pi-science`. It safely parses restricted SymPy expressions and named indexed equation systems, then reports normalized SymPy and LaTeX, symbolic work, dependency reuse, provenance, scenarios, and unresolved costs. It does not evaluate a submitted formula, benchmark application performance, or generate code; formula-to-code remains open but out of scope.
 
 Pin a compatible repository ref directly in the Python environment (independently of a Pi package pin):
 
@@ -16,32 +16,42 @@ from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
 result = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 1"))
 ```
 
-A direct Python request can also describe qualified indexed work and preserve the relationships used to simplify it:
+Choose one expression for an isolated calculation. Choose named equations when results have local output domains or downstream formulas reuse them. Every free output index needs an `IndexDomain`; every external symbol needs an intrinsic `VariableDeclaration`. Represent vectors through indexed scalar components such as `x[i, d]`.
+
+This compact request analyzes a reusable indexed result under a fixed-order scenario:
 
 ```python
 from py_science.formula import (
-    AnalysisRequest, Assumption, EquationRequest, FormulaSyntax, IndexDomain,
+    AnalysisRequest, EquationRequest, FormulaSyntax, IndexDomain,
     MathematicalDomain, PrimitiveCost, Scenario, VariableDeclaration, analyze,
 )
 
-nonnegative = VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER)
+positive = VariableDeclaration(domain=MathematicalDomain.POSITIVE_INTEGER)
+real = VariableDeclaration(domain=MathematicalDomain.REAL)
 report = analyze(AnalysisRequest(
     syntax=FormulaSyntax.SYMPY,
-    equations=(EquationRequest(
-        name="leaf_work",
-        expression="Eq(M[b], Sum(basis(x[i]), (i, 0, n[b] - 1)))",
-        domains={"b": IndexDomain(lower="0", upper="B_leaf - 1")},
-    ),),
-    variables={name: nonnegative for name in ("N", "B_leaf", "n", "x")},
-    primitive_costs=(PrimitiveCost(name="basis", parameters=("r",), work="6"),),
-    assumptions=(Assumption(
-        name="particle_partition",
-        relationship="Sum(n[b], (b, 0, B_leaf - 1)) == N",
-    ),),
-    scenarios=(Scenario(name="fixed_particles", fixed={"N": 1000}),),
+    equations=(
+        EquationRequest(
+            name="samples",
+            expression="Eq(S[i], x[i] - center)",
+            domains={"i": IndexDomain(lower="0", upper="N - 1")},
+        ),
+        EquationRequest(
+            name="summary",
+            expression="Eq(T[k], Sum(basis(S[i], k), (i, 0, N - 1)))",
+            domains={"k": IndexDomain(lower="0", upper="p - 1")},
+        ),
+    ),
+    variables={"N": positive, "p": positive, "x": real, "center": real},
+    primitive_costs=(
+        PrimitiveCost(name="basis", parameters=("value", "k"), work="k + 1"),
+    ),
+    scenarios=(Scenario(name="fixed_order", fixed={"p": 4}, asymptotic=("N",)),),
 ))
 ```
 
-This is structural and mathematical-complexity analysis of the submitted formulas. It does not validate physical correctness or predict implementation runtime. Expanded equation-system transport through Pi is not yet implemented.
+Use `FunctionDefinition` when a function's mathematical body is known. Use `PrimitiveCost` only when the body is intentionally opaque but scalar work is known. Leave both absent to preserve an explicit unknown cost. Assumptions and directed definitions are explicit mathematical knowledge; scenarios select fixed values, finite choices, bounds, derived values, or asymptotic variables without changing the general report.
+
+Inspect each normalized SymPy and LaTeX interpretation before using submitted counts, aggregate work, dependency reuse, relationship provenance, scenario qualifications, unknown costs, or unresolved conclusions. The API analyzes formulas and attached mathematical schema only. It does not read source code, validate physical correctness, profile an implementation, predict runtime or hardware behavior, or generate code.
 
 For a one-off PEP 723 probe, put the same Git-subdirectory dependency in script metadata and invoke `uv run probe.py`. Never import from Pi's isolated backend or from `pi_science`.
