@@ -491,6 +491,8 @@ describe("private formula bridge", () => {
     const invalid = [
       { ...query, target: { kind: "expression", extra: true } },
       { ...query, target: { kind: "equation" } },
+      { ...query, target: { kind: "equation", name: "not-valid" } },
+      { ...query, target: { kind: "equation", name: "x".repeat(129) } },
       { ...query, answers: [{ ...identityAnswer, check: undefined }] },
       { ...query, answers: [identityAnswer, identityAnswer] },
       {
@@ -550,6 +552,31 @@ describe("private formula bridge", () => {
               ...counterexample.answers[0].evidence,
               substitutions: { "not-valid": "1" },
             },
+          },
+        ],
+      },
+      {
+        ...counterexample,
+        answers: [
+          {
+            ...counterexample.answers[0],
+            evidence: {
+              ...counterexample.answers[0].evidence,
+              substitutions: { x: "9".repeat(1025) },
+            },
+          },
+        ],
+      },
+      {
+        ...futureEvidence[1],
+        answers: [futureEvidence[1].answers[0], futureEvidence[1].answers[0]],
+      },
+      {
+        ...futureEvidence[1],
+        answers: [
+          {
+            ...futureEvidence[1].answers[0],
+            check: { kind: "valid_domain", variable: "not-valid" },
           },
         ],
       },

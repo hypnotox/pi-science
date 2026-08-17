@@ -1,5 +1,6 @@
 # ruff: noqa: E501, E701
 # pyright: basic, reportArgumentType=false, reportOptionalMemberAccess=false
+import py_science.formula.sympy_backend as formula_sympy
 import pytest
 from py_science.formula import (
     AnalysisRequest,
@@ -20,6 +21,8 @@ from py_science.formula import (
     VariableDeclaration,
     analyze,
 )
+from py_science.formula.expressions import IntegerLiteral
+from py_science.formula.parser import parse_expression
 from pydantic import ValidationError
 
 
@@ -78,6 +81,18 @@ def test_counterexamples_obey_domains_and_all_supported_assumptions():
     evidence = disproved.queries[0].answers[0].evidence
     assert isinstance(evidence, CounterexampleEvidence)
     assert evidence.substitutions["x"] in {"1", "2", "1/2"}
+
+
+def test_unrelated_declared_domains_do_not_block_valid_counterexamples():
+    outcome = analyze(request(
+        variables={
+            "x": VariableDeclaration(domain=MathematicalDomain.REAL),
+            "unused": VariableDeclaration(domain=MathematicalDomain.REAL),
+        },
+        queries=({"name":"q", "kind":"equivalence", "comparison":"0"},),
+    ))
+    assert outcome.status == "success"
+    assert outcome.queries[0].answers[0].conclusion == "disproved"
 
 
 def test_equality_substitution_preserves_eliminated_symbol_domains():
@@ -196,6 +211,23 @@ def test_reasoning_expansion_failures_are_contained_as_unresolved():
     assert outcome.status == "success"
     assert outcome.queries[0].answers[0].conclusion == "unresolved"
     assert outcome.queries[0].answers[0].blockers == ("query reasoning exceeds its bound",)
+
+
+def test_cross_coefficient_growth_is_rejected_before_backend_calls(monkeypatch):
+    denominator_a = (1 << 599) + 1
+    denominator_b = (1 << 599) + 3
+    parsed = parse_expression(f"1/{denominator_a} + 1/{denominator_b}")
+    assert not isinstance(parsed, tuple)
+    called = False
+
+    def forbidden(_value):
+        nonlocal called
+        called = True
+        raise AssertionError("backend conversion must remain behind the IR preflight")
+
+    monkeypatch.setattr(formula_sympy, "_to_sympy", forbidden)
+    assert formula_sympy.bounded_rational_difference(parsed, IntegerLiteral(0)) is None  # pyright: ignore[reportArgumentType]
+    assert not called
 
 
 def test_equivalence_resource_refusals_are_localized_unresolved():

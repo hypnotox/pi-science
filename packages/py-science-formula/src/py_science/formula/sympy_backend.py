@@ -69,47 +69,54 @@ def rational_ir_measure(
     max_degree: int = 8,
     max_exponent: int = 32,
     max_coefficient_bits: int = 1024,
-) -> tuple[int, int, int] | None:
-    """Bound numerator degree, denominator degree, and coefficient growth in IR."""
+) -> tuple[int, int, int, int] | None:
+    """Bound rational polynomial degrees and numerator/denominator coefficient bits."""
     if expression_node_count(expression) > max_nodes:
         return None
 
-    def measure(value: Expression) -> tuple[int, int, int] | None:
+    def measure(value: Expression) -> tuple[int, int, int, int] | None:
         if isinstance(value, IntegerLiteral):
-            return 0, 0, max(1, abs(value.value).bit_length())
+            return 0, 0, max(1, abs(value.value).bit_length()), 1
         if isinstance(value, RationalLiteral):
-            return 0, 0, max(
-                1,
-                abs(value.numerator).bit_length(),
+            return (
+                0,
+                0,
+                max(1, abs(value.numerator).bit_length()),
                 value.positive_denominator.bit_length(),
             )
         if isinstance(value, Symbol):
-            return 1, 0, 1
+            return 1, 0, 1, 1
         if not isinstance(value, BinaryExpression):
             return None
         left_measure = measure(value.left)
         right_measure = measure(value.right)
         if left_measure is None or right_measure is None:
             return None
-        left_num, left_den, left_bits = left_measure
-        right_num, right_den, right_bits = right_measure
+        left_num, left_den, left_num_bits, left_den_bits = left_measure
+        right_num, right_den, right_num_bits, right_den_bits = right_measure
         if value.operator in {BinaryOperator.ADD, BinaryOperator.SUBTRACT}:
             result = (
                 max(left_num + right_den, right_num + left_den),
                 left_den + right_den,
-                max(left_bits, right_bits) + 1,
+                max(
+                    left_num_bits + right_den_bits,
+                    right_num_bits + left_den_bits,
+                ) + 1,
+                left_den_bits + right_den_bits,
             )
         elif value.operator is BinaryOperator.MULTIPLY:
             result = (
                 left_num + right_num,
                 left_den + right_den,
-                left_bits + right_bits + 1,
+                left_num_bits + right_num_bits,
+                left_den_bits + right_den_bits,
             )
         elif value.operator is BinaryOperator.DIVIDE:
             result = (
                 left_num + right_den,
                 left_den + right_num,
-                left_bits + right_bits + 1,
+                left_num_bits + right_den_bits,
+                left_den_bits + right_num_bits,
             )
         else:
             exponent = (
@@ -126,18 +133,17 @@ def rational_ir_measure(
                 result = (
                     left_num * exponent,
                     left_den * exponent,
-                    left_bits * exponent + 1,
+                    left_num_bits * exponent,
+                    left_den_bits * exponent,
                 )
             else:
                 result = (
                     left_den * -exponent,
                     left_num * -exponent,
-                    left_bits * -exponent + 1,
+                    left_den_bits * -exponent,
+                    left_num_bits * -exponent,
                 )
-        if (
-            max(result[0], result[1]) > max_degree
-            or result[2] > max_coefficient_bits
-        ):
+        if max(result[:2]) > max_degree or max(result[2:]) > max_coefficient_bits:
             return None
         return result
 
@@ -185,13 +191,22 @@ def bounded_rational_difference(
     )
     if left_measure is None or right_measure is None:
         return None
-    left_num, left_den, _ = left_measure
-    right_num, right_den, _ = right_measure
-    if max(
-        left_num + right_den,
-        right_num + left_den,
-        left_den + right_den,
-    ) > max_degree:
+    left_num, left_den, left_num_bits, left_den_bits = left_measure
+    right_num, right_den, right_num_bits, right_den_bits = right_measure
+    cross_num_bits = max(
+        left_num_bits + right_den_bits,
+        right_num_bits + left_den_bits,
+    ) + 1
+    cross_den_bits = left_den_bits + right_den_bits
+    if (
+        max(
+            left_num + right_den,
+            right_num + left_den,
+            left_den + right_den,
+        )
+        > max_degree
+        or max(cross_num_bits, cross_den_bits) > max_coefficient_bits
+    ):
         return None
     try:
         lhs: Any = _to_sympy(left)

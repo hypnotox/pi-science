@@ -194,9 +194,13 @@ class ReasoningContext:
             fact = self.facts.get(str(symbol), _domain_fact(str(symbol), self.domains.get(str(symbol), MathematicalDomain.REAL)))
             if not fact.accepts(value):
                 return False
+        assigned_symbols = set(values)
         for name, domain in self.domains.items():
             try:
-                resolved = _to_sympy(self.apply(Symbol(name))).subs(values)
+                unresolved = _to_sympy(self.apply(Symbol(name)))
+                if not (unresolved.free_symbols & assigned_symbols):
+                    continue
+                resolved = unresolved.subs(values)
                 if resolved.free_symbols or not resolved.is_Rational:
                     return False
                 fact = self.facts.get(name, _domain_fact(name, domain))

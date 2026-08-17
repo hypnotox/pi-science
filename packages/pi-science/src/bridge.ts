@@ -603,14 +603,21 @@ function boundedQueryText(value: unknown): value is string {
     typeof value === "string" && value.length > 0 && [...value].length <= 4096
   );
 }
+function ordinaryIdentifier(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= 128 &&
+    /^[A-Za-z][A-Za-z0-9_]*$/.test(value) &&
+    value !== "oo"
+  );
+}
 function validResolvedTarget(value: unknown): boolean {
   if (!isRecord(value)) return false;
   if (value.kind === "expression") return exactKeys(value, ["kind"]);
   return (
     value.kind === "equation" &&
     exactKeys(value, ["kind", "name"]) &&
-    typeof value.name === "string" &&
-    value.name.length > 0
+    ordinaryIdentifier(value.name)
   );
 }
 function validPropertyCheck(value: unknown): boolean {
@@ -621,8 +628,7 @@ function validPropertyCheck(value: unknown): boolean {
       String(value.kind),
     ) &&
     exactKeys(value, ["kind", "variable"]) &&
-    typeof value.variable === "string" &&
-    value.variable.length > 0
+    ordinaryIdentifier(value.variable)
   );
 }
 function validDerivedCandidate(value: unknown): boolean {
@@ -638,10 +644,21 @@ function validNullableQueryText(value: unknown): boolean {
 }
 function canonicalExactScalar(value: string): boolean {
   const match = /^(-?)(0|[1-9][0-9]*)(?:\/([1-9][0-9]*))?$/.exec(value);
-  if (match === null || value.length > 2050 || value === "-0") return false;
+  if (
+    match === null ||
+    value === "-0" ||
+    match[2].length > 1024 ||
+    (match[3]?.length ?? 0) > 1024
+  )
+    return false;
   try {
     const numerator = BigInt(`${match[1]}${match[2]}`);
     const denominator = BigInt(match[3] ?? "1");
+    if (
+      (numerator < 0n ? -numerator : numerator).toString(2).length > 3402 ||
+      denominator.toString(2).length > 3402
+    )
+      return false;
     let left = numerator < 0n ? -numerator : numerator;
     let right = denominator;
     while (right !== 0n) [left, right] = [right, left % right];
@@ -668,10 +685,7 @@ function validQueryEvidence(value: unknown): boolean {
       validStringMap(value.substitutions) &&
       Object.entries(value.substitutions as Record<string, string>).every(
         ([name, item]) =>
-          /^[A-Za-z][A-Za-z0-9_]*$/.test(name) &&
-          name.length <= 128 &&
-          name !== "oo" &&
-          canonicalExactScalar(item),
+          ordinaryIdentifier(name) && canonicalExactScalar(item),
       ) &&
       boundedQueryText(value.target_value) &&
       boundedQueryText(value.comparison_value)
@@ -789,15 +803,18 @@ function validQueryResult(value: unknown): boolean {
   )
     return false;
   const answers = value.answers as QueryAnswer[];
-  if (value.kind === "properties")
+  if (value.kind === "properties") {
+    const checks = answers.map((answer) => JSON.stringify(answer.check));
     return (
       answers.length > 0 &&
+      checks.length === new Set(checks).size &&
       answers.every(
         (answer) =>
           answer.check !== null &&
           (answer.evidence === null || answer.evidence.kind === "property"),
       )
     );
+  }
   if (answers.length !== 1 || answers[0]?.check !== null) return false;
   const allowedEvidence: Record<string, string> = {
     equivalence: "identity|counterexample",
