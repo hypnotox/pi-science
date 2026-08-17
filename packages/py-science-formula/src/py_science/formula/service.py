@@ -1861,9 +1861,13 @@ def _parse_failure(parsed: ParseFailure, path: str, source: str) -> AnalysisFail
     span = (
         SourceSpan(
             start=location,
-            end=SourceLocation(line=location.line, column=location.column + 1),
+            end=SourceLocation(line=parsed.end_line, column=parsed.end_column),
         )
         if location is not None
+        and parsed.end_line is not None
+        and parsed.end_line >= 1
+        and parsed.end_column is not None
+        and parsed.end_column >= 0
         else None
     )
     alternative = (

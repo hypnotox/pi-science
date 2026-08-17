@@ -38,6 +38,8 @@ class ParseFailure:
     message: str
     line: int | None
     column: int | None
+    end_line: int | None = None
+    end_column: int | None = None
 
 
 type ParseResult = Formula | ParseFailure
@@ -72,11 +74,19 @@ def parse_expression(source: str) -> ParseResult:
             return complexity_failure
         return _convert(root, numeric_lexemes)
     except SyntaxError as error:
+        column = error.offset - 1 if error.offset is not None and error.offset > 0 else None
+        end_column = (
+            error.end_offset - 1
+            if error.end_offset is not None and error.end_offset > 0
+            else None
+        )
         return ParseFailure(
             ParseFailureKind.MALFORMED,
             error.msg,
-            error.lineno,
-            max((error.offset or 1) - 1, 0),
+            error.lineno if column is not None else None,
+            column,
+            error.end_lineno if end_column is not None else None,
+            end_column,
         )
     except RecursionError:
         return _failure(
@@ -95,6 +105,8 @@ def _failure(
         message,
         getattr(node, "lineno", None),
         getattr(node, "col_offset", None),
+        getattr(node, "end_lineno", None),
+        getattr(node, "end_col_offset", None),
     )
 
 
@@ -110,6 +122,10 @@ def _validate_numeric_tokens(
                 continue
             line, character_column = token.start
             byte_column = len(source_lines[line - 1][:character_column].encode("utf-8"))
+            end_line, end_character_column = token.end
+            end_byte_column = len(
+                source_lines[end_line - 1][:end_character_column].encode("utf-8")
+            )
             lexemes[(line, byte_column)] = token.string
             digits = sum(character.isdigit() for character in token.string)
             if digits > MAX_DECIMAL_INTEGER_DIGITS:
@@ -123,8 +139,10 @@ def _validate_numeric_tokens(
                             else "integer literal exceeds the maximum size of "
                             "approximately 1024 decimal digits"
                         ),
-                        token.start[0],
-                        token.start[1],
+                        line,
+                        byte_column,
+                        end_line,
+                        end_byte_column,
                     ),
                     lexemes,
                 )
@@ -137,8 +155,10 @@ def _validate_numeric_tokens(
                         ParseFailureKind.MALFORMED,
                         "decimal literals require digits on both sides of a decimal "
                         "point and do not support exponents",
-                        token.start[0],
-                        token.start[1],
+                        line,
+                        byte_column,
+                        end_line,
+                        end_byte_column,
                     ),
                     lexemes,
                 )
@@ -150,8 +170,10 @@ def _validate_numeric_tokens(
                     ParseFailure(
                         ParseFailureKind.MALFORMED,
                         "integer literal uses an unsupported spelling",
-                        token.start[0],
-                        token.start[1],
+                        line,
+                        byte_column,
+                        end_line,
+                        end_byte_column,
                     ),
                     lexemes,
                 )

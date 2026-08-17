@@ -265,7 +265,7 @@ def test_nested_formula_counts_submitted_operators_before_normalization() -> Non
     assert outcome.abstract_work == 5
 
 
-def test_malformed_syntax_returns_a_structured_failure() -> None:
+def test_malformed_syntax_without_precise_offset_returns_null_location() -> None:
     request = AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x +")
 
     outcome = analyze(request)
@@ -273,8 +273,9 @@ def test_malformed_syntax_returns_a_structured_failure() -> None:
     assert isinstance(outcome, AnalysisFailure)
     assert outcome.error.code is AnalysisErrorCode.MALFORMED_SYNTAX
     assert outcome.error.message
-    assert outcome.error.location is not None
-    assert outcome.error.location.line == 1
+    assert outcome.error.location is None
+    assert outcome.error.source is not None
+    assert outcome.error.source.span is None
 
 
 def test_empty_expression_returns_malformed_syntax_without_an_invalid_location() -> None:

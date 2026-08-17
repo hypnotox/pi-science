@@ -1,5 +1,7 @@
+from types import SimpleNamespace
 from typing import Never
 
+import py_science.formula.parser as formula_parser
 import py_science.formula.service as service
 import py_science.formula.sympy_backend as sympy_backend
 import pytest
@@ -11,6 +13,7 @@ from py_science.formula import (
     FormulaSyntax,
 )
 from py_science.formula.expressions import Expression, Symbol
+from py_science.formula.parser import ParseFailure
 
 
 def test_sympy_adapter_preserves_backend_failure_as_its_cause(
@@ -62,7 +65,32 @@ def test_parse_errors_include_exact_optional_diagnostic_shape() -> None:
     assert set(dumped) == {"code", "message", "location", "source", "supported_alternative"}
     assert dumped["source"]["path"] == "expression"
     assert dumped["source"]["excerpt"] == "x +"
-    assert dumped["location"] == dumped["source"]["span"]["start"]
+    assert dumped["location"] is None
+    assert dumped["source"]["span"] is None
+
+
+def test_offsetless_syntax_error_does_not_invent_coordinates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_parse(*_args: object, **_kwargs: object) -> Never:
+        raise SyntaxError("missing precision")
+
+    monkeypatch.setattr(formula_parser, "ast", SimpleNamespace(parse=fail_parse))
+    parsed = formula_parser.parse_expression("x")
+    assert isinstance(parsed, ParseFailure)
+    assert parsed.line is None
+    assert parsed.column is None
+    assert parsed.end_line is None
+    assert parsed.end_column is None
+
+
+def test_known_token_span_is_end_exclusive() -> None:
+    outcome = service.analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="1e3"))
+    assert isinstance(outcome, AnalysisFailure)
+    assert outcome.error.source is not None
+    assert outcome.error.source.span is not None
+    assert outcome.error.source.span.start.column == 0
+    assert outcome.error.source.span.end.column == 3
 
 
 def test_parse_errors_identify_the_nested_request_source() -> None:
