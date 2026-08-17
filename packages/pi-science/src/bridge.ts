@@ -1,3 +1,4 @@
+import { TextDecoder } from "node:util";
 import { spawnIsolated, terminateTree } from "./process.js";
 
 export const PROTOCOL_VERSION = 2;
@@ -167,6 +168,98 @@ export class BridgeError extends Error {
   ) {
     super(message);
   }
+}
+
+export function decodeUtf8Strict(value: Uint8Array): string {
+  return new TextDecoder("utf-8", { fatal: true }).decode(value);
+}
+
+export function parseStrictJson(source: string): unknown {
+  const parsed: unknown = JSON.parse(source);
+  let offset = 0;
+  const whitespace = (): void => {
+    while (/\s/.test(source[offset] ?? "")) offset += 1;
+  };
+  const stringToken = (): string => {
+    if (source[offset] !== '"') throw new SyntaxError("expected JSON string");
+    const start = offset++;
+    while (offset < source.length) {
+      const character = source[offset++];
+      if (character === '"')
+        return JSON.parse(source.slice(start, offset)) as string;
+      if (character === "\\") {
+        const escape = source[offset++];
+        if (escape === "u") {
+          const digits = source.slice(offset, offset + 4);
+          if (!/^[0-9a-fA-F]{4}$/.test(digits))
+            throw new SyntaxError("invalid JSON escape");
+          offset += 4;
+        } else if (!'"\\/bfnrt'.includes(escape ?? "")) {
+          throw new SyntaxError("invalid JSON escape");
+        }
+      } else if (character === undefined || character.charCodeAt(0) < 0x20) {
+        throw new SyntaxError("invalid JSON string");
+      }
+    }
+    throw new SyntaxError("unterminated JSON string");
+  };
+  const value = (): void => {
+    whitespace();
+    const character = source[offset];
+    if (character === "{") {
+      offset += 1;
+      whitespace();
+      const keys = new Set<string>();
+      if (source[offset] === "}") {
+        offset += 1;
+        return;
+      }
+      while (true) {
+        whitespace();
+        const key = stringToken();
+        if (keys.has(key)) throw new SyntaxError("duplicate JSON object key");
+        keys.add(key);
+        whitespace();
+        if (source[offset++] !== ":")
+          throw new SyntaxError("expected JSON colon");
+        value();
+        whitespace();
+        const delimiter = source[offset++];
+        if (delimiter === "}") return;
+        if (delimiter !== ",")
+          throw new SyntaxError("expected JSON object delimiter");
+      }
+    }
+    if (character === "[") {
+      offset += 1;
+      whitespace();
+      if (source[offset] === "]") {
+        offset += 1;
+        return;
+      }
+      while (true) {
+        value();
+        whitespace();
+        const delimiter = source[offset++];
+        if (delimiter === "]") return;
+        if (delimiter !== ",")
+          throw new SyntaxError("expected JSON array delimiter");
+      }
+    }
+    if (character === '"') {
+      stringToken();
+      return;
+    }
+    const start = offset;
+    while (offset < source.length && !/[\s,\]}]/.test(source[offset] ?? ""))
+      offset += 1;
+    if (start === offset) throw new SyntaxError("expected JSON value");
+    JSON.parse(source.slice(start, offset));
+  };
+  value();
+  whitespace();
+  if (offset !== source.length) throw new SyntaxError("trailing JSON data");
+  return parsed;
 }
 
 function boundedText(value: string): string {
@@ -529,7 +622,7 @@ export async function invokeAdapter(
           ),
         );
       try {
-        const envelope: unknown = JSON.parse(stdout.toString("utf8"));
+        const envelope = parseStrictJson(decodeUtf8Strict(stdout));
         if (
           !isRecord(envelope) ||
           !exactKeys(envelope, ["version", "result"]) ||

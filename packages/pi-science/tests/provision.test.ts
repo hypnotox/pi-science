@@ -163,6 +163,14 @@ describe("eager provisioning", () => {
       "incompatible health protocol",
     ],
     ["", "malformed health output"],
+    [
+      '{"version":2,"version":2,"result":{"status":"healthy"}}',
+      "malformed health output",
+    ],
+    [
+      '{"version":2,"result":{"status":"healthy","status":"healthy"}}',
+      "malformed health output",
+    ],
   ])("rejects invalid health response %j", async (output, diagnosis) => {
     const uv = await executable(
       `process.stdout.write(${JSON.stringify(output)})`,
@@ -170,6 +178,17 @@ describe("eager provisioning", () => {
     const state = await provision(await options(uv));
     expect(state).toMatchObject({ ready: false });
     if (!state.ready) expect(state.diagnosis).toContain(diagnosis);
+  });
+
+  it("rejects invalid UTF-8 health output", async () => {
+    const uv = await executable(
+      "process.stdout.write(Buffer.from([0x7b,0xff,0x7d]))",
+    );
+    const state = await provision(await options(uv));
+    expect(state).toMatchObject({
+      ready: false,
+      diagnosis: expect.stringContaining("malformed health output"),
+    });
   });
 
   it("rejects oversized health output", async () => {

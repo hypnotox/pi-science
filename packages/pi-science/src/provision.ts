@@ -2,7 +2,11 @@ import { existsSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
-import { PROTOCOL_VERSION } from "./bridge.js";
+import {
+  decodeUtf8Strict,
+  parseStrictJson,
+  PROTOCOL_VERSION,
+} from "./bridge.js";
 import { spawnIsolated, terminateTree } from "./process.js";
 
 const MAX_DIAGNOSTIC_BYTES = 4_096;
@@ -21,7 +25,12 @@ export type ProvisionOptions = {
   timeoutMs?: number;
 };
 
-type CommandResult = { stdout: string; stderr: string; code: number | null };
+type CommandResult = {
+  stdout: Buffer;
+  stdoutOverflow: boolean;
+  stderr: string;
+  code: number | null;
+};
 
 function bounded(value: unknown): string {
   const record =
@@ -137,7 +146,8 @@ async function runBounded(
       env: { ...process.env, UV_CACHE_DIR: cacheDir },
       stdio: ["ignore", "pipe", "pipe"],
     });
-    let stdout = "";
+    let stdout = Buffer.alloc(0);
+    let stdoutOverflow = false;
     let stderr = "";
     let timedOut = false;
     const timer = setTimeout(() => {
@@ -145,7 +155,10 @@ async function runBounded(
       terminateTree(child);
     }, timeoutMs);
     child.stdout!.on("data", (chunk: Buffer) => {
-      stdout = bounded(stdout + chunk.toString());
+      const remaining = MAX_DIAGNOSTIC_BYTES + 1 - stdout.length;
+      if (chunk.length > remaining) stdoutOverflow = true;
+      if (remaining > 0)
+        stdout = Buffer.concat([stdout, chunk.subarray(0, remaining)]);
     });
     child.stderr!.on("data", (chunk: Buffer) => {
       stderr = bounded(stderr + chunk.toString());
@@ -159,7 +172,7 @@ async function runBounded(
       if (timedOut)
         return reject({ killed: true, message: "timed out", stderr });
       if (code !== 0) return reject({ code, message: stderr, stderr });
-      resolveResult({ stdout, stderr, code });
+      resolveResult({ stdout, stdoutOverflow, stderr, code });
     });
   });
 }
@@ -217,7 +230,8 @@ export async function provision(options: ProvisionOptions): Promise<Readiness> {
   }
   let response: unknown;
   try {
-    response = JSON.parse(health.stdout);
+    if (health.stdoutOverflow) throw new SyntaxError("oversized health output");
+    response = parseStrictJson(decodeUtf8Strict(health.stdout));
   } catch {
     return {
       ready: false,

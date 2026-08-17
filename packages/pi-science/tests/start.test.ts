@@ -12,6 +12,7 @@ import {
   resolvePinnedSource,
   start,
 } from "../src/index.js";
+import { afmmParameters, afmmTotalWork } from "./afmm-fixture.js";
 
 const repositoryRoot = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -144,62 +145,30 @@ describe("readiness gate", () => {
         args: ["run", "--locked", "python", adapter],
       }),
     );
-    const params: FormulaParameters = {
-      equations: [
-        {
-          name: "multipoles",
-          expression: "Eq(M[b], Sum(basis(i), (i, 0, n[b] - 1)))",
-          domains: { b: { lower: "0", upper: "B - 1" } },
-        },
-        {
-          name: "translation",
-          expression: "Eq(L[b], translate(M[b]) + M[b])",
-          domains: { b: { lower: "0", upper: "B - 1" } },
-        },
-      ],
-      variables: {
-        B: { domain: "positive_integer" },
-        N: { domain: "positive_integer" },
-        n: { domain: "nonnegative_integer" },
-      },
-      primitive_costs: [{ name: "basis", parameters: ["i"], work: "i + 1" }],
-      assumptions: [
-        {
-          name: "population",
-          relationship: "Sum(n[b], (b, 0, B - 1)) == N",
-        },
-      ],
-      scenarios: [{ name: "fixed_boxes", fixed: { B: 4 }, asymptotic: ["N"] }],
-    };
+    const params: FormulaParameters = afmmParameters;
     const result = await current.tools[0]!.execute("id", params);
     expect(result.details).toMatchObject({
       status: "success",
       system: {
         equations: [
           {
-            name: "multipoles",
+            name: "displacement",
             interpretation: {
-              normalized_sympy: "Eq(M[b], Sum(basis(i), (i, 0, n[b] - 1)))",
+              normalized_sympy: "Eq(D[i, d], -center[box[i], d] + x[i, d])",
             },
           },
-          {
-            name: "translation",
-            interpretation: {
-              normalized_sympy: "Eq(L[b], translate(M[b]) + M[b])",
-            },
-            dependencies: ["multipoles"],
-          },
+          { name: "multipoles", dependencies: ["displacement"] },
+          { name: "translation", dependencies: ["multipoles"] },
         ],
-        dependency_edges: [["multipoles", "translation"]],
+        dependency_edges: [
+          ["displacement", "multipoles"],
+          ["multipoles", "translation"],
+        ],
         reuse: [
-          {
-            producer: "multipoles",
-            consumer: "translation",
-            references: 2,
-          },
+          { producer: "displacement", consumer: "multipoles", references: 1 },
+          { producer: "multipoles", consumer: "translation", references: 2 },
         ],
-        total_work:
-          "B + N*(i + 1) + Sum(C_translate(M[b]), (b, 0, B - 1)) + Sum(Max(0, n[b] - 1), (b, 0, B - 1))",
+        total_work: afmmTotalWork,
         relationships_used: [
           {
             name: "population",
@@ -210,7 +179,7 @@ describe("readiness gate", () => {
       },
       scenarios: [
         {
-          name: "fixed_boxes",
+          name: "fixed_order",
           qualifications: [
             "exact general symbolic work preserved",
             "fixed values substituted exactly",

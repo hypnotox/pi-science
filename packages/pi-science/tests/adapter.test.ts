@@ -18,23 +18,48 @@ const systemRequest = {
   syntax: "sympy",
   equations: [
     {
-      name: "source",
-      expression: "Eq(M[b], Sum(basis(i), (i, 0, n[b] - 1)))",
-      domains: { b: { lower: "0", upper: "B - 1" } },
+      name: "displacement",
+      expression: "Eq(D[i, d], x[i, d] - center[box[i], d])",
+      domains: {
+        i: { lower: "0", upper: "N - 1" },
+        d: { lower: "0", upper: "dim - 1" },
+      },
     },
     {
-      name: "translated",
-      expression: "Eq(L[b], translate(M[b]) + M[b])",
-      domains: { b: { lower: "0", upper: "B - 1" } },
+      name: "multipoles",
+      expression:
+        "Eq(M[b, k], Sum(K(p) * basis(D[i, 0], k), (i, 0, n[b] - 1)))",
+      domains: {
+        b: { lower: "0", upper: "B - 1" },
+        k: { lower: "0", upper: "p - 1" },
+      },
+    },
+    {
+      name: "translation",
+      expression:
+        "Eq(L[b, k], Sum(translate(M[neighbor[b, c], k]) + M[neighbor[b, c], k], (c, 0, C - 1)))",
+      domains: {
+        b: { lower: "0", upper: "B - 1" },
+        k: { lower: "0", upper: "p - 1" },
+      },
     },
   ],
   variables: {
-    B: { domain: "positive_integer" },
     N: { domain: "positive_integer" },
+    dim: { domain: "positive_integer" },
+    B: { domain: "positive_integer" },
+    p: { domain: "positive_integer" },
+    C: { domain: "positive_integer" },
+    x: { domain: "real" },
+    center: { domain: "real" },
+    box: { domain: "nonnegative_integer" },
     n: { domain: "nonnegative_integer" },
+    neighbor: { domain: "nonnegative_integer" },
   },
-  functions: [],
-  primitive_costs: [{ name: "basis", parameters: ["i"], work: "i + 1" }],
+  functions: [{ name: "K", parameters: ["z"], body: "z * z" }],
+  primitive_costs: [
+    { name: "basis", parameters: ["value", "k"], work: "k + 1" },
+  ],
   assumptions: [
     {
       name: "population",
@@ -42,7 +67,7 @@ const systemRequest = {
     },
   ],
   definitions: [],
-  scenarios: [{ name: "fixed_boxes", fixed: { B: 4 }, asymptotic: ["N"] }],
+  scenarios: [{ name: "fixed_order", fixed: { p: 3 }, asymptotic: ["N"] }],
 };
 
 describe("formula adapter protocol boundary", () => {
@@ -110,13 +135,20 @@ print(module._encoded({"result": "x" * 262401}) is None)
         status: "success",
         system: {
           equations: [
-            { name: "source" },
-            { name: "translated", dependencies: ["source"] },
+            { name: "displacement" },
+            { name: "multipoles", dependencies: ["displacement"] },
+            { name: "translation", dependencies: ["multipoles"] },
           ],
-          dependency_edges: [["source", "translated"]],
+          dependency_edges: [
+            ["displacement", "multipoles"],
+            ["multipoles", "translation"],
+          ],
           reuse: [
-            { producer: "source", consumer: "translated", references: 2 },
+            { producer: "displacement", consumer: "multipoles", references: 1 },
+            { producer: "multipoles", consumer: "translation", references: 2 },
           ],
+          total_work:
+            "B*p*(2*C - 1) + C*Sum(C_translate(M[neighbor[b, c], k]), (b, 0, B - 1), (k, 0, p - 1)) + N*dim + 2*N*p + N*Sum(k + 1, (k, 0, p - 1)) + p*Sum(Max(0, n[b] - 1), (b, 0, B - 1))",
           unknown_costs: ["C_translate"],
           relationships_used: [
             {
@@ -127,7 +159,7 @@ print(module._encoded({"result": "x" * 262401}) is None)
         },
         scenarios: [
           {
-            name: "fixed_boxes",
+            name: "fixed_order",
             qualifications: expect.any(Array),
           },
         ],

@@ -12,6 +12,7 @@ import {
   MAX_RESPONSE_BYTES,
   PROTOCOL_VERSION,
 } from "../src/bridge.js";
+import { afmmRequest, afmmTotalWork } from "./afmm-fixture.js";
 
 const node = process.execPath;
 const script = (body: string) => ["-e", body];
@@ -205,62 +206,24 @@ describe("private formula bridge", () => {
         dependency_edges: [],
       },
     });
-    const system = await invokeAdapter("uv", args, {
-      syntax: "sympy",
-      equations: [
-        {
-          name: "multipoles",
-          expression: "Eq(M[b], Sum(basis(i), (i, 0, n[b] - 1)))",
-          domains: { b: { lower: "0", upper: "B - 1" } },
-        },
-        {
-          name: "translation",
-          expression: "Eq(L[b], translate(M[b]) + M[b])",
-          domains: { b: { lower: "0", upper: "B - 1" } },
-        },
-      ],
-      variables: {
-        B: { domain: "positive_integer" },
-        N: { domain: "positive_integer" },
-        n: { domain: "nonnegative_integer" },
-      },
-      primitive_costs: [{ name: "basis", parameters: ["i"], work: "i + 1" }],
-      assumptions: [
-        {
-          name: "population",
-          relationship: "Sum(n[b], (b, 0, B - 1)) == N",
-        },
-      ],
-      scenarios: [{ name: "fixed_boxes", fixed: { B: 4 }, asymptotic: ["N"] }],
-    });
+    const system = await invokeAdapter("uv", args, afmmRequest);
     expect(system).toMatchObject({
       status: "success",
       system: {
         equations: [
-          {
-            name: "multipoles",
-            interpretation: {
-              normalized_sympy: "Eq(M[b], Sum(basis(i), (i, 0, n[b] - 1)))",
-            },
-          },
-          {
-            name: "translation",
-            interpretation: {
-              normalized_sympy: "Eq(L[b], translate(M[b]) + M[b])",
-            },
-            dependencies: ["multipoles"],
-          },
+          { name: "displacement" },
+          { name: "multipoles", dependencies: ["displacement"] },
+          { name: "translation", dependencies: ["multipoles"] },
         ],
-        dependency_edges: [["multipoles", "translation"]],
+        dependency_edges: [
+          ["displacement", "multipoles"],
+          ["multipoles", "translation"],
+        ],
         reuse: [
-          {
-            producer: "multipoles",
-            consumer: "translation",
-            references: 2,
-          },
+          { producer: "displacement", consumer: "multipoles", references: 1 },
+          { producer: "multipoles", consumer: "translation", references: 2 },
         ],
-        total_work:
-          "B + N*(i + 1) + Sum(C_translate(M[b]), (b, 0, B - 1)) + Sum(Max(0, n[b] - 1), (b, 0, B - 1))",
+        total_work: afmmTotalWork,
         relationships_used: [
           {
             name: "population",
@@ -271,7 +234,7 @@ describe("private formula bridge", () => {
       },
       scenarios: [
         {
-          name: "fixed_boxes",
+          name: "fixed_order",
           qualifications: [
             "exact general symbolic work preserved",
             "fixed values substituted exactly",
@@ -311,6 +274,28 @@ describe("private formula bridge", () => {
       );
       await kind(promise, output === "no" ? "malformed-output" : "protocol");
     }
+  });
+
+  it("rejects duplicate response keys and invalid UTF-8", async () => {
+    const duplicateRoot = `{"version":2,"version":2,"result":${JSON.stringify(success)}}`;
+    const duplicateNested = `{"version":2,"result":{"status":"failure","error":{"code":"invalid_system","code":"invalid_system","message":"bad"}}}`;
+    for (const output of [duplicateRoot, duplicateNested])
+      await kind(
+        invokeAdapter(
+          node,
+          script(`process.stdout.write(${JSON.stringify(output)})`),
+          request(),
+        ),
+        "malformed-output",
+      );
+    await kind(
+      invokeAdapter(
+        node,
+        script("process.stdout.write(Buffer.from([0x7b,0xff,0x7d]))"),
+        request(),
+      ),
+      "malformed-output",
+    );
   });
 
   const setSystemField = (
