@@ -430,6 +430,45 @@ def test_definition_domains_are_validated_after_dependencies_and_scenario_values
         assert "contradicts declared domain" in result.error.message
 
 
+def test_scenarios_compose_with_global_definitions_and_reject_overlapping_treatments() -> None:
+    dependency = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="primitive(q)",
+            variables={
+                "p": declared(MathematicalDomain.POSITIVE_INTEGER),
+                "q": declared(MathematicalDomain.POSITIVE_INTEGER),
+            },
+            primitive_costs=(PrimitiveCost(name="primitive", parameters=("z",), work="z"),),
+            definitions=(DirectedDefinition(variable="p", expression="2"),),
+            scenarios=(
+                Scenario(
+                    name="uses_global",
+                    definitions=(DirectedDefinition(variable="q", expression="p + 1"),),
+                ),
+            ),
+        )
+    )
+    conflict = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="p",
+            variables={"p": declared(MathematicalDomain.POSITIVE_INTEGER)},
+            definitions=(DirectedDefinition(variable="p", expression="2"),),
+            scenarios=(Scenario(name="conflict", fixed={"p": 3}),),
+        )
+    )
+
+    assert dependency.status == "success"
+    assert dependency.scenarios[0].substituted_work == "3"
+    assert dependency.scenarios[0].substitutions == {"q": "3"}
+    assert [item.name for item in dependency.scenarios[0].relationships_used] == [
+        "derived:q"
+    ]
+    assert conflict.status == "failure"
+    assert "treatments conflict with global definitions: p" in conflict.error.message
+
+
 def test_directed_definitions_apply_in_dependency_order_with_provenance() -> None:
     result = analyze(
         AnalysisRequest(

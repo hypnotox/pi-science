@@ -241,8 +241,21 @@ def _parse_knowledge(
                     f"{definition.variable} must be an expression"
                 )
             scenario_expressions[definition.variable] = parsed
+        globally_defined = set(resolved_definitions)
+        overlapping_treatments = (
+            set(scenario.fixed)
+            | set(scenario.choices)
+            | set(scenario_expressions)
+            | set(scenario.asymptotic)
+            | set(scenario.bounds)
+        ) & globally_defined
+        if overlapping_treatments:
+            return _invalid(
+                f"scenario {scenario.name} treatments conflict with global definitions: "
+                + ", ".join(sorted(overlapping_treatments))
+            )
         scenario_qualifications = _scenario_definition_qualifications(
-            scenario, scenario_expressions, request, context
+            scenario, scenario_expressions, request, context, resolved_definitions
         )
         if isinstance(scenario_qualifications, AnalysisFailure):
             return _invalid(f"scenario {scenario.name}: {scenario_qualifications.error.message}")
@@ -363,6 +376,7 @@ def _scenario_definition_qualifications(
     expressions: dict[str, Expression],
     request: AnalysisRequest,
     context: WorkContext,
+    base_replacements: dict[str, Expression] | None = None,
 ) -> dict[str, str | None] | AnalysisFailure:
     names = set(expressions)
     graph = {
@@ -387,9 +401,10 @@ def _scenario_definition_qualifications(
     choice_names = sorted(scenario.choices)
     choice_values = [scenario.choices[name] for name in choice_names]
     for selected_values in product(*choice_values):
-        replacements: dict[str, Expression] = {
-            name: IntegerLiteral(value) for name, value in scenario.fixed.items()
-        }
+        replacements: dict[str, Expression] = dict(base_replacements or {})
+        replacements.update(
+            {name: IntegerLiteral(value) for name, value in scenario.fixed.items()}
+        )
         replacements.update(
             {
                 name: IntegerLiteral(value)
@@ -674,7 +689,9 @@ def _analyze_single(
         operation_counts=_counts(tally),
         abstract_work=tally.total,
         system=system,
-        scenarios=_scenario_results(request, analysis, work_render_budget, relationships),
+        scenarios=_scenario_results(
+            request, analysis, work_render_budget, relationships, knowledge
+        ),
     )
 
 
@@ -798,7 +815,9 @@ def _analyze_system(
         operation_counts=_counts(submitted),
         abstract_work=submitted.total,
         system=system,
-        scenarios=_scenario_results(request, combined, work_render_budget, used_relationships),
+        scenarios=_scenario_results(
+            request, combined, work_render_budget, used_relationships, knowledge
+        ),
     )
 
 
@@ -1327,13 +1346,24 @@ def _apply_knowledge(
     return result, tuple(uses)
 
 
+def _resolved_knowledge_definitions(knowledge: Knowledge) -> dict[str, Expression]:
+    replacements: dict[str, Expression] = {}
+    for definition in knowledge.definitions:
+        replacements[definition.name] = substitute(
+            definition.expression, replacements, max_nodes=MAX_WORK_NODES
+        )
+    return replacements
+
+
 def _scenario_results(
     request: AnalysisRequest,
     general: WorkAnalysis,
     budget: WorkRenderBudget,
     general_relationships: tuple[RelationshipUse, ...],
+    knowledge: Knowledge,
 ) -> tuple[ScenarioResult, ...]:
     results: list[ScenarioResult] = []
+    global_replacements = _resolved_knowledge_definitions(knowledge)
     declared = set(request.variables)
     indexed_values = _indexed_value_names(general.total_work)
     for scenario in request.scenarios:
@@ -1361,11 +1391,14 @@ def _scenario_results(
             unresolved.add(
                 "scenario treats undeclared variables: " + ", ".join(sorted(unknown_treatments))
             )
-        replacements: dict[str, Expression] = {
-            name: IntegerLiteral(value)
-            for name, value in scenario.fixed.items()
-            if name not in indexed_values
-        }
+        replacements: dict[str, Expression] = dict(global_replacements)
+        replacements.update(
+            {
+                name: IntegerLiteral(value)
+                for name, value in scenario.fixed.items()
+                if name not in indexed_values
+            }
+        )
         relationships: list[RelationshipUse] = []
         parsed_definitions: dict[str, tuple[str, Expression]] = {}
         for definition in scenario.definitions:
@@ -1388,6 +1421,7 @@ def _scenario_results(
             {name: parsed for name, (_, parsed) in parsed_definitions.items()},
             request,
             definition_context,
+            global_replacements,
         )
         if isinstance(qualification_result, AnalysisFailure):
             unresolved.add(qualification_result.error.message)
@@ -1545,7 +1579,12 @@ def _scenario_results(
                 asymptotic=asymptotic,
                 interval=interval,
                 substitutions={
-                    name: render_work(value, budget) for name, value in sorted(replacements.items())
+                    name: render_work(replacements[name], budget)
+                    for name in sorted(
+                        set(scenario.fixed)
+                        | {item.variable for item in scenario.definitions}
+                    )
+                    if name in replacements
                 },
                 relationships_used=(*general_relationships, *relationships),
                 qualifications=tuple(qualifications),
