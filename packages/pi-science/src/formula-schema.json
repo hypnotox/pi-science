@@ -50,8 +50,6 @@
           "type": "array"
         },
         "expression": {
-          "maxLength": 65536,
-          "minLength": 1,
           "type": "string"
         },
         "functions": {

@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any
 
 from py_science.formula import AnalysisRequest
-from py_science.formula.models import MAX_FORMULA_BYTES
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT = ROOT / "packages" / "pi-science" / "src" / "formula-schema.json"
@@ -193,11 +192,7 @@ def generate_schema() -> JsonObject:
     expression = {
         "additionalProperties": False,
         "properties": {
-            "expression": {
-                "maxLength": MAX_FORMULA_BYTES,
-                "minLength": 1,
-                "type": "string",
-            },
+            "expression": _normalize(copy.deepcopy(properties["expression"]), definitions),
             **copy.deepcopy(metadata),
             "queries": expression_queries,
         },
