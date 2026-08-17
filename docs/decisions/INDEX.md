@@ -2,9 +2,10 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-- [ADR-0003: Adopt compositional indexed equation analysis](0003-adopt-compositional-indexed-equation-analysis.md) (Implementing)
+_No decisions are in flight._
 
 ## History
 
 - [ADR-0001: Adopt symbolic mathematical analysis product direction](0001-adopt-symbolic-mathematical-analysis-product-direction.md) (Implemented)
 - [ADR-0002: Separate reusable analysis packages from Pi integration](0002-separate-reusable-analysis-packages-from-pi-integration.md) (Implemented)
+- [ADR-0003: Adopt compositional indexed equation analysis](0003-adopt-compositional-indexed-equation-analysis.md) (Implemented)

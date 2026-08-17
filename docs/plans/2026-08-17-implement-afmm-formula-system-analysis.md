@@ -2,7 +2,7 @@
 format: plan-v2
 date: 2026-08-17
 adrs: [adopt-compositional-indexed-equation-analysis]
-status: Proposed
+status: Implemented
 ---
 # Plan: Implement AFMM Formula System Analysis
 
