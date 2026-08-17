@@ -62,15 +62,15 @@ def parse_expression(source: str) -> ParseResult:
             f"expression exceeds the maximum input size of {MAX_INPUT_BYTES} UTF-8 bytes",
         )
 
-    integer_failure = _validate_decimal_integer_tokens(source)
-    if integer_failure is not None:
-        return integer_failure
+    numeric_failure, numeric_lexemes = _validate_numeric_tokens(source)
+    if numeric_failure is not None:
+        return numeric_failure
     try:
         root = ast.parse(source, mode="eval").body
         complexity_failure = _validate_complexity(root)
         if complexity_failure is not None:
             return complexity_failure
-        return _convert(root)
+        return _convert(root, numeric_lexemes)
     except SyntaxError as error:
         return ParseFailure(
             ParseFailureKind.MALFORMED,
@@ -98,25 +98,63 @@ def _failure(
     )
 
 
-def _validate_decimal_integer_tokens(source: str) -> ParseFailure | None:
+def _validate_numeric_tokens(
+    source: str,
+) -> tuple[ParseFailure | None, dict[tuple[int, int], str]]:
+    lexemes: dict[tuple[int, int], str] = {}
     try:
         tokens = tokenize.generate_tokens(io.StringIO(source).readline)
         for token in tokens:
+            if token.type != tokenize.NUMBER:
+                continue
+            lexemes[token.start] = token.string
+            digits = sum(character.isdigit() for character in token.string)
+            if digits > MAX_DECIMAL_INTEGER_DIGITS:
+                return (
+                    ParseFailure(
+                        ParseFailureKind.TOO_COMPLEX,
+                        (
+                            "decimal literal exceeds the maximum size of "
+                            "approximately 1024 decimal digits"
+                            if any(marker in token.string for marker in ".eE")
+                            else "integer literal exceeds the maximum size of "
+                            "approximately 1024 decimal digits"
+                        ),
+                        token.start[0],
+                        token.start[1],
+                    ),
+                    lexemes,
+                )
             if (
-                token.type == tokenize.NUMBER
-                and _DECIMAL_INTEGER.fullmatch(token.string) is not None
-                and sum(character.isdigit() for character in token.string)
-                > MAX_DECIMAL_INTEGER_DIGITS
+                any(marker in token.string for marker in ".eE")
+                and parse_exact_scalar(token.string) is None
             ):
-                return ParseFailure(
-                    ParseFailureKind.TOO_COMPLEX,
-                    "integer literal exceeds the maximum size of approximately 1024 decimal digits",
-                    token.start[0],
-                    token.start[1],
+                return (
+                    ParseFailure(
+                        ParseFailureKind.MALFORMED,
+                        "decimal literals require digits on both sides of a decimal "
+                        "point and do not support exponents",
+                        token.start[0],
+                        token.start[1],
+                    ),
+                    lexemes,
+                )
+            if (
+                not any(marker in token.string for marker in ".eE")
+                and _DECIMAL_INTEGER.fullmatch(token.string) is None
+            ):
+                return (
+                    ParseFailure(
+                        ParseFailureKind.MALFORMED,
+                        "integer literal uses an unsupported spelling",
+                        token.start[0],
+                        token.start[1],
+                    ),
+                    lexemes,
                 )
     except (IndentationError, tokenize.TokenError):
-        return None
-    return None
+        return None, lexemes
+    return None, lexemes
 
 
 def _validate_complexity(root: ast.expr) -> ParseFailure | None:
@@ -162,11 +200,11 @@ def _integer_value(node: ast.AST) -> int | None:
     return None
 
 
-def _convert(node: ast.expr) -> ParseResult:
+def _convert(node: ast.expr, numeric_lexemes: dict[tuple[int, int], str]) -> ParseResult:
     if isinstance(node, ast.Constant) and type(node.value) is int:
         return IntegerLiteral(node.value)
     if isinstance(node, ast.Constant) and type(node.value) is float:
-        value = parse_exact_scalar(str(node.value))
+        value = parse_exact_scalar(numeric_lexemes.get((node.lineno, node.col_offset), ""))
         if value is None:
             return _failure(ParseFailureKind.TOO_COMPLEX, "decimal literal exceeds exact-value bounds", node)  # noqa: E501
         return RationalLiteral(value.numerator, value.denominator)
@@ -178,6 +216,16 @@ def _convert(node: ast.expr) -> ParseResult:
     ):
         sign = -1 if isinstance(node.op, ast.USub) else 1
         return IntegerLiteral(sign * node.operand.value)
+    if (
+        isinstance(node, ast.UnaryOp)
+        and isinstance(node.op, ast.USub)
+        and isinstance(node.operand, ast.Constant)
+        and type(node.operand.value) is float
+    ):
+        converted = _convert(node.operand, numeric_lexemes)
+        if isinstance(converted, RationalLiteral):
+            return RationalLiteral(-converted.numerator, converted.positive_denominator)
+        return converted
     if (isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub)
             and isinstance(node.operand, ast.Name) and node.operand.id == "oo"):
         return InfinityLiteral(-1)
@@ -186,13 +234,13 @@ def _convert(node: ast.expr) -> ParseResult:
             return InfinityLiteral(1)
         return _symbol(node)
     if isinstance(node, ast.BinOp):
-        return _convert_binary(node)
+        return _convert_binary(node, numeric_lexemes)
     if isinstance(node, ast.Subscript):
-        return _convert_indexed(node)
+        return _convert_indexed(node, numeric_lexemes)
     if isinstance(node, ast.Call):
-        return _convert_call(node)
+        return _convert_call(node, numeric_lexemes)
     if isinstance(node, ast.Compare):
-        return _convert_relationship(node)
+        return _convert_relationship(node, numeric_lexemes)
     return _failure(
         ParseFailureKind.UNSUPPORTED,
         f"unsupported construct: {type(node).__name__}",
@@ -210,7 +258,9 @@ def _symbol(node: ast.Name) -> Symbol | ParseFailure:
     return Symbol(node.id)
 
 
-def _convert_relationship(node: ast.Compare) -> ParseResult:
+def _convert_relationship(
+    node: ast.Compare, numeric_lexemes: dict[tuple[int, int], str]
+) -> ParseResult:
     if len(node.ops) != 1 or len(node.comparators) != 1:
         return _failure(
             ParseFailureKind.UNSUPPORTED, "chained relationships are not supported", node
@@ -230,8 +280,8 @@ def _convert_relationship(node: ast.Compare) -> ParseResult:
         operator = None
     if operator is None:
         return _failure(ParseFailureKind.UNSUPPORTED, "unsupported relationship operator", node)
-    left = _convert(node.left)
-    right = _convert(node.comparators[0])
+    left = _convert(node.left, numeric_lexemes)
+    right = _convert(node.comparators[0], numeric_lexemes)
     if isinstance(left, ParseFailure):
         return left
     if isinstance(right, ParseFailure):
@@ -241,7 +291,9 @@ def _convert_relationship(node: ast.Compare) -> ParseResult:
     return Relationship(operator, left, right)
 
 
-def _convert_binary(node: ast.BinOp) -> ParseResult:
+def _convert_binary(
+    node: ast.BinOp, numeric_lexemes: dict[tuple[int, int], str]
+) -> ParseResult:
     operator = _binary_operator(node.op)
     if operator is None:
         return _failure(
@@ -249,10 +301,10 @@ def _convert_binary(node: ast.BinOp) -> ParseResult:
             f"unsupported construct: {type(node.op).__name__}",
             node,
         )
-    left = _convert(node.left)
+    left = _convert(node.left, numeric_lexemes)
     if isinstance(left, ParseFailure):
         return left
-    right = _convert(node.right)
+    right = _convert(node.right, numeric_lexemes)
     if isinstance(right, ParseFailure):
         return right
     if isinstance(left, (Equation, Relationship)) or isinstance(right, (Equation, Relationship)):
@@ -264,7 +316,9 @@ def _convert_binary(node: ast.BinOp) -> ParseResult:
     return BinaryExpression(operator, left, right)
 
 
-def _convert_indexed(node: ast.Subscript) -> ParseResult:
+def _convert_indexed(
+    node: ast.Subscript, numeric_lexemes: dict[tuple[int, int], str]
+) -> ParseResult:
     if not isinstance(node.value, ast.Name):
         return _failure(
             ParseFailureKind.UNSUPPORTED,
@@ -285,7 +339,7 @@ def _convert_indexed(node: ast.Subscript) -> ParseResult:
         )
     indices: list[Expression] = []
     for value in values:
-        converted = _convert(value)
+        converted = _convert(value, numeric_lexemes)
         if isinstance(converted, ParseFailure):
             return converted
         if isinstance(converted, (Equation, Relationship)):
@@ -298,7 +352,9 @@ def _convert_indexed(node: ast.Subscript) -> ParseResult:
     return IndexedValue(base.name, tuple(indices))
 
 
-def _convert_call(node: ast.Call) -> ParseResult:
+def _convert_call(
+    node: ast.Call, numeric_lexemes: dict[tuple[int, int], str]
+) -> ParseResult:
     if not isinstance(node.func, ast.Name):
         return _failure(
             ParseFailureKind.UNSUPPORTED,
@@ -315,9 +371,9 @@ def _convert_call(node: ast.Call) -> ParseResult:
             node,
         )
     if function.name == "Sum":
-        return _convert_sum(node)
+        return _convert_sum(node, numeric_lexemes)
     if function.name == "Eq":
-        return _convert_equation(node)
+        return _convert_equation(node, numeric_lexemes)
     if function.name == "Max":
         return _failure(
             ParseFailureKind.UNSUPPORTED,
@@ -327,7 +383,7 @@ def _convert_call(node: ast.Call) -> ParseResult:
 
     arguments: list[Expression] = []
     for argument in node.args:
-        converted = _convert(argument)
+        converted = _convert(argument, numeric_lexemes)
         if isinstance(converted, ParseFailure):
             return converted
         if isinstance(converted, (Equation, Relationship)):
@@ -340,7 +396,9 @@ def _convert_call(node: ast.Call) -> ParseResult:
     return Call(function.name, tuple(arguments))
 
 
-def _convert_sum(node: ast.Call) -> ParseResult:
+def _convert_sum(
+    node: ast.Call, numeric_lexemes: dict[tuple[int, int], str]
+) -> ParseResult:
     if (
         len(node.args) != 2
         or not isinstance(node.args[1], ast.Tuple)
@@ -357,7 +415,7 @@ def _convert_sum(node: ast.Call) -> ParseResult:
         return index_symbol
     converted_parts: list[Expression] = []
     for part in (node.args[0], node.args[1].elts[1], node.args[1].elts[2]):
-        converted = _convert(part)
+        converted = _convert(part, numeric_lexemes)
         if isinstance(converted, ParseFailure):
             return converted
         if isinstance(converted, (Equation, Relationship)):
@@ -371,17 +429,19 @@ def _convert_sum(node: ast.Call) -> ParseResult:
     return Sum(body, index_symbol.name, lower, upper)
 
 
-def _convert_equation(node: ast.Call) -> ParseResult:
+def _convert_equation(
+    node: ast.Call, numeric_lexemes: dict[tuple[int, int], str]
+) -> ParseResult:
     if len(node.args) != 2:
         return _failure(
             ParseFailureKind.UNSUPPORTED,
             "Eq requires exactly two arguments",
             node,
         )
-    left = _convert(node.args[0])
+    left = _convert(node.args[0], numeric_lexemes)
     if isinstance(left, ParseFailure):
         return left
-    right = _convert(node.args[1])
+    right = _convert(node.args[1], numeric_lexemes)
     if isinstance(right, ParseFailure):
         return right
     if not isinstance(left, (Symbol, IndexedValue)):

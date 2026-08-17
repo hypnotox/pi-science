@@ -124,10 +124,12 @@ class FormulaLoader:
     def __init__(self) -> None:
         self.nodes = 0
 
-    def parse(self, source: str) -> Expression | Equation | Relationship | AnalysisFailure:
+    def parse(
+        self, source: str, path: str
+    ) -> Expression | Equation | Relationship | AnalysisFailure:
         parsed = parse_expression(source)
         if isinstance(parsed, ParseFailure):
-            return _parse_failure(parsed)
+            return _parse_failure(parsed, path, source)
         formula_nodes = (
             expression_node_count(parsed.left) + expression_node_count(parsed.right) + 1
             if isinstance(parsed, (Equation, Relationship))
@@ -196,16 +198,16 @@ def _parse_knowledge(
     context: WorkContext,
 ) -> Knowledge | AnalysisFailure:
     assumptions: list[NamedRelationship] = []
-    for item in request.assumptions:
-        parsed = loader.parse(item.relationship)
+    for position, item in enumerate(request.assumptions):
+        parsed = loader.parse(item.relationship, f"assumptions[{position}].relationship")
         if isinstance(parsed, AnalysisFailure):
             return parsed
         if not isinstance(parsed, Relationship):
             return _invalid(f"assumption {item.name} must be an equality or inequality")
         assumptions.append(NamedRelationship(item.name, item.relationship, parsed))
     parsed_definitions: list[tuple[str, str, Expression]] = []
-    for item in request.definitions:
-        parsed = loader.parse(item.expression)
+    for position, item in enumerate(request.definitions):
+        parsed = loader.parse(item.expression, f"definitions[{position}].expression")
         if isinstance(parsed, AnalysisFailure):
             return parsed
         if isinstance(parsed, (Equation, Relationship)):
@@ -233,10 +235,13 @@ def _parse_knowledge(
         definitions.append(
             NamedDefinition(name, f"{name} = {source}", expression, domain_result)
         )
-    for scenario in request.scenarios:
+    for scenario_position, scenario in enumerate(request.scenarios):
         scenario_expressions: dict[str, Expression] = {}
-        for definition in scenario.definitions:
-            parsed = loader.parse(definition.expression)
+        for definition_position, definition in enumerate(scenario.definitions):
+            parsed = loader.parse(
+                definition.expression,
+                f"scenarios[{scenario_position}].definitions[{definition_position}].expression",
+            )
             if isinstance(parsed, AnalysisFailure):
                 return parsed
             if isinstance(parsed, (Equation, Relationship)):
@@ -541,8 +546,8 @@ def _parse_definitions(
 ) -> tuple[dict[str, FunctionRule], dict[str, PrimitiveRule]] | AnalysisFailure:
     definitions: dict[str, FunctionRule] = {}
     primitives: dict[str, PrimitiveRule] = {}
-    for definition in request.functions:
-        parsed = loader.parse(definition.body)
+    for position, definition in enumerate(request.functions):
+        parsed = loader.parse(definition.body, f"functions[{position}].body")
         if isinstance(parsed, AnalysisFailure):
             return parsed
         if isinstance(parsed, (Equation, Relationship)):
@@ -566,8 +571,8 @@ def _parse_definitions(
             parsed,
             definition.body,
         )
-    for primitive in request.primitive_costs:
-        parsed = loader.parse(primitive.work)
+    for position, primitive in enumerate(request.primitive_costs):
+        parsed = loader.parse(primitive.work, f"primitive_costs[{position}].work")
         if isinstance(parsed, AnalysisFailure):
             return parsed
         if isinstance(parsed, (Equation, Relationship)):
@@ -628,7 +633,7 @@ def _analyze_single(
     request_unknown_arities: dict[str, int],
     knowledge: Knowledge,
 ) -> AnalysisOutcome:
-    parsed = loader.parse(source)
+    parsed = loader.parse(source, "expression")
     if isinstance(parsed, AnalysisFailure):
         return parsed
     if isinstance(parsed, (Equation, Relationship)):
@@ -699,6 +704,12 @@ def _analyze_single(
         ),
     )
     blockers = tuple(sorted(analysis.direct_work_blockers))
+    if blockers and request.scenarios:
+        return _invalid(
+            "scenarios require finite direct-evaluation work",
+            source=SourceReference(path="scenarios"),
+            supported_alternative="remove scenarios to inspect non-finite mathematical structure",
+        )
     return AnalysisSuccess(
         interpretation=interpretation,
         operation_counts=_counts(tally),
@@ -828,6 +839,12 @@ def _analyze_system(
     for name in order:
         submitted = submitted.combine(count_operations(by_name[name].formula.right))
     blockers = tuple(sorted(combined.direct_work_blockers))
+    if blockers and request.scenarios:
+        return _invalid(
+            "scenarios require finite direct-evaluation work",
+            source=SourceReference(path="scenarios"),
+            supported_alternative="remove scenarios to inspect non-finite mathematical structure",
+        )
     return AnalysisSuccess(
         interpretation=system_interpretation,
         operation_counts=_counts(submitted),
@@ -850,8 +867,8 @@ def _parse_equations(
     loader: FormulaLoader,
 ) -> tuple[ParsedEquation, ...] | AnalysisFailure:
     result: list[ParsedEquation] = []
-    for item in request.equations:
-        parsed = loader.parse(item.expression)
+    for equation_position, item in enumerate(request.equations):
+        parsed = loader.parse(item.expression, f"equations[{equation_position}].expression")
         if isinstance(parsed, AnalysisFailure):
             return parsed
         if not isinstance(parsed, Equation):
@@ -863,10 +880,14 @@ def _parse_equations(
             return _invalid(f"equation {item.name} domains must exactly bind its output indices")
         domains: dict[str, tuple[Expression, Expression]] = {}
         for index, domain in item.domains.items():
-            lower = loader.parse(domain.lower)
+            lower = loader.parse(
+                domain.lower, f"equations[{equation_position}].domains.{index}.lower"
+            )
             if isinstance(lower, AnalysisFailure):
                 return lower
-            upper = loader.parse(domain.upper)
+            upper = loader.parse(
+                domain.upper, f"equations[{equation_position}].domains.{index}.upper"
+            )
             if isinstance(upper, AnalysisFailure):
                 return upper
             if isinstance(lower, (Equation, Relationship)) or isinstance(
@@ -1801,7 +1822,28 @@ def _bound_result(outcome: AnalysisOutcome) -> AnalysisOutcome:
     return outcome
 
 
-def _parse_failure(parsed: ParseFailure) -> AnalysisFailure:
+def _parse_failure(parsed: ParseFailure, path: str, source: str) -> AnalysisFailure:
+    location = (
+        SourceLocation(line=parsed.line, column=parsed.column)
+        if parsed.line is not None
+        and parsed.line >= 1
+        and parsed.column is not None
+        and parsed.column >= 0
+        else None
+    )
+    span = (
+        SourceSpan(
+            start=location,
+            end=SourceLocation(line=location.line, column=location.column + 1),
+        )
+        if location is not None
+        else None
+    )
+    alternative = (
+        "use a canonical decimal such as 1.25 or an explicit division such as 5/4"
+        if "decimal literal" in parsed.message
+        else None
+    )
     return AnalysisFailure(
         error=AnalysisError(
             code={
@@ -1810,8 +1852,9 @@ def _parse_failure(parsed: ParseFailure) -> AnalysisFailure:
                 ParseFailureKind.TOO_COMPLEX: AnalysisErrorCode.EXPRESSION_TOO_COMPLEX,
             }[parsed.kind],
             message=parsed.message,
-            location=(SourceLocation(line=parsed.line, column=parsed.column) if parsed.line is not None and parsed.line >= 1 and parsed.column is not None and parsed.column >= 0 else None),  # noqa: E501
-            source=SourceReference(path="expression", span=(SourceSpan(start=SourceLocation(line=parsed.line, column=parsed.column), end=SourceLocation(line=parsed.line, column=parsed.column + 1)) if parsed.line is not None and parsed.line >= 1 and parsed.column is not None and parsed.column >= 0 else None), excerpt=None),  # noqa: E501
+            location=location,
+            source=SourceReference(path=path, span=span, excerpt=source[:160]),
+            supported_alternative=alternative,
         )
     )
 
@@ -1825,9 +1868,19 @@ def _unsupported(message: str) -> AnalysisFailure:
     )
 
 
-def _invalid(message: str) -> AnalysisFailure:
+def _invalid(
+    message: str,
+    *,
+    source: SourceReference | None = None,
+    supported_alternative: str | None = None,
+) -> AnalysisFailure:
     return AnalysisFailure(
-        error=AnalysisError(code=AnalysisErrorCode.INVALID_SYSTEM, message=message)
+        error=AnalysisError(
+            code=AnalysisErrorCode.INVALID_SYSTEM,
+            message=message,
+            source=source,
+            supported_alternative=supported_alternative,
+        )
     )
 
 

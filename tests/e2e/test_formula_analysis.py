@@ -9,10 +9,13 @@ from py_science.formula import (
     AnalysisOutcome,
     AnalysisRequest,
     AnalysisSuccess,
+    EquationReport,
     FormulaSyntax,
     Interpretation,
     OperationCounts,
     SourceLocation,
+    SymbolicOperationCounts,
+    SystemReport,
     analyze,
 )
 from pydantic import ValidationError
@@ -57,6 +60,39 @@ def test_structured_contract_is_strict_frozen_and_discriminated() -> None:
 
     assert describe_outcome(success) == "x"
     assert describe_outcome(failure) == "unsupported_construct"
+
+
+def test_direct_work_models_reject_contradictory_variants() -> None:
+    interpretation = Interpretation(normalized_sympy="x", normalized_latex="x")
+    counts = OperationCounts()
+    symbolic = SymbolicOperationCounts()
+    with pytest.raises(ValidationError):
+        AnalysisSuccess(
+            interpretation=interpretation,
+            operation_counts=counts,
+            abstract_work=None,
+            direct_work_applicability="finite",
+        )
+    with pytest.raises(ValidationError):
+        EquationReport(
+            name="expression",
+            interpretation=interpretation,
+            operation_counts=counts,
+            aggregate_operation_counts=symbolic,
+            aggregate_work="0",
+            direct_work_applicability="not_finite",
+            direct_work_blockers=("blocked",),
+            primitive_invocations={},
+        )
+    with pytest.raises(ValidationError):
+        SystemReport(
+            equations=(),
+            aggregate_operation_counts=None,
+            total_work=None,
+            direct_work_applicability="not_finite",
+            direct_work_blockers=(),
+            primitive_invocations=None,
+        )
 
 
 def test_analyze_returns_normalized_interpretation() -> None:

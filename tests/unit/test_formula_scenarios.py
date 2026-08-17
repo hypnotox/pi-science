@@ -23,6 +23,22 @@ def declared(
     return VariableDeclaration(domain=domain)
 
 
+def test_scenarios_cannot_report_finite_work_for_an_infinite_iterator() -> None:
+    result = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="Sum(x[i], (i, 0, oo))",
+            scenarios=(Scenario(name="attempt"),),
+        )
+    )
+    assert result.status == "failure"
+    assert result.error.source is not None
+    assert result.error.source.path == "scenarios"
+    assert result.error.supported_alternative == (
+        "remove scenarios to inspect non-finite mathematical structure"
+    )
+
+
 def test_assumption_replaces_factored_normalized_sum_with_provenance() -> None:
     result = analyze(
         AnalysisRequest(

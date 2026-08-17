@@ -312,6 +312,18 @@ class SymbolicOperationCounts(StructuredModel):
 type DirectWorkApplicability = Literal["finite", "not_finite"]
 
 
+def _validate_direct_work_variant(
+    applicability: DirectWorkApplicability,
+    blockers: tuple[str, ...],
+    nullable_values: tuple[object | None, ...],
+) -> None:
+    if applicability == "finite":
+        if blockers or any(value is None for value in nullable_values):
+            raise ValueError("finite direct work requires values and no blockers")
+    elif not blockers or any(value is not None for value in nullable_values):
+        raise ValueError("non-finite direct work requires null values and blockers")
+
+
 class EquationReport(StructuredModel):
     name: str
     interpretation: Interpretation
@@ -325,6 +337,19 @@ class EquationReport(StructuredModel):
     unknown_costs: tuple[str, ...] = ()
     unresolved: tuple[str, ...] = ()
     relationships_used: tuple["RelationshipUse", ...] = ()
+
+    @model_validator(mode="after")
+    def validate_direct_work(self) -> "EquationReport":
+        _validate_direct_work_variant(
+            self.direct_work_applicability,
+            self.direct_work_blockers,
+            (
+                self.aggregate_operation_counts,
+                self.aggregate_work,
+                self.primitive_invocations,
+            ),
+        )
+        return self
 
 
 class RelationshipUse(StructuredModel):
@@ -371,6 +396,15 @@ class SystemReport(StructuredModel):
     relationships_used: tuple[RelationshipUse, ...] = ()
     unused_assumptions: tuple[str, ...] = ()
 
+    @model_validator(mode="after")
+    def validate_direct_work(self) -> "SystemReport":
+        _validate_direct_work_variant(
+            self.direct_work_applicability,
+            self.direct_work_blockers,
+            (self.aggregate_operation_counts, self.total_work, self.primitive_invocations),
+        )
+        return self
+
 
 class AnalysisSuccess(StructuredModel):
     status: Literal["success"] = "success"
@@ -381,6 +415,15 @@ class AnalysisSuccess(StructuredModel):
     direct_work_blockers: tuple[str, ...] = ()
     system: SystemReport | None = None
     scenarios: tuple[ScenarioResult, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_direct_work(self) -> "AnalysisSuccess":
+        _validate_direct_work_variant(
+            self.direct_work_applicability,
+            self.direct_work_blockers,
+            (self.abstract_work,),
+        )
+        return self
 
 
 class AnalysisFailure(StructuredModel):

@@ -331,9 +331,25 @@ function validSymbolicCounts(value: unknown): boolean {
     Object.values(value).every((item) => typeof item === "string")
   );
 }
-function validStringArray(value: unknown): boolean {
+function validStringArray(value: unknown): value is string[] {
   return (
     Array.isArray(value) && value.every((item) => typeof item === "string")
+  );
+}
+function validDirectWorkVariant(
+  applicability: unknown,
+  blockers: unknown,
+  nullableValues: unknown[],
+): boolean {
+  if (!validStringArray(blockers)) return false;
+  if (applicability === "finite")
+    return (
+      blockers.length === 0 && nullableValues.every((item) => item !== null)
+    );
+  return (
+    applicability === "not_finite" &&
+    blockers.length > 0 &&
+    nullableValues.every((item) => item === null)
   );
 }
 function validStringMap(value: unknown): boolean {
@@ -378,9 +394,15 @@ function validEquationReport(value: unknown): boolean {
       validSymbolicCounts(value.aggregate_operation_counts)) &&
     (value.aggregate_work === null ||
       typeof value.aggregate_work === "string") &&
-    (value.direct_work_applicability === "finite" ||
-      value.direct_work_applicability === "not_finite") &&
-    validStringArray(value.direct_work_blockers) &&
+    validDirectWorkVariant(
+      value.direct_work_applicability,
+      value.direct_work_blockers,
+      [
+        value.aggregate_operation_counts,
+        value.aggregate_work,
+        value.primitive_invocations,
+      ],
+    ) &&
     validStringArray(value.dependencies) &&
     (value.primitive_invocations === null ||
       validStringMap(value.primitive_invocations)) &&
@@ -468,9 +490,15 @@ function validSystemReport(value: unknown): boolean {
     (value.aggregate_operation_counts === null ||
       validSymbolicCounts(value.aggregate_operation_counts)) &&
     (value.total_work === null || typeof value.total_work === "string") &&
-    (value.direct_work_applicability === "finite" ||
-      value.direct_work_applicability === "not_finite") &&
-    validStringArray(value.direct_work_blockers) &&
+    validDirectWorkVariant(
+      value.direct_work_applicability,
+      value.direct_work_blockers,
+      [
+        value.aggregate_operation_counts,
+        value.total_work,
+        value.primitive_invocations,
+      ],
+    ) &&
     validEdges &&
     validReuse &&
     (value.primitive_invocations === null ||
@@ -481,6 +509,52 @@ function validSystemReport(value: unknown): boolean {
     validRelationshipUses(value.relationships_used) &&
     validStringArray(value.unused_assumptions)
   );
+}
+function validBoundedDiagnosticText(
+  value: unknown,
+  maximum: number,
+): value is string {
+  return typeof value === "string" && [...value].length <= maximum;
+}
+function validSourceLocation(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    exactKeys(value, ["line", "column"]) &&
+    positiveInteger(value.line) &&
+    nonNegativeInteger(value.column)
+  );
+}
+function validSourceSpan(value: unknown): boolean {
+  if (
+    !isRecord(value) ||
+    !exactKeys(value, ["start", "end"]) ||
+    !validSourceLocation(value.start) ||
+    !validSourceLocation(value.end)
+  )
+    return false;
+  const start = value.start as { line: number; column: number };
+  const end = value.end as { line: number; column: number };
+  return (
+    end.line > start.line ||
+    (end.line === start.line && end.column >= start.column)
+  );
+}
+function sameLocation(left: unknown, right: unknown): boolean {
+  return (
+    validSourceLocation(left) &&
+    validSourceLocation(right) &&
+    (left as { line: number }).line === (right as { line: number }).line &&
+    (left as { column: number }).column === (right as { column: number }).column
+  );
+}
+function validDiagnosticLocationRelation(
+  location: unknown,
+  source: unknown,
+): boolean {
+  if (source === null) return true;
+  if (!isRecord(source)) return false;
+  if (source.span === null) return true;
+  return isRecord(source.span) && sameLocation(location, source.span.start);
 }
 function validResult(value: unknown): value is BridgeResult {
   if (!isRecord(value) || typeof value.status !== "string") return false;
@@ -501,9 +575,11 @@ function validResult(value: unknown): value is BridgeResult {
       validOperationCounts(value.operation_counts) &&
       (value.abstract_work === null ||
         nonNegativeInteger(value.abstract_work)) &&
-      (value.direct_work_applicability === "finite" ||
-        value.direct_work_applicability === "not_finite") &&
-      validStringArray(value.direct_work_blockers) &&
+      validDirectWorkVariant(
+        value.direct_work_applicability,
+        value.direct_work_blockers,
+        [value.abstract_work],
+      ) &&
       (!("system" in value) || validSystemReport(value.system)) &&
       Array.isArray(value.scenarios) &&
       value.scenarios.every(validScenarioResult)
@@ -530,29 +606,18 @@ function validResult(value: unknown): value is BridgeResult {
         "invalid_system",
       ].includes(String(error.code)) &&
       typeof error.message === "string" &&
-      (error.location === null ||
-        (isRecord(error.location) &&
-          exactKeys(error.location, ["line", "column"]) &&
-          positiveInteger(error.location.line) &&
-          nonNegativeInteger(error.location.column))) &&
+      (error.location === null || validSourceLocation(error.location)) &&
       (error.source === null ||
         (isRecord(error.source) &&
           exactKeys(error.source, ["path", "span", "excerpt"]) &&
-          typeof error.source.path === "string" &&
-          (error.source.span === null ||
-            (isRecord(error.source.span) &&
-              exactKeys(error.source.span, ["start", "end"]) &&
-              [error.source.span.start, error.source.span.end].every(
-                (location) =>
-                  isRecord(location) &&
-                  exactKeys(location, ["line", "column"]) &&
-                  positiveInteger(location.line) &&
-                  nonNegativeInteger(location.column),
-              ))) &&
+          validBoundedDiagnosticText(error.source.path, 160) &&
+          error.source.path.length > 0 &&
+          (error.source.span === null || validSourceSpan(error.source.span)) &&
           (error.source.excerpt === null ||
-            typeof error.source.excerpt === "string"))) &&
+            validBoundedDiagnosticText(error.source.excerpt, 160)))) &&
+      validDiagnosticLocationRelation(error.location, error.source) &&
       (error.supported_alternative === null ||
-        typeof error.supported_alternative === "string")
+        validBoundedDiagnosticText(error.supported_alternative, 160))
     );
   }
   return false;

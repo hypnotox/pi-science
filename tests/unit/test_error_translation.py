@@ -7,6 +7,7 @@ from py_science.formula import (
     AnalysisErrorCode,
     AnalysisFailure,
     AnalysisRequest,
+    Assumption,
     FormulaSyntax,
 )
 from py_science.formula.expressions import Expression, Symbol
@@ -60,4 +61,19 @@ def test_parse_errors_include_exact_optional_diagnostic_shape() -> None:
     dumped = outcome.error.model_dump(mode="json")
     assert set(dumped) == {"code", "message", "location", "source", "supported_alternative"}
     assert dumped["source"]["path"] == "expression"
+    assert dumped["source"]["excerpt"] == "x +"
     assert dumped["location"] == dumped["source"]["span"]["start"]
+
+
+def test_parse_errors_identify_the_nested_request_source() -> None:
+    outcome = service.analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="x",
+            assumptions=(Assumption(name="broken", relationship="x +"),),
+        )
+    )
+    assert isinstance(outcome, AnalysisFailure)
+    assert outcome.error.source is not None
+    assert outcome.error.source.path == "assumptions[0].relationship"
+    assert outcome.error.source.excerpt == "x +"

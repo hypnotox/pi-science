@@ -299,7 +299,74 @@ describe("private formula bridge", () => {
         source: { ...failure.error.source, span: { start: 1, end: 2 } },
       },
     };
-    for (const value of [missing, surplus, malformed])
+    const mismatchedLocation = {
+      ...failure,
+      error: { ...failure.error, location: { line: 1, column: 1 } },
+    };
+    const reversedSpan = {
+      ...failure,
+      error: {
+        ...failure.error,
+        source: {
+          ...failure.error.source,
+          span: {
+            start: { line: 2, column: 0 },
+            end: { line: 1, column: 0 },
+          },
+        },
+        location: { line: 2, column: 0 },
+      },
+    };
+    const oversizedDiagnostic = {
+      ...failure,
+      error: {
+        ...failure.error,
+        source: { ...failure.error.source, excerpt: "x".repeat(161) },
+      },
+    };
+    for (const value of [
+      missing,
+      surplus,
+      malformed,
+      mismatchedLocation,
+      reversedSpan,
+      oversizedDiagnostic,
+    ])
+      await kind(invokeAdapter(node, responder(value), request()), "protocol");
+  });
+
+  it("strictly correlates finite and non-finite direct-work variants", async () => {
+    const invalid = [
+      { ...success, abstract_work: null },
+      {
+        ...success,
+        direct_work_applicability: "not_finite",
+        direct_work_blockers: ["blocked"],
+      },
+      {
+        ...richSuccess,
+        system: {
+          ...richSuccess.system,
+          equations: [
+            {
+              ...richSuccess.system.equations[0],
+              direct_work_applicability: "not_finite",
+              direct_work_blockers: ["blocked"],
+            },
+          ],
+        },
+      },
+      {
+        ...richSuccess,
+        system: {
+          ...richSuccess.system,
+          total_work: null,
+          aggregate_operation_counts: null,
+          primitive_invocations: null,
+        },
+      },
+    ];
+    for (const value of invalid)
       await kind(invokeAdapter(node, responder(value), request()), "protocol");
   });
 

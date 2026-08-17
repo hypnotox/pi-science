@@ -1,3 +1,4 @@
+import pytest
 from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
 from py_science.formula.exact_values import parse_exact_scalar, render_exact
 from py_science.formula.expressions import InfinityLiteral, RationalLiteral
@@ -16,8 +17,29 @@ def test_exact_scalars_reduce_render_and_bound() -> None:
 
 def test_formula_decimals_and_infinities_are_exact_values() -> None:
     assert parse_expression("1.50") == RationalLiteral(3, 2)
+    assert parse_expression("0.12345678901234567890123456789") == RationalLiteral(
+        12345678901234567890123456789, 10**29
+    )
     assert parse_expression("oo") == InfinityLiteral(1)
     assert parse_expression("-oo") == InfinityLiteral(-1)
+
+
+@pytest.mark.parametrize("source", ("1e3", "1.", ".5", "1e-3"))
+def test_formula_decimal_tokens_reject_noncanonical_spellings(source: str) -> None:
+    assert isinstance(parse_expression(source), ParseFailure)
+
+
+def test_formula_decimal_tokens_enforce_pre_reduction_digit_bounds() -> None:
+    assert isinstance(parse_expression("0." + "0" * 1025), ParseFailure)
+
+
+def test_exact_ir_constructors_enforce_canonical_invariants() -> None:
+    assert RationalLiteral(6, 8) == RationalLiteral(3, 4)
+    assert RationalLiteral(0, 9) == RationalLiteral(0, 1)
+    with pytest.raises(ValueError):
+        RationalLiteral(1, 0)
+    with pytest.raises(ValueError):
+        InfinityLiteral(0)
 
 
 def test_infinite_sum_is_structural_but_has_no_finite_direct_work() -> None:
