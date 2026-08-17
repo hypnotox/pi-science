@@ -34,6 +34,24 @@ def request(**extra):
     return AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x", **extra)
 
 
+def test_bounded_integer_power_identities_normalize_in_query_backend():
+    for expression, comparison, conditions in (
+        ("x**2", "x*x", ()),
+        ("(x+1)**2", "x**2 + 2*x + 1", ()),
+        ("(x**2-1)/(x-1)", "x+1", ("x - 1 != 0",)),
+        ("x**-1", "1/x", ("x != 0",)),
+    ):
+        outcome = analyze(AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression=expression,
+            queries=({"name":"q", "kind":"equivalence", "comparison":comparison},),
+        ))
+        assert outcome.status == "success"
+        answer = outcome.queries[0].answers[0]
+        assert answer.conclusion in {"proved", "proved_under_assumptions"}
+        assert answer.conditions == conditions
+
+
 def test_equivalence_conclusions_and_empty_default():
     empty = analyze(request())
     assert empty.status == "success" and empty.queries == () and empty.abstract_work == 0

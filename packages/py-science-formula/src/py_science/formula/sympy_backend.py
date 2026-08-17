@@ -261,8 +261,8 @@ def bounded_rational_difference(
     ):
         return None
     try:
-        lhs: Any = _to_sympy(left)
-        rhs: Any = _to_sympy(right)
+        lhs: Any = _to_query_sympy(left)
+        rhs: Any = _to_query_sympy(right)
         if sum(1 for _ in sympy.preorder_traversal(lhs)) > max_intermediate_nodes:
             return None
         if sum(1 for _ in sympy.preorder_traversal(rhs)) > max_intermediate_nodes:
@@ -359,6 +359,33 @@ def _render_value(value: SympyExpression) -> NormalizedRendering:
         sympy=str(value),
         latex=cast(str, sympy.latex(value)),
     )
+
+
+def _to_query_sympy(expression: Expression) -> SympyExpression:
+    """Convert a preflighted rational query family with evaluable integer powers."""
+    if isinstance(expression, IntegerLiteral):
+        constructor = cast(Callable[[int], SympyExpression], sympy.Integer)
+        return constructor(expression.value)
+    if isinstance(expression, RationalLiteral):
+        constructor = cast(Callable[[int, int], SympyExpression], sympy.Rational)
+        return constructor(expression.numerator, expression.positive_denominator)
+    if isinstance(expression, Symbol):
+        constructor = cast(Callable[[str], SympyExpression], sympy.Symbol)
+        return constructor(expression.name)
+    if not isinstance(expression, BinaryExpression):
+        raise NormalizationError("query expression is outside the rational family")
+    left = _to_query_sympy(expression.left)
+    right = _to_query_sympy(expression.right)
+    if expression.operator is BinaryOperator.ADD:
+        return left + right
+    if expression.operator is BinaryOperator.SUBTRACT:
+        return left - right
+    if expression.operator is BinaryOperator.MULTIPLY:
+        return left * right
+    if expression.operator is BinaryOperator.DIVIDE:
+        return left / right
+    power = cast(Callable[..., SympyExpression], sympy.Pow)
+    return power(left, right)
 
 
 def _to_sympy(formula: Expression | Equation) -> SympyExpression:
