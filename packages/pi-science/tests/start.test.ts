@@ -157,8 +157,22 @@ describe("readiness gate", () => {
               normalized_sympy: "Eq(D[i, d], -center[box[i], d] + x[i, d])",
             },
           },
-          { name: "multipoles", dependencies: ["displacement"] },
-          { name: "translation", dependencies: ["multipoles"] },
+          {
+            name: "multipoles",
+            dependencies: ["displacement"],
+            interpretation: {
+              normalized_sympy:
+                "Eq(M[b, k], Sum(K(p)*basis(D[i, 0], k), (i, 0, n[b] - 1)))",
+            },
+          },
+          {
+            name: "translation",
+            dependencies: ["multipoles"],
+            interpretation: {
+              normalized_sympy:
+                "Eq(L[b, k], Sum(translate(M[neighbor[b, c], k]) + M[neighbor[b, c], k], (c, 0, C - 1)))",
+            },
+          },
         ],
         dependency_edges: [
           ["displacement", "multipoles"],

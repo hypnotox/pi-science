@@ -191,6 +191,15 @@ describe("eager provisioning", () => {
     });
   });
 
+  it("rejects health output one byte above the diagnostic limit", async () => {
+    const output = health.padEnd(4097, " ");
+    const uv = await executable(
+      `process.stdout.write(${JSON.stringify(output)})`,
+    );
+    const state = await provision(await options(uv));
+    expect(state.ready).toBe(false);
+  });
+
   it("rejects oversized health output", async () => {
     const uv = await executable('process.stdout.write("x".repeat(10000))');
     const state = await provision(await options(uv));

@@ -156,9 +156,9 @@ async function runBounded(
     }, timeoutMs);
     child.stdout!.on("data", (chunk: Buffer) => {
       const remaining = MAX_DIAGNOSTIC_BYTES + 1 - stdout.length;
-      if (chunk.length > remaining) stdoutOverflow = true;
       if (remaining > 0)
         stdout = Buffer.concat([stdout, chunk.subarray(0, remaining)]);
+      if (stdout.length > MAX_DIAGNOSTIC_BYTES) stdoutOverflow = true;
     });
     child.stderr!.on("data", (chunk: Buffer) => {
       stderr = bounded(stderr + chunk.toString());
