@@ -1,5 +1,6 @@
 # ruff: noqa: E501, E701
 # pyright: basic, reportArgumentType=false, reportOptionalMemberAccess=false
+import py_science.formula.query as formula_query
 import py_science.formula.sympy_backend as formula_sympy
 import pytest
 from py_science.formula import (
@@ -9,6 +10,7 @@ from py_science.formula import (
     DirectedDefinition,
     EquationRequest,
     EquationTarget,
+    EquivalenceQuery,
     EquivalenceResult,
     FormulaSyntax,
     FunctionDefinition,
@@ -23,6 +25,8 @@ from py_science.formula import (
 )
 from py_science.formula.expressions import IntegerLiteral
 from py_science.formula.parser import parse_expression
+from py_science.formula.query import QueryTarget
+from py_science.formula.reasoning import ReasoningContext
 from pydantic import ValidationError
 
 
@@ -125,6 +129,18 @@ def test_symbolic_constant_differences_require_valid_assignments():
             assert evidence.substitutions["x"] != "0"
 
 
+def test_negative_integral_powers_preserve_nonzero_obligations():
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="x**-1",
+        queries=({"name":"q", "kind":"equivalence", "comparison":"x**-1"},),
+    ))
+    assert outcome.status == "success"
+    answer = outcome.queries[0].answers[0]
+    assert answer.conclusion == "proved_under_assumptions"
+    assert answer.conditions == ("x != 0",)
+
+
 def test_original_denominators_survive_normalization_and_use_domain_facts():
     conditional = analyze(AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,
@@ -211,6 +227,32 @@ def test_reasoning_expansion_failures_are_contained_as_unresolved():
     assert outcome.status == "success"
     assert outcome.queries[0].answers[0].conclusion == "unresolved"
     assert outcome.queries[0].answers[0].blockers == ("query reasoning exceeds its bound",)
+
+
+def test_query_preflight_rejects_before_denominator_rendering(monkeypatch):
+    expression = parse_expression("1/(x**9)")
+    assert not isinstance(expression, tuple)
+    target = QueryTarget(
+        target={"kind": "expression"},
+        expression=expression,  # pyright: ignore[reportArgumentType]
+        interpretation=Interpretation(normalized_sympy="x**(-9)", normalized_latex="x^{-9}"),
+    )
+    called = False
+
+    def forbidden(_value):
+        nonlocal called
+        called = True
+        raise AssertionError("denominator rendering must remain behind whole-query preflight")
+
+    monkeypatch.setattr(formula_query, "render", forbidden)
+    result = formula_query.evaluate_queries(
+        (EquivalenceQuery(name="q", comparison="0"),),
+        target,
+        ReasoningContext.build({}, (), ()),
+    )
+    assert isinstance(result, tuple)
+    assert result[0].answers[0].conclusion == "unresolved"
+    assert not called
 
 
 def test_cross_coefficient_growth_is_rejected_before_backend_calls(monkeypatch):

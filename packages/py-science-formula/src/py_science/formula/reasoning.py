@@ -22,6 +22,7 @@ from py_science.formula.expressions import (
     Relationship,
     RelationshipOperator,
     Symbol,
+    exact_integer_value,
     expression_children,
     substitute,
 )
@@ -227,6 +228,12 @@ def collect_denominators(expression: Expression) -> tuple[Expression, ...]:
     def visit(value: Expression) -> None:
         if isinstance(value, BinaryExpression) and value.operator is BinaryOperator.DIVIDE:
             found.append(value.right)
+        if (
+            isinstance(value, BinaryExpression)
+            and value.operator is BinaryOperator.POWER
+            and (exact_integer_value(value.right) or 0) < 0
+        ):
+            found.append(value.left)
         for child in expression_children(value):
             visit(child)
     visit(expression)

@@ -489,6 +489,9 @@ describe("private formula bridge", () => {
     ).resolves.toMatchObject({ queries: [unresolved] });
 
     const invalid = [
+      { ...query, name: "not-valid" },
+      { ...query, name: "x".repeat(129) },
+      { ...query, name: "oo" },
       { ...query, target: { kind: "expression", extra: true } },
       { ...query, target: { kind: "equation" } },
       { ...query, target: { kind: "equation", name: "not-valid" } },

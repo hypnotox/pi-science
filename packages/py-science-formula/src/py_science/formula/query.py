@@ -177,6 +177,9 @@ def _equivalence(
     relevant_symbols = symbols | original_symbols
     unsupported = reasoning.relevant_unsupported(relevant_symbols)
     original_denominators = (*collect_denominators(left), *collect_denominators(right))
+    normalized = bounded_rational_difference(left, right)
+    if normalized is None:
+        return _unresolved_with("query rational normalization exceeds its bound", unsupported)
     conditions: list[str] = []
     obligation_uses = []
     for denominator in original_denominators:
@@ -191,9 +194,6 @@ def _equivalence(
         proved, uses = reasoning.prove_nonzero(denominator)
         if proved:
             obligation_uses.extend(uses)
-    normalized = bounded_rational_difference(left, right)
-    if normalized is None:
-        return _unresolved_with("query rational normalization exceeds its bound", unsupported)
     used = reasoning.relevant_uses(relevant_symbols, include_facts=bool(original_denominators))
     used = _unique_uses((*used, *obligation_uses))
     if normalized.numerator == 0:

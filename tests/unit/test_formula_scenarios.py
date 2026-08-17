@@ -1,9 +1,11 @@
 import pytest
 from py_science.formula import (
     AnalysisRequest,
+    AnalysisSuccess,
     Assumption,
     DirectedDefinition,
     EquationRequest,
+    EquivalenceQuery,
     FormulaSyntax,
     FunctionDefinition,
     IndexDomain,
@@ -21,6 +23,31 @@ def declared(
     domain: MathematicalDomain = MathematicalDomain.NONNEGATIVE_INTEGER,
 ) -> VariableDeclaration:
     return VariableDeclaration(domain=domain)
+
+
+def test_general_queries_do_not_fan_out_across_scenarios() -> None:
+    baseline = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="x + 1",
+            variables={"x": declared(MathematicalDomain.POSITIVE_INTEGER)},
+            scenarios=(Scenario(name="fixed", fixed={"x": 2}),),
+        )
+    )
+    queried = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="x + 1",
+            variables={"x": declared(MathematicalDomain.POSITIVE_INTEGER)},
+            scenarios=(Scenario(name="fixed", fixed={"x": 2}),),
+            queries=(EquivalenceQuery(name="same", comparison="1 + x"),),
+        )
+    )
+    assert isinstance(baseline, AnalysisSuccess)
+    assert isinstance(queried, AnalysisSuccess)
+    assert queried.scenarios == baseline.scenarios
+    assert len(queried.queries) == 1
+    assert queried.queries[0].answers[0].conclusion == "proved"
 
 
 def test_scenarios_cannot_report_finite_work_for_an_infinite_iterator() -> None:

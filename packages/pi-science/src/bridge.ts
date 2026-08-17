@@ -786,8 +786,7 @@ function validQueryResult(value: unknown): boolean {
       "summary",
       "answers",
     ]) ||
-    typeof value.name !== "string" ||
-    value.name.length === 0 ||
+    !ordinaryIdentifier(value.name) ||
     ![
       "equivalence",
       "closed_form",
