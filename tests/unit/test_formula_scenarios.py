@@ -106,6 +106,42 @@ def test_directly_empty_integer_assumption_interval_is_rejected() -> None:
     assert "empty integer interval" in result.error.message
 
 
+def test_arithmetic_constant_assumptions_respect_declared_integer_domains() -> None:
+    fractional = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="N",
+            variables={"N": declared(MathematicalDomain.INTEGER)},
+            assumptions=(Assumption(name="fraction", relationship="N == 1 / 2"),),
+        )
+    )
+    negative = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="N",
+            variables={"N": declared(MathematicalDomain.POSITIVE_INTEGER)},
+            assumptions=(Assumption(name="negative", relationship="N == 1 - 2"),),
+        )
+    )
+    empty = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="N",
+            variables={"N": declared(MathematicalDomain.INTEGER)},
+            assumptions=(
+                Assumption(name="lower", relationship="N > 1 + 1"),
+                Assumption(name="upper", relationship="N < 3"),
+            ),
+        )
+    )
+    assert fractional.status == "failure"
+    assert negative.status == "failure"
+    assert empty.status == "failure"
+    assert "empty integer interval" in fractional.error.message
+    assert "declared domain" in negative.error.message
+    assert "empty integer interval" in empty.error.message
+
+
 def test_equality_replacement_is_canonical_and_never_replaces_literals() -> None:
     def outcome(relationship: str):  # type: ignore[no-untyped-def]
         return analyze(
@@ -330,6 +366,68 @@ def test_definitions_validate_declared_domains_globally_and_per_scenario() -> No
     assert "domain preservation is unproved" in " ".join(global_unproved.system.unresolved)
     assert scenario_unproved.status == "success"
     assert "domain preservation is unproved" in " ".join(scenario_unproved.scenarios[0].unresolved)
+
+
+def test_definition_domains_are_validated_after_dependencies_and_scenario_values() -> None:
+    global_dependency = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="p",
+            variables={
+                "p": declared(MathematicalDomain.POSITIVE_INTEGER),
+                "q": declared(MathematicalDomain.INTEGER),
+            },
+            definitions=(
+                DirectedDefinition(variable="p", expression="q"),
+                DirectedDefinition(variable="q", expression="-1"),
+            ),
+        )
+    )
+    scenario_fixed = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="p",
+            variables={
+                "p": declared(MathematicalDomain.POSITIVE_INTEGER),
+                "x": declared(MathematicalDomain.REAL),
+            },
+            scenarios=(
+                Scenario(
+                    name="fixed_dependency",
+                    fixed={"x": -1},
+                    definitions=(DirectedDefinition(variable="p", expression="x"),),
+                ),
+            ),
+        )
+    )
+    scenario_choice = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="p",
+            variables={
+                "p": declared(MathematicalDomain.POSITIVE_INTEGER),
+                "x": declared(MathematicalDomain.INTEGER),
+            },
+            scenarios=(
+                Scenario(
+                    name="choice_dependency",
+                    choices={"x": (-1, 2)},
+                    definitions=(DirectedDefinition(variable="p", expression="x"),),
+                ),
+            ),
+        )
+    )
+    direct_fixed = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="p",
+            variables={"p": declared(MathematicalDomain.POSITIVE_INTEGER)},
+            scenarios=(Scenario(name="invalid_fixed", fixed={"p": -1}),),
+        )
+    )
+    for result in (global_dependency, scenario_fixed, scenario_choice, direct_fixed):
+        assert result.status == "failure"
+        assert "contradicts declared domain" in result.error.message
 
 
 def test_directed_definitions_apply_in_dependency_order_with_provenance() -> None:

@@ -4,6 +4,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from fractions import Fraction
 from itertools import product
+from math import ceil, floor
 
 from py_science.formula.analyzer import OperationTally, count_operations
 from py_science.formula.expressions import (
@@ -38,6 +39,7 @@ from py_science.formula.models import (
     OperationCounts,
     RelationshipUse,
     ReuseReport,
+    Scenario,
     ScenarioResult,
     SourceLocation,
     SystemReport,
@@ -212,11 +214,18 @@ def _parse_knowledge(
     order = _topological(graph)
     if order is None:
         return _invalid("directed definitions contain a cycle")
+    parsed_by_name = {
+        name: (source, expression) for name, source, expression in parsed_definitions
+    }
+    resolved_definitions: dict[str, Expression] = {}
     definitions: list[NamedDefinition] = []
-    for name, source, expression in parsed_definitions:
-        domain_result = _definition_domain_result(name, expression, request, context)
+    for name in order:
+        source, expression = parsed_by_name[name]
+        resolved = substitute(expression, resolved_definitions, max_nodes=MAX_WORK_NODES)
+        domain_result = _definition_domain_result(name, resolved, request, context)
         if isinstance(domain_result, AnalysisFailure):
             return domain_result
+        resolved_definitions[name] = resolved
         definitions.append(
             NamedDefinition(name, f"{name} = {source}", expression, domain_result)
         )
@@ -232,17 +241,11 @@ def _parse_knowledge(
                     f"{definition.variable} must be an expression"
                 )
             scenario_expressions[definition.variable] = parsed
-        scenario_names = set(scenario_expressions)
-        scenario_graph = {
-            name: _symbol_names(expression) & scenario_names
-            for name, expression in scenario_expressions.items()
-        }
-        if _topological(scenario_graph) is None:
-            return _invalid(f"scenario {scenario.name} definitions contain a cycle")
-        for name, expression in scenario_expressions.items():
-            domain_result = _definition_domain_result(name, expression, request, context)
-            if isinstance(domain_result, AnalysisFailure):
-                return _invalid(f"scenario {scenario.name}: {domain_result.error.message}")
+        scenario_qualifications = _scenario_definition_qualifications(
+            scenario, scenario_expressions, request, context
+        )
+        if isinstance(scenario_qualifications, AnalysisFailure):
+            return _invalid(f"scenario {scenario.name}: {scenario_qualifications.error.message}")
     by_name = {item.name: item for item in definitions}
     contradiction = _direct_contradiction(tuple(assumptions), request)
     if contradiction is not None:
@@ -355,6 +358,57 @@ def _definition_domain_result(
     return f"definition for {variable}: declared-domain preservation is unproved"
 
 
+def _scenario_definition_qualifications(
+    scenario: Scenario,
+    expressions: dict[str, Expression],
+    request: AnalysisRequest,
+    context: WorkContext,
+) -> dict[str, str | None] | AnalysisFailure:
+    names = set(expressions)
+    graph = {
+        name: _symbol_names(expression) & names
+        for name, expression in expressions.items()
+    }
+    order = _topological(graph)
+    if order is None:
+        return _invalid("definitions contain a cycle")
+
+    for name, value in scenario.fixed.items():
+        result = _definition_domain_result(name, IntegerLiteral(value), request, context)
+        if isinstance(result, AnalysisFailure):
+            return result
+    for name, values in scenario.choices.items():
+        for value in values:
+            result = _definition_domain_result(name, IntegerLiteral(value), request, context)
+            if isinstance(result, AnalysisFailure):
+                return result
+
+    qualifications: dict[str, str | None] = {name: None for name in expressions}
+    choice_names = sorted(scenario.choices)
+    choice_values = [scenario.choices[name] for name in choice_names]
+    for selected_values in product(*choice_values):
+        replacements: dict[str, Expression] = {
+            name: IntegerLiteral(value) for name, value in scenario.fixed.items()
+        }
+        replacements.update(
+            {
+                name: IntegerLiteral(value)
+                for name, value in zip(choice_names, selected_values, strict=True)
+            }
+        )
+        for name in order:
+            resolved = substitute(
+                expressions[name], replacements, max_nodes=MAX_WORK_NODES
+            )
+            result = _definition_domain_result(name, resolved, request, context)
+            if isinstance(result, AnalysisFailure):
+                return result
+            if result is not None:
+                qualifications[name] = result
+            replacements[name] = resolved
+    return qualifications
+
+
 def _literal_relationship_truth(relation: Relationship) -> bool | None:
     left = _constant_value(relation.left)
     right = _constant_value(relation.right)
@@ -372,7 +426,7 @@ def _literal_relationship_truth(relation: Relationship) -> bool | None:
 def _direct_contradiction(
     assumptions: tuple[NamedRelationship, ...], request: AnalysisRequest
 ) -> str | None:
-    bounds: dict[Expression, dict[str, tuple[int, bool]]] = {}
+    bounds: dict[Expression, dict[str, tuple[Fraction, bool]]] = {}
     reverse = {
         RelationshipOperator.LESS: RelationshipOperator.GREATER,
         RelationshipOperator.LESS_EQUAL: RelationshipOperator.GREATER_EQUAL,
@@ -387,15 +441,17 @@ def _direct_contradiction(
             return f"assumption {item.name} is a false literal relationship"
         if literal_truth is True:
             continue
-        if isinstance(relation.right, IntegerLiteral):
-            expression, value, operator = relation.left, relation.right.value, relation.operator
-        elif isinstance(relation.left, IntegerLiteral):
-            expression, value = relation.right, relation.left.value
+        right_value = _constant_value(relation.right)
+        left_value = _constant_value(relation.left)
+        if right_value is not None:
+            expression, value, operator = relation.left, right_value, relation.operator
+        elif left_value is not None:
+            expression, value = relation.right, left_value
             operator = reverse[relation.operator]
         else:
             continue
         entry = bounds.setdefault(expression, {})
-        candidates: tuple[tuple[str, tuple[int, bool]], ...]
+        candidates: tuple[tuple[str, tuple[Fraction, bool]], ...]
         if operator is RelationshipOperator.EQUAL:
             candidates = (("lower", (value, True)), ("upper", (value, True)))
         elif operator in {RelationshipOperator.GREATER, RelationshipOperator.GREATER_EQUAL}:
@@ -428,15 +484,15 @@ def _direct_contradiction(
                 and lower is not None
                 and upper is not None
             ):
-                least_integer = lower[0] if lower[1] else lower[0] + 1
-                greatest_integer = upper[0] if upper[1] else upper[0] - 1
+                least_integer = ceil(lower[0]) if lower[1] else floor(lower[0]) + 1
+                greatest_integer = floor(upper[0]) if upper[1] else ceil(upper[0]) - 1
                 if least_integer > greatest_integer:
                     return "contradictory assumptions define an empty integer interval"
             if declaration is not None:
                 domain_lower = {
-                    MathematicalDomain.POSITIVE_INTEGER: (1, True),
-                    MathematicalDomain.POSITIVE_REAL: (0, False),
-                    MathematicalDomain.NONNEGATIVE_INTEGER: (0, True),
+                    MathematicalDomain.POSITIVE_INTEGER: (Fraction(1), True),
+                    MathematicalDomain.POSITIVE_REAL: (Fraction(0), False),
+                    MathematicalDomain.NONNEGATIVE_INTEGER: (Fraction(0), True),
                 }.get(declaration.domain)
                 if (
                     domain_lower is not None
@@ -1311,7 +1367,7 @@ def _scenario_results(
             if name not in indexed_values
         }
         relationships: list[RelationshipUse] = []
-        parsed_definitions: dict[str, tuple[str, Expression, str | None]] = {}
+        parsed_definitions: dict[str, tuple[str, Expression]] = {}
         for definition in scenario.definitions:
             if definition.variable in indexed_values:
                 continue
@@ -1319,36 +1375,36 @@ def _scenario_results(
             if isinstance(parsed, (ParseFailure, Equation, Relationship)):
                 unresolved.add(f"scenario definition for {definition.variable} is invalid")
                 continue
-            domain_result = _definition_domain_result(
-                definition.variable,
-                parsed,
-                request,
-                WorkContext(
-                    definitions={},
-                    primitives={},
-                    variable_domains={
-                        name: declaration.domain
-                        for name, declaration in request.variables.items()
-                    },
-                ),
-            )
-            qualification = domain_result if isinstance(domain_result, str) else None
-            parsed_definitions[definition.variable] = (
-                definition.expression,
-                parsed,
-                qualification,
-            )
+            parsed_definitions[definition.variable] = (definition.expression, parsed)
+        definition_context = WorkContext(
+            definitions={},
+            primitives={},
+            variable_domains={
+                name: declaration.domain for name, declaration in request.variables.items()
+            },
+        )
+        qualification_result = _scenario_definition_qualifications(
+            scenario,
+            {name: parsed for name, (_, parsed) in parsed_definitions.items()},
+            request,
+            definition_context,
+        )
+        if isinstance(qualification_result, AnalysisFailure):
+            unresolved.add(qualification_result.error.message)
+            definition_qualifications: dict[str, str | None] = {}
+        else:
+            definition_qualifications = qualification_result
         definition_names = set(parsed_definitions)
         graph = {
             name: _symbol_names(parsed) & definition_names
-            for name, (_, parsed, _) in parsed_definitions.items()
+            for name, (_, parsed) in parsed_definitions.items()
         }
         definition_order = _topological(graph) or ()
         definition_provenance: dict[str, set[str]] = {}
         used_definitions: set[str] = set()
         specialized = substitute_analysis(general, replacements)
         for name in definition_order:
-            _, parsed, _ = parsed_definitions[name]
+            _, parsed = parsed_definitions[name]
             dependencies = _symbol_names(parsed) & set(definition_provenance)
             value = substitute(parsed, replacements, max_nodes=MAX_WORK_NODES)
             replacements[name] = value
@@ -1360,7 +1416,8 @@ def _scenario_results(
                 used_definitions.update(definition_provenance[name])
             specialized = updated
         for name in definition_order:
-            source, _, qualification = parsed_definitions[name]
+            source, _ = parsed_definitions[name]
+            qualification = definition_qualifications.get(name)
             if name not in used_definitions:
                 continue
             relationships.append(
