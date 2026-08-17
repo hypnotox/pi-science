@@ -4,7 +4,7 @@ slug: adopt-explicit-bounded-mathematical-queries
 status: Implementing
 date: 2026-08-17
 ---
-# ADR-adopt-explicit-bounded-mathematical-queries: Adopt explicit bounded mathematical queries
+# ADR-0004: Adopt explicit bounded mathematical queries
 
 ## Context
 

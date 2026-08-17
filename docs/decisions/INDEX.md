@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-- [ADR-adopt-explicit-bounded-mathematical-queries: Adopt explicit bounded mathematical queries](adopt-explicit-bounded-mathematical-queries.md) (Implementing)
+- [ADR-0004: Adopt explicit bounded mathematical queries](0004-adopt-explicit-bounded-mathematical-queries.md) (Implementing)
 
 ## History
 

@@ -20,4 +20,4 @@ Origin: ADR-0003
 
 ### `rule: qualified-query-conclusions`
 Each query result preserves its submitted target and normalized interpretation and returns only `proved`, `proved_under_assumptions`, `disproved`, `unresolved`, or `inapplicable` conclusions with inspectable evidence and qualifications. Derived candidates are informational and never replace submitted operation counts or direct work; no-query reports remain valid with an empty query collection.
-Origin: ADR-adopt-explicit-bounded-mathematical-queries
+Origin: ADR-0004
