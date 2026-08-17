@@ -4,7 +4,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { Type, type Static } from "typebox";
+import { Type, type Static, type TSchema } from "typebox";
 import { invokeAdapter, MAX_FORMULA_BYTES } from "./bridge.js";
 import { provision, type Readiness } from "./provision.js";
 
@@ -97,7 +97,9 @@ const queryProperties = Type.Array(
   ]),
   { minItems: 1, maxItems: 32, uniqueItems: true },
 );
-const queryVariants = (target: Record<string, typeof equationTarget>) =>
+const queryVariants = <const Target extends Record<string, TSchema>>(
+  target: Target,
+) =>
   Type.Union([
     Type.Object(
       {

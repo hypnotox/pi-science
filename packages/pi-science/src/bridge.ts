@@ -55,39 +55,21 @@ export type PropertyCheckRequest =
       kind: "valid_domain" | "singularities" | "monotonicity";
       variable: string;
     };
-export type QueryRequest =
-  | {
-      name: string;
-      kind: "equivalence";
-      target?: EquationTarget;
-      comparison: string;
-    }
-  | { name: string; kind: "closed_form"; target?: EquationTarget }
-  | {
-      name: string;
-      kind: "properties";
-      target?: EquationTarget;
-      checks: PropertyCheckRequest[];
-    }
+type QueryCore =
+  | { name: string; kind: "equivalence"; comparison: string }
+  | { name: string; kind: "closed_form" }
+  | { name: string; kind: "properties"; checks: PropertyCheckRequest[] }
   | {
       name: string;
       kind: "limit";
-      target?: EquationTarget;
       variable: string;
       point: ExactScenarioScalar;
       direction: "left" | "right" | "both";
     }
-  | {
-      name: string;
-      kind: "limit";
-      target?: EquationTarget;
-      variable: string;
-      point: "oo" | "-oo";
-    }
+  | { name: string; kind: "limit"; variable: string; point: "oo" | "-oo" }
   | {
       name: string;
       kind: "asymptotic";
-      target?: EquationTarget;
       variable: string;
       point: ExactScenarioScalar;
       direction: "left" | "right" | "both";
@@ -96,32 +78,35 @@ export type QueryRequest =
   | {
       name: string;
       kind: "asymptotic";
-      target?: EquationTarget;
       variable: string;
       point: "oo" | "-oo";
       order: number;
     };
+export type ExpressionQueryRequest = QueryCore;
+export type SystemQueryRequest = QueryCore & { target: EquationTarget };
+export type QueryRequest = ExpressionQueryRequest | SystemQueryRequest;
 
-type RequestMetadata = {
+type RequestMetadata<Query extends QueryRequest> = {
   variables?: Record<string, VariableDeclaration>;
   functions?: FunctionDefinition[];
   primitive_costs?: PrimitiveCost[];
   assumptions?: Assumption[];
   definitions?: DirectedDefinition[];
   scenarios?: Scenario[];
-  queries?: QueryRequest[];
+  queries?: Query[];
 };
-export type AnalysisRequest =
-  | (RequestMetadata & {
-      syntax: "sympy";
-      expression: string;
-      equations?: never;
-    })
-  | (RequestMetadata & {
-      syntax: "sympy";
-      equations: EquationRequest[];
-      expression?: never;
-    });
+export type ExpressionAnalysisRequest =
+  RequestMetadata<ExpressionQueryRequest> & {
+    syntax: "sympy";
+    expression: string;
+    equations?: never;
+  };
+export type SystemAnalysisRequest = RequestMetadata<SystemQueryRequest> & {
+  syntax: "sympy";
+  equations: EquationRequest[];
+  expression?: never;
+};
+export type AnalysisRequest = ExpressionAnalysisRequest | SystemAnalysisRequest;
 
 export type Interpretation = {
   normalized_sympy: string;
@@ -932,6 +917,22 @@ function validQueryResult(value: unknown): boolean {
   );
 }
 
+function isExpressionRequest(
+  request: AnalysisRequest,
+): request is ExpressionAnalysisRequest {
+  return request.expression !== undefined;
+}
+function samePropertyCheck(
+  result: PropertyCheck | null,
+  request: PropertyCheckRequest,
+): boolean {
+  return (
+    result !== null &&
+    result.kind === request.kind &&
+    (result.kind === "sign" ||
+      (request.kind !== "sign" && result.variable === request.variable))
+  );
+}
 function validQueryCorrelation(
   request: AnalysisRequest,
   results: QueryResult[],
@@ -943,20 +944,21 @@ function validQueryCorrelation(
     if (
       result === undefined ||
       result.name !== query.name ||
-      result.kind !== query.kind ||
-      JSON.stringify(result.target) !==
-        JSON.stringify(
-          "expression" in request ? { kind: "expression" } : query.target,
-        )
+      result.kind !== query.kind
+    )
+      return false;
+    if (isExpressionRequest(request)) {
+      if (result.target.kind !== "expression") return false;
+    } else if (
+      result.target.kind !== "equation" ||
+      result.target.name !== (query as SystemQueryRequest).target.name
     )
       return false;
     return (
       query.kind !== "properties" ||
       (result.answers.length === query.checks.length &&
-        query.checks.every(
-          (check, checkIndex) =>
-            JSON.stringify(result.answers[checkIndex]?.check) ===
-            JSON.stringify(check),
+        query.checks.every((check, checkIndex) =>
+          samePropertyCheck(result.answers[checkIndex]?.check ?? null, check),
         ))
     );
   });

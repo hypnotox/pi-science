@@ -39,6 +39,25 @@ type Tool = {
 };
 type EventHandler = (event: unknown, context: unknown) => Promise<void>;
 
+const expressionQueryWithTarget: FormulaParameters = {
+  expression: "x",
+  queries: [
+    {
+      name: "invalid",
+      kind: "closed_form",
+      // @ts-expect-error Expression-context queries must not select an equation.
+      target: { kind: "equation", name: "stage" },
+    },
+  ],
+};
+void expressionQueryWithTarget;
+// @ts-expect-error System-context queries must select a named equation.
+const systemQueryWithoutTarget: FormulaParameters = {
+  equations: [{ name: "stage", expression: "Eq(y, x)" }],
+  queries: [{ name: "invalid", kind: "closed_form" }],
+};
+void systemQueryWithoutTarget;
+
 function host() {
   const commands = new Map<string, Command>();
   const tools: Tool[] = [];

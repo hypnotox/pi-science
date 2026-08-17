@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AnalysisRequest } from "../src/bridge.js";
 import {
   appendResponseChunk,
   BridgeError,
@@ -727,6 +728,35 @@ describe("private formula bridge", () => {
         requestWithQuery,
       ),
     ).resolves.toMatchObject({ queries: [query] });
+    const systemRequest = {
+      syntax: "sympy" as const,
+      equations: [{ name: "stage", expression: "Eq(y, x)" }],
+      queries: [
+        {
+          name: "domain",
+          kind: "properties" as const,
+          target: { kind: "equation" as const, name: "stage" },
+          checks: [{ kind: "valid_domain" as const, variable: "x" }],
+        },
+      ],
+    };
+    const reorderedSystemQuery = {
+      ...query,
+      target: { name: "stage", kind: "equation" as const },
+      answers: [
+        {
+          ...query.answers[0],
+          check: { variable: "x", kind: "valid_domain" as const },
+        },
+      ],
+    };
+    await expect(
+      invokeAdapter(
+        node,
+        responder({ ...success, queries: [reorderedSystemQuery] }),
+        systemRequest,
+      ),
+    ).resolves.toMatchObject({ queries: [reorderedSystemQuery] });
     for (const response of [
       { ...success, queries: [] },
       { ...success, queries: [{ ...query, name: "other" }] },
@@ -754,6 +784,13 @@ describe("private formula bridge", () => {
         invokeAdapter(node, responder(response), requestWithQuery),
         "protocol",
       );
+    await kind(
+      invokeAdapter(node, responder({ ...success, queries: [query] }), {
+        ...requestWithQuery,
+        expression: undefined,
+      } as unknown as AnalysisRequest),
+      "protocol",
+    );
   });
 
   it("strictly correlates finite and non-finite direct-work variants", async () => {
