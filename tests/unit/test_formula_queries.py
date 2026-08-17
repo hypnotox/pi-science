@@ -69,7 +69,41 @@ def test_assumption_qualification_named_rhs_and_later_consumers():
     assert system.status == "success"
     assert isinstance(system.queries[0].target, EquationTarget)
     assert system.queries[0].target.name == "value"
-    assert system.queries[1].answers[0].blockers == ("query kind is not implemented in this release slice",)
+    assert system.queries[1].answers[0].blockers == ("query family is unsupported",)
+
+
+def test_closed_form_series_rule_matrix_and_afmm_identity():
+    afmm = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY, expression="Sum((k + 1) * q**k, (k, p, oo))",
+        variables={"p": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER), "q": VariableDeclaration(domain=MathematicalDomain.REAL)},
+        assumptions=(Assumption(name="q_nonnegative", relationship="q >= 0"), Assumption(name="q_converges", relationship="q < 1")),
+        queries=({"name": "tail", "kind": "closed_form"},),
+    ))
+    assert afmm.status == "success"
+    answer = afmm.queries[0].answers[0]
+    assert answer.conclusion == "proved_under_assumptions"
+    assert answer.evidence is not None and answer.evidence.kind == "closed_form"
+    assert answer.evidence.verification == "infinite_partial_sum"  # pyright: ignore[reportAttributeAccessIssue]
+    assert {item.name for item in answer.assumptions_used} == {"q_nonnegative", "q_converges"}
+    assert "q**p" in answer.derived_candidates[0].interpretation.normalized_sympy
+
+    finite = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="Sum(k * 2**k, (k, 0, 3))", queries=({"name": "finite", "kind": "closed_form"},)))
+    assert finite.status == "success"
+    assert finite.queries[0].answers[0].evidence is not None
+    assert finite.queries[0].answers[0].evidence.kind == "closed_form"
+    assert finite.queries[0].answers[0].evidence.verification == "finite_antidifference"  # pyright: ignore[reportAttributeAccessIssue]
+    assert finite.queries[0].answers[0].derived_candidates[0].interpretation.normalized_sympy == "34"
+
+    for expression, conclusion, blocker in (("Sum(k * 2**k, (k, 0, oo))", "inapplicable", None), ("Sum(k * q**k, (k, 0, oo))", "unresolved", "series convergence is not proved"), ("Sum(Sum(k * q**k, (k, 0, 1)), (j, 0, 1))", "unresolved", "nested sums are unsupported"), ("Sum(k**2 * q**k, (k, 0, 1))", "unresolved", "query family is unsupported")):
+        outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression, queries=({"name": "series", "kind": "closed_form"},)))
+        assert outcome.status == "success"
+        terminal = outcome.queries[0].answers[0]
+        assert terminal.conclusion == conclusion
+        if blocker is not None: assert terminal.blockers == (blocker,)
+    empty = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="Sum(k * q**k, (k, 2, 1))", queries=({"name": "empty", "kind": "closed_form"},)))
+    assert empty.status == "success"
+    assert empty.queries[0].answers[0].conclusion == "proved_under_assumptions"
+    assert empty.queries[0].answers[0].derived_candidates[0].interpretation.normalized_sympy == "0"
 
 
 def test_query_contract_rejects_invalid_context_and_points():

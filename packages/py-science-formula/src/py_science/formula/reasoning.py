@@ -153,12 +153,67 @@ class ReasoningContext:
         return False, ()
 
     def proves_abs_less_one(self, symbol: str) -> tuple[bool, tuple[RelationshipUse, ...]]:
-        fact = self.facts.get(symbol)
+        return self.proves_abs_less_one_expression(Symbol(symbol))
+
+    def proves_abs_less_one_expression(self, expression: Expression) -> tuple[bool, tuple[RelationshipUse, ...]]:
+        applied = self.apply(expression)
+        if isinstance(applied, (IntegerLiteral, RationalLiteral)):
+            value = Fraction(applied.value) if isinstance(applied, IntegerLiteral) else Fraction(applied.numerator, applied.positive_denominator)
+            return abs(value) < 1, ()
+        if not isinstance(applied, Symbol):
+            return False, ()
+        fact = self.facts.get(applied.name)
         if fact is None or fact.lower is None or fact.upper is None:
             return False, ()
         lower_ok = fact.lower > -1 or (fact.lower == -1 and fact.lower_strict)
         upper_ok = fact.upper < 1 or (fact.upper == 1 and fact.upper_strict)
         return lower_ok and upper_ok, fact.sources
+
+    def proves_abs_at_least_one(self, expression: Expression) -> tuple[bool, tuple[RelationshipUse, ...]]:
+        applied = self.apply(expression)
+        if isinstance(applied, (IntegerLiteral, RationalLiteral)):
+            value = Fraction(applied.value) if isinstance(applied, IntegerLiteral) else Fraction(applied.numerator, applied.positive_denominator)
+            return abs(value) >= 1, ()
+        if not isinstance(applied, Symbol):
+            return False, ()
+        fact = self.facts.get(applied.name)
+        if fact is None:
+            return False, ()
+        return ((fact.lower is not None and fact.lower >= 1) or (fact.upper is not None and fact.upper <= -1), fact.sources)
+
+    def proves_integral(self, expression: Expression) -> bool:
+        applied = self.apply(expression)
+        if isinstance(applied, IntegerLiteral) or (isinstance(applied, RationalLiteral) and applied.positive_denominator == 1):
+            return True
+        if isinstance(applied, Symbol):
+            return bool(self.facts.get(applied.name) and self.facts[applied.name].integer)
+        if isinstance(applied, BinaryExpression) and applied.operator in {BinaryOperator.ADD, BinaryOperator.SUBTRACT, BinaryOperator.MULTIPLY}:
+            return self.proves_integral(applied.left) and self.proves_integral(applied.right)
+        return False
+
+    def proves_ordered(self, lower: Expression, upper: Expression) -> bool:
+        left, right = self.apply(lower), self.apply(upper)
+        if isinstance(left, (IntegerLiteral, RationalLiteral)) and isinstance(right, (IntegerLiteral, RationalLiteral)):
+            lower_value = Fraction(left.value) if isinstance(left, IntegerLiteral) else Fraction(left.numerator, left.positive_denominator)
+            upper_value = Fraction(right.value) if isinstance(right, IntegerLiteral) else Fraction(right.numerator, right.positive_denominator)
+            return lower_value <= upper_value
+        return left == right
+
+    def proves_strictly_ordered(self, lower: Expression, upper: Expression) -> bool:
+        left, right = self.apply(lower), self.apply(upper)
+        if isinstance(left, (IntegerLiteral, RationalLiteral)) and isinstance(right, (IntegerLiteral, RationalLiteral)):
+            lower_value = Fraction(left.value) if isinstance(left, IntegerLiteral) else Fraction(left.numerator, left.positive_denominator)
+            upper_value = Fraction(right.value) if isinstance(right, IntegerLiteral) else Fraction(right.numerator, right.positive_denominator)
+            return lower_value < upper_value
+        return False
+
+    def prove_equal_one(self, expression: Expression) -> tuple[bool, tuple[RelationshipUse, ...]]:
+        applied = self.apply(expression)
+        if isinstance(applied, IntegerLiteral):
+            return applied.value == 1, ()
+        if isinstance(applied, RationalLiteral):
+            return applied.numerator == applied.positive_denominator, ()
+        return False, ()
 
     def sign(self, expression: Expression) -> tuple[int | None, tuple[RelationshipUse, ...]]:
         applied = self.apply(expression)

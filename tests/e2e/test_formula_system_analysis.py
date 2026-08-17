@@ -5,6 +5,7 @@ from py_science.formula import (
     AnalysisRequest,
     AnalysisSuccess,
     Assumption,
+    ClosedFormQuery,
     EquationRequest,
     EquationTarget,
     EquivalenceQuery,
@@ -54,6 +55,17 @@ def test_named_rhs_query_is_local_and_preserves_system_work() -> None:
     assert queried.system.total_work == baseline.system.total_work
     assert queried.system.equations == baseline.system.equations
     assert queried.queries[0].answers[0].conclusion == "proved"
+
+
+def test_named_rhs_closed_form_query_is_local_to_the_selected_equation() -> None:
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(EquationRequest(name="tail", expression="Eq(y, Sum(k * 2**k, (k, 0, 3)))"),),
+        queries=(ClosedFormQuery(name="closed", target=EquationTarget(name="tail")),),
+    ))
+    assert isinstance(outcome, AnalysisSuccess)
+    assert outcome.queries[0].answers[0].conclusion == "proved_under_assumptions"
+    assert outcome.system is not None and outcome.system.equations[0].aggregate_work is not None
 
 
 def test_named_indexed_equations_reuse_producer_and_sum_work() -> None:

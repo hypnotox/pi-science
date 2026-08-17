@@ -52,6 +52,17 @@ def test_general_query_results_do_not_change_submitted_expression_work() -> None
     assert queried.queries[1].answers[0].conclusion == "unresolved"
 
 
+def test_closed_form_query_preserves_submitted_nonfinite_work() -> None:
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="Sum(k * 2**k, (k, 0, 3))",
+        queries=(ClosedFormQuery(name="series"),),
+    ))
+    assert isinstance(outcome, AnalysisSuccess)
+    assert outcome.queries[0].answers[0].conclusion == "proved_under_assumptions"
+    assert outcome.queries[0].answers[0].derived_candidates
+
+
 def test_structured_contract_is_strict_frozen_and_discriminated() -> None:
     with pytest.raises(ValidationError):
         AnalysisRequest.model_validate(

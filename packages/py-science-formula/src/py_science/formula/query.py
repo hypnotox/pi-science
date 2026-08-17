@@ -50,6 +50,7 @@ from py_science.formula.models import (
 )
 from py_science.formula.parser import ParseFailure, parse_expression
 from py_science.formula.reasoning import ReasoningContext, collect_denominators
+from py_science.formula.series import derive_closed_form
 from py_science.formula.sympy_backend import bounded_rational_difference, render
 
 UNIMPLEMENTED = "query kind is not implemented in this release slice"
@@ -96,7 +97,8 @@ def evaluate_queries(
                 answers=tuple(_unresolved(check=item) for item in query.checks),
             )
         elif isinstance(query, ClosedFormQuery):
-            result = ClosedFormResult(name=query.name, target=target.target, normalized_target=target.interpretation, summary=UNIMPLEMENTED, answers=(_unresolved(),))
+            answer = derive_closed_form(target.expression, reasoning)
+            result = ClosedFormResult(name=query.name, target=target.target, normalized_target=target.interpretation, summary="qualified bounded series closed form", answers=(answer,))
         elif isinstance(query, LimitQuery):
             result = LimitResult(name=query.name, target=target.target, normalized_target=target.interpretation, summary=UNIMPLEMENTED, answers=(_unresolved(),))
         else:
