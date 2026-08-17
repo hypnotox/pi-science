@@ -62,6 +62,152 @@ class BoundedRationalDifference:
     symbols: tuple[Any, ...]
 
 
+# Property operations are deliberately centralized here.  The policy layer only
+# receives bounded data from these seams; each transformation validates its input
+# and result (4096 nodes, degree 8, exponent 32, and 1024-bit coefficients).
+def property_value(expression: Expression) -> Any | None:
+    if not rational_ir_preflight(expression):
+        return None
+    try:
+        value: Any = _to_query_sympy(expression)
+        return value if _property_value_is_bounded(value) else None
+    except Exception:
+        return None
+
+
+def property_cancel(value: Any) -> Any | None:
+    return _property_transform(value, sympy.cancel)
+
+
+def property_substitute(value: Any, variable: Any, point: Any) -> Any | None:
+    return _property_transform(value, lambda item: item.subs(variable, point))
+
+
+def property_fraction(value: Any) -> tuple[Any, Any] | None:
+    if not _property_value_is_bounded(value):
+        return None
+    try:
+        numerator, denominator = sympy.fraction(value)
+        if not (_property_value_is_bounded(numerator) and _property_value_is_bounded(denominator)):
+            return None
+        return numerator, denominator
+    except Exception:
+        return None
+
+
+def property_factor_roots(value: Any, variable: Any) -> tuple[tuple[Any, int], ...] | None:
+    """Extract bounded linear-factor roots without exposing Poly/factor to policy."""
+    if not _property_value_is_bounded(value):
+        return None
+    try:
+        result: Any = sympy.factor_list(value, variable)
+        _, factors = result
+        roots: list[tuple[Any, int]] = []
+        for factor, multiplicity in factors:
+            if not _property_value_is_bounded(factor) or variable not in factor.free_symbols:
+                continue
+            poly = sympy.Poly(factor, variable)
+            coefficients = poly.all_coeffs()
+            if poly.degree() != 1 or len(coefficients) != 2:
+                return None
+            root = -coefficients[1] / coefficients[0]
+            if not _property_value_is_bounded(root):
+                return None
+            roots.append((root, int(multiplicity)))
+        return tuple(roots)
+    except Exception:
+        return None
+
+
+def property_derivative(value: Any, variable: Any) -> Any | None:
+    return _property_transform(value, lambda item: sympy.diff(item, variable))  # pyright: ignore[reportUnknownLambdaType]
+
+
+def property_difference(value: Any, variable: Any) -> Any | None:
+    return _property_transform(
+        value,
+        lambda item: sympy.cancel(item.subs(variable, variable + 1) - item),  # pyright: ignore[reportUnknownLambdaType]
+    )
+
+
+def property_local_pole_coefficient(
+    numerator: Any, denominator: Any, variable: Any, point: Any, order: int
+) -> Any | None:
+    if not (_property_value_is_bounded(numerator) and _property_value_is_bounded(denominator)):
+        return None
+    try:
+        cofactor = sympy.cancel(denominator / (variable - point) ** order)
+        coefficient = numerator.subs(variable, point) / cofactor.subs(variable, point)
+        return coefficient if _property_value_is_bounded(coefficient) else None
+    except Exception:
+        return None
+
+
+def property_polynomial_info(
+    numerator: Any, denominator: Any, variable: Any
+) -> tuple[int, int, Any] | None:
+    if not (_property_value_is_bounded(numerator) and _property_value_is_bounded(denominator)):
+        return None
+    try:
+        top, bottom = sympy.Poly(numerator, variable), sympy.Poly(denominator, variable)
+        leading = top.LC() / bottom.LC()
+        if not _property_value_is_bounded(leading):
+            return None
+        return int(top.degree()), int(bottom.degree()), leading
+    except Exception:
+        return None
+
+
+def property_render(value: Any) -> str | None:
+    if not _property_value_is_bounded(value):
+        return None
+    try:
+        rendered = str(value)
+        return rendered if len(rendered) <= 4096 else None
+    except Exception:
+        return None
+
+
+def _property_transform(value: Any, operation: Callable[[Any], Any]) -> Any | None:
+    if not _property_value_is_bounded(value):
+        return None
+    try:
+        result = operation(value)
+        return result if _property_value_is_bounded(result) else None
+    except Exception:
+        return None
+
+
+def _property_value_is_bounded(value: Any) -> bool:
+    try:
+        if sum(1 for _ in sympy.preorder_traversal(value)) > 4096:
+            return False
+        symbols = tuple(sorted(value.free_symbols, key=str))
+        for part in sympy.fraction(value):
+            polynomial = sympy.Poly(part, *symbols) if symbols else None
+            if polynomial is None:
+                if not part.is_Rational:
+                    return False
+                if max(abs(int(part.p)).bit_length(), abs(int(part.q)).bit_length()) > 1024:  # pyright: ignore[reportAttributeAccessIssue]
+                    return False
+                continue
+            if polynomial.total_degree() > 8 or any(
+                abs(exponent) > 32 for monomial in polynomial.monoms() for exponent in monomial
+            ):
+                return False
+            for coefficient in polynomial.coeffs():
+                top, bottom = sympy.fraction(coefficient)
+                if (
+                    not top.is_Integer
+                    or not bottom.is_Integer
+                    or max(abs(int(top)).bit_length(), abs(int(bottom)).bit_length()) > 1024
+                ):
+                    return False
+        return True
+    except Exception:
+        return False
+
+
 def rational_ir_measure(
     expression: Expression,
     *,
@@ -431,6 +577,7 @@ def bounded_series_verify(
                 and _series_value_is_bounded(sympy.cancel(candidate - boundary))
                 and sympy.cancel(candidate - boundary) == 0
             )
+
         # H(t) is independently constructed as a prefix antidifference.  Verify its
         # one-step identity before using its requested boundary difference.
         def prefix_antidifference(endpoint: Any) -> Any:
@@ -486,11 +633,7 @@ def _endpoint_tail_tends_to_zero(tail: Any, endpoint: Any, ratio: Any) -> bool:
             powers: list[Any] = []
             for factor in sympy.Mul.make_args(term):
                 power: Any = factor
-                if (
-                    power.is_Pow
-                    and power.base == ratio
-                    and endpoint in power.exp.free_symbols
-                ):
+                if power.is_Pow and power.base == ratio and endpoint in power.exp.free_symbols:
                     powers.append(power)
             if len(powers) != 1:
                 return False
