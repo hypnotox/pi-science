@@ -106,6 +106,62 @@ def test_closed_form_series_rule_matrix_and_afmm_identity():
     assert empty.queries[0].answers[0].derived_candidates[0].interpretation.normalized_sympy == "0"
 
 
+def test_closed_form_uses_affine_facts_domain_obligations_and_bounded_collection():
+    symbolic = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY, expression="Sum(k*q**k, (k, 0, n))",
+        variables={"n": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER)},
+        assumptions=(Assumption(name="ratio_below_one", relationship="q < 1"),),
+        queries=({"name": "finite", "kind": "closed_form"},),
+    ))
+    assert symbolic.status == "success"
+    answer = symbolic.queries[0].answers[0]
+    assert answer.conclusion == "proved_under_assumptions"
+    assert {use.name for use in answer.assumptions_used} == {"ratio_below_one"}
+    assert "q != 1" in answer.conditions
+
+    collected = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY, expression="Sum(k*q**k + q**k, (k, 0, 2))",
+        assumptions=(Assumption(name="q_above_one", relationship="q > 1"),),
+        queries=({"name": "collected", "kind": "closed_form"},),
+    ))
+    assert collected.status == "success"
+    assert collected.queries[0].answers[0].conclusion == "proved_under_assumptions"
+
+    unresolved = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY, expression="Sum(k*q**k, (k, p, 3))",
+        variables={"p": VariableDeclaration(domain=MathematicalDomain.INTEGER)},
+        assumptions=(Assumption(name="p_before", relationship="p <= 3"), Assumption(name="q_not_one", relationship="q < 1")),
+        queries=({"name": "negative", "kind": "closed_form"},),
+    ))
+    assert unresolved.status == "success"
+    assert unresolved.queries[0].answers[0].blockers == ("series ratio is not proved nonzero for a negative exponent range",)
+    discharged = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY, expression="Sum(k*q**k, (k, p, 3))",
+        variables={"p": VariableDeclaration(domain=MathematicalDomain.INTEGER)},
+        assumptions=(Assumption(name="p_before", relationship="p <= 3"), Assumption(name="q_nonzero", relationship="q > 0"), Assumption(name="q_not_one", relationship="q < 1")),
+        queries=({"name": "negative", "kind": "closed_form"},),
+    ))
+    assert discharged.status == "success"
+    answer = discharged.queries[0].answers[0]
+    assert answer.conclusion == "proved_under_assumptions"
+    assert "q != 0" in answer.conditions
+    assert {use.name for use in answer.assumptions_used} == {"p_before", "q_nonzero", "q_not_one"}
+
+
+def test_closed_form_never_labels_an_unverified_candidate_proved(monkeypatch):
+    monkeypatch.setattr(formula_sympy, "bounded_series_verify", lambda *args, **kwargs: False)
+    monkeypatch.setattr("py_science.formula.series.bounded_series_verify", lambda *args, **kwargs: False)
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY, expression="Sum(k*2**k, (k, 0, 3))",
+        queries=({"name": "finite", "kind": "closed_form"},),
+    ))
+    assert outcome.status == "success"
+    answer = outcome.queries[0].answers[0]
+    assert answer.conclusion == "unresolved"
+    assert answer.evidence is None and answer.derived_candidates == ()
+    assert answer.blockers == ("series antidifference verification failed",)
+
+
 def test_query_contract_rejects_invalid_context_and_points():
     with pytest.raises(ValidationError): request(queries=({"name":"q", "kind":"equivalence", "target":{"kind":"equation", "name":"x"}, "comparison":"x"},))
     with pytest.raises(ValidationError): request(queries=({"name":"q", "kind":"limit", "variable":"x", "point":"0"},))

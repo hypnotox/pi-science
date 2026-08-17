@@ -9,15 +9,19 @@ from py_science.formula import (
     AnalysisOutcome,
     AnalysisRequest,
     AnalysisSuccess,
+    Assumption,
+    ClosedFormEvidence,
     ClosedFormQuery,
     EquationReport,
     EquivalenceQuery,
     FormulaSyntax,
     Interpretation,
+    MathematicalDomain,
     OperationCounts,
     SourceLocation,
     SymbolicOperationCounts,
     SystemReport,
+    VariableDeclaration,
     analyze,
 )
 from pydantic import ValidationError
@@ -61,6 +65,24 @@ def test_closed_form_query_preserves_submitted_nonfinite_work() -> None:
     assert isinstance(outcome, AnalysisSuccess)
     assert outcome.queries[0].answers[0].conclusion == "proved_under_assumptions"
     assert outcome.queries[0].answers[0].derived_candidates
+
+
+def test_closed_form_e2e_uses_global_bounds_without_changing_nonfinite_work() -> None:
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="Sum(k*q**k, (k, 0, n))",
+        variables={"n": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER)},
+        assumptions=(Assumption(name="q_below_one", relationship="q < 1"),),
+        queries=(ClosedFormQuery(name="bounded"),),
+    ))
+    assert isinstance(outcome, AnalysisSuccess)
+    answer = outcome.queries[0].answers[0]
+    assert answer.conclusion == "proved_under_assumptions"
+    assert {use.name for use in answer.assumptions_used} == {"q_below_one"}
+    assert isinstance(answer.evidence, ClosedFormEvidence)
+    assert answer.evidence.verification == "finite_antidifference"
+    # The original finite iterator remains the submitted-work source, not the candidate.
+    assert outcome.abstract_work is not None
 
 
 def test_structured_contract_is_strict_frozen_and_discriminated() -> None:

@@ -118,10 +118,10 @@ def rational_ir_measure(
                 max(
                     left_num_bits + right_den_bits,
                     right_num_bits + left_den_bits,
-                ) + 1,
+                )
+                + 1,
                 left_den_bits + right_den_bits,
-                left_num_terms * right_den_terms
-                + right_num_terms * left_den_terms,
+                left_num_terms * right_den_terms + right_num_terms * left_den_terms,
                 left_den_terms * right_den_terms,
             )
         elif value.operator is BinaryOperator.MULTIPLY:
@@ -190,13 +190,16 @@ def rational_ir_preflight(
     max_exponent: int = 32,
     max_coefficient_bits: int = 1024,
 ) -> bool:
-    return rational_ir_measure(
-        expression,
-        max_nodes=max_nodes,
-        max_degree=max_degree,
-        max_exponent=max_exponent,
-        max_coefficient_bits=max_coefficient_bits,
-    ) is not None
+    return (
+        rational_ir_measure(
+            expression,
+            max_nodes=max_nodes,
+            max_degree=max_degree,
+            max_exponent=max_exponent,
+            max_coefficient_bits=max_coefficient_bits,
+        )
+        is not None
+    )
 
 
 def bounded_rational_difference(
@@ -239,15 +242,15 @@ def bounded_rational_difference(
         right_num_terms,
         right_den_terms,
     ) = right_measure
-    cross_num_bits = max(
-        left_num_bits + right_den_bits,
-        right_num_bits + left_den_bits,
-    ) + 1
-    cross_den_bits = left_den_bits + right_den_bits
-    cross_num_terms = (
-        left_num_terms * right_den_terms
-        + right_num_terms * left_den_terms
+    cross_num_bits = (
+        max(
+            left_num_bits + right_den_bits,
+            right_num_bits + left_den_bits,
+        )
+        + 1
     )
+    cross_den_bits = left_den_bits + right_den_bits
+    cross_num_terms = left_num_terms * right_den_terms + right_num_terms * left_den_terms
     cross_den_terms = left_den_terms * right_den_terms
     if (
         max(
@@ -304,6 +307,163 @@ def bounded_rational_difference(
         return BoundedRationalDifference(lhs, rhs, numerator, denominator, symbols)
     except Exception:
         return None
+
+
+def _series_value_is_bounded(value: Any, *, max_nodes: int = 4096) -> bool:
+    """Check every family-specific series intermediate before it is reused."""
+    try:
+        if sum(1 for _ in sympy.preorder_traversal(value)) > max_nodes:
+            return False
+        symbols = tuple(sorted(value.free_symbols, key=str))
+        numerator, denominator = sympy.fraction(value)
+        for part in (numerator, denominator):
+            try:
+                poly = sympy.Poly(part, *symbols) if symbols else None
+            except Exception:
+                # Bound exponents (for example q**p) are already checked IR atoms,
+                # not polynomial variables to expand through.
+                continue
+            if poly is not None:
+                if poly.total_degree() > 8:
+                    return False
+                for coefficient in poly.coeffs():
+                    top, bottom = sympy.fraction(coefficient)
+                    if (
+                        not top.is_Integer
+                        or not bottom.is_Integer
+                        or max(abs(int(top)).bit_length(), abs(int(bottom)).bit_length()) > 1024
+                    ):
+                        return False
+        return True
+    except Exception:
+        return False
+
+
+def bounded_linear_coefficients(expression: Expression, index: str) -> tuple[str, str] | None:
+    """Collect the already extracted degree-one index polynomial under the seam."""
+    if not rational_ir_preflight(expression, max_degree=1):
+        return None
+    try:
+        value = _to_query_sympy(expression)
+        if not _series_value_is_bounded(value):
+            return None
+        index_symbol = sympy.Symbol(index)
+        polynomial = sympy.Poly(value, index_symbol)
+        if polynomial.degree() > 1 or any(
+            index_symbol in coefficient.free_symbols for coefficient in polynomial.all_coeffs()
+        ):
+            return None
+        coefficients = (
+            str(polynomial.coeff_monomial(index_symbol)),
+            str(polynomial.coeff_monomial(1)),
+        )
+        return coefficients if all(len(item) <= 4096 for item in coefficients) else None
+    except Exception:
+        return None
+
+
+def bounded_series_candidate(
+    a: Expression,
+    b: Expression,
+    r: Expression,
+    lower: Expression,
+    upper: Expression | None,
+    *,
+    ratio_is_one: bool = False,
+) -> Any | None:
+    """Construct one preflighted geometric-linear candidate behind the backend seam."""
+    inputs = (a, b, r, lower) if upper is None else (a, b, r, lower, upper)
+    if not all(rational_ir_preflight(item, max_degree=8) for item in inputs):
+        return None
+    try:
+        av, bv, rv, mv = (_to_query_sympy(item) for item in (a, b, r, lower))
+        if ratio_is_one:
+            if upper is None:
+                return None
+            nv = _to_query_sympy(upper)
+            candidate = av * (nv * (nv + 1) - (mv - 1) * mv) / 2 + bv * (nv - mv + 1)
+        else:
+            rho = sympy.Symbol("_series_ratio")
+            if upper is None:
+                g = rho**mv / (1 - rho)
+            else:
+                nv = _to_query_sympy(upper)
+                g = (rho**mv - rho ** (nv + 1)) / (1 - rho)
+            if not _series_value_is_bounded(g):
+                return None
+            # This differentiation and cancellation are restricted to the constructed G identity.
+            derivative = sympy.diff(g, rho)
+            if not _series_value_is_bounded(derivative):
+                return None
+            unsubstituted: Any = av * rho * derivative + bv * g
+            candidate = sympy.cancel(unsubstituted.subs(rho, rv))
+        return candidate if _series_value_is_bounded(candidate) else None
+    except Exception:
+        return None
+
+
+def bounded_series_verify(
+    a: Expression,
+    b: Expression,
+    r: Expression,
+    lower: Expression,
+    upper: Expression | None,
+    candidate: Any,
+    *,
+    ratio_is_one: bool = False,
+) -> bool:
+    """Independently check the finite boundary or convergent partial-sum identity."""
+    if not _series_value_is_bounded(candidate):
+        return False
+    inputs = (a, b, r, lower) if upper is None else (a, b, r, lower, upper)
+    if not all(rational_ir_preflight(item, max_degree=8) for item in inputs):
+        return False
+    try:
+        av, bv, rv, mv = (_to_query_sympy(item) for item in (a, b, r, lower))
+        rho = sympy.Symbol("_series_ratio")
+        if ratio_is_one:
+            if upper is None:
+                return False
+            nv = _to_query_sympy(upper)
+            boundary = av * (nv * (nv + 1) - (mv - 1) * mv) / 2 + bv * (nv - mv + 1)
+            return (
+                _series_value_is_bounded(boundary)
+                and _series_value_is_bounded(sympy.cancel(candidate - boundary))
+                and sympy.cancel(candidate - boundary) == 0
+            )
+        if upper is not None:
+            nv = _to_query_sympy(upper)
+
+            # H(t) is the independently constructed prefix antidifference at t.
+            def prefix_antidifference(endpoint: Any) -> Any:
+                return av * rho * sympy.diff((1 - rho**endpoint) / (1 - rho), rho) + bv * (
+                    1 - rho**endpoint
+                ) / (1 - rho)
+
+            boundary = sympy.cancel(
+                (prefix_antidifference(nv + 1) - prefix_antidifference(mv)).subs(rho, rv)
+            )
+            difference = sympy.cancel(candidate - boundary)
+            return (
+                _series_value_is_bounded(boundary)
+                and _series_value_is_bounded(difference)
+                and difference == 0
+            )
+        # Compare the candidate with every symbolic finite partial sum; the remaining
+        # r**(N+1) tail is then discharged only by the caller's proved Abs(r) < 1.
+        n = sympy.Symbol("_series_partial_upper")
+        finite = bounded_series_candidate(a, b, r, lower, _from_sympy_integer_symbol(n))
+        if finite is None:
+            return False
+        tail = sympy.cancel(finite - candidate)
+        return _series_value_is_bounded(tail) and n in tail.free_symbols
+    except Exception:
+        return False
+
+
+def _from_sympy_integer_symbol(value: Any) -> Expression:
+    # Internal-only bridge used for the independently checked partial-sum endpoint.
+    return Symbol(str(value))
 
 
 def render(formula: Expression | Equation) -> NormalizedRendering:
