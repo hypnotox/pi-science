@@ -3,12 +3,14 @@ import py_science.formula.work as formula_work
 import pytest
 from py_science.formula import (
     AnalysisRequest,
+    Assumption,
     EquationRequest,
     FormulaSyntax,
     FunctionDefinition,
     IndexDomain,
     MathematicalDomain,
     PrimitiveCost,
+    Scenario,
     VariableDeclaration,
     analyze,
 )
@@ -18,8 +20,7 @@ from pydantic import ValidationError
 
 def variables(*names: str) -> dict[str, VariableDeclaration]:
     return {
-        name: VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER)
-        for name in names
+        name: VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER) for name in names
     }
 
 
@@ -56,12 +57,8 @@ def test_named_indexed_equations_reuse_producer_and_sum_work() -> None:
 
 
 def test_sum_work_handles_empty_one_term_nested_and_symbolic_domains() -> None:
-    empty = analyze(
-        AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="Sum(x[i], (i, 2, 1))")
-    )
-    one = analyze(
-        AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="Sum(x[i], (i, 2, 2))")
-    )
+    empty = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="Sum(x[i], (i, 2, 1))"))
+    one = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="Sum(x[i], (i, 2, 2))"))
     nested = analyze(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
@@ -104,12 +101,8 @@ def test_function_definitions_primitive_work_and_unknown_costs_are_distinct() ->
             syntax=FormulaSyntax.SYMPY,
             expression="defined(x) + primitive(n) + opaque(x)",
             variables=variables("n", "x"),
-            functions=(
-                FunctionDefinition(name="defined", parameters=("z",), body="z * z"),
-            ),
-            primitive_costs=(
-                PrimitiveCost(name="primitive", parameters=("k",), work="2 * k + 1"),
-            ),
+            functions=(FunctionDefinition(name="defined", parameters=("z",), body="z * z"),),
+            primitive_costs=(PrimitiveCost(name="primitive", parameters=("k",), work="2 * k + 1"),),
         )
     )
     assert outcome.status == "success"
@@ -265,11 +258,7 @@ def test_request_wide_generic_arities_and_parameter_scopes_are_validated() -> No
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
             expression="f(x)",
-            functions=(
-                FunctionDefinition(
-                    name="f", parameters=("i",), body="Sum(i, (i, 0, N))"
-                ),
-            ),
+            functions=(FunctionDefinition(name="f", parameters=("i",), body="Sum(i, (i, 0, N))"),),
         )
     )
     nested_shadow = analyze(
@@ -283,9 +272,7 @@ def test_request_wide_generic_arities_and_parameter_scopes_are_validated() -> No
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
             expression="p(x)",
-            primitive_costs=(
-                PrimitiveCost(name="p", parameters=("i",), work="Sum(i, (i, 0, N))"),
-            ),
+            primitive_costs=(PrimitiveCost(name="p", parameters=("i",), work="Sum(i, (i, 0, N))"),),
         )
     )
     assert cross_definition.status == "failure"
@@ -357,9 +344,7 @@ def test_primitive_substitution_and_definition_depth_fail_structurally() -> None
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
             expression=f"p({repeated_argument})",
-            primitive_costs=(
-                PrimitiveCost(name="p", parameters=("z",), work=repeated_parameter),
-            ),
+            primitive_costs=(PrimitiveCost(name="p", parameters=("z",), work=repeated_parameter),),
         )
     )
     definitions = tuple(
@@ -500,3 +485,143 @@ def test_equation_index_names_are_local_and_unnamed_repetition_is_not_removed() 
     assert outcome.system.extraction_opportunities == (
         "equation a: extract repeated `x[i] + 1` (2 occurrences)",
     )
+
+
+def test_afmm_like_request_reports_structural_work_scenarios_and_uncertainty() -> None:
+    # Representative structure for complexity analysis; this is not a physical-validation oracle.
+    request = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(
+            EquationRequest(
+                name="displacement",
+                expression="Eq(D[i, d], x[i, d] - center[leaf[i], d])",
+                domains={
+                    "i": IndexDomain(lower="0", upper="N - 1"),
+                    "d": IndexDomain(lower="0", upper="D_dim - 1"),
+                },
+            ),
+            EquationRequest(
+                name="multipoles",
+                expression="Eq(M[b, a], Sum(q[i] * basis(a, D[i, 0]), (i, 0, n[b] - 1)))",
+                domains={
+                    "b": IndexDomain(lower="0", upper="B_leaf - 1"),
+                    "a": IndexDomain(lower="0", upper="K(p) - 1"),
+                },
+            ),
+            EquationRequest(
+                name="translation",
+                expression=(
+                    "Eq(L[b, a], Sum(Sum(translate(a, k, M[neighbor[b, c], k]) + "
+                    "M[neighbor[b, c], k], (k, 0, K(p) - 1)), "
+                    "(c, 0, interaction_count[b] - 1)))"
+                ),
+                domains={
+                    "b": IndexDomain(lower="0", upper="B_leaf - 1"),
+                    "a": IndexDomain(lower="0", upper="K(p) - 1"),
+                },
+            ),
+        ),
+        variables={
+            name: VariableDeclaration(domain=domain)
+            for name, domain in {
+                "N": MathematicalDomain.POSITIVE_INTEGER,
+                "D_dim": MathematicalDomain.POSITIVE_INTEGER,
+                "B_leaf": MathematicalDomain.POSITIVE_INTEGER,
+                "p": MathematicalDomain.POSITIVE_INTEGER,
+                "x": MathematicalDomain.REAL,
+                "center": MathematicalDomain.REAL,
+                "leaf": MathematicalDomain.NONNEGATIVE_INTEGER,
+                "q": MathematicalDomain.REAL,
+                "n": MathematicalDomain.NONNEGATIVE_INTEGER,
+                "neighbor": MathematicalDomain.NONNEGATIVE_INTEGER,
+                "interaction_count": MathematicalDomain.NONNEGATIVE_INTEGER,
+            }.items()
+        },
+        functions=(FunctionDefinition(name="K", parameters=("z",), body="z**2"),),
+        primitive_costs=(PrimitiveCost(name="basis", parameters=("a", "r"), work="2*a + 1"),),
+        assumptions=(
+            Assumption(
+                name="particle_partition",
+                relationship="Sum(n[b], (b, 0, B_leaf - 1)) == N",
+            ),
+        ),
+        scenarios=(
+            Scenario(
+                name="particles_scale", fixed={"p": 8, "D_dim": 3, "B_leaf": 64}, asymptotic=("N",)
+            ),
+            Scenario(
+                name="order_scales", fixed={"N": 1000, "D_dim": 3, "B_leaf": 64}, asymptotic=("p",)
+            ),
+            Scenario(name="joint_scale", fixed={"D_dim": 3, "B_leaf": 64}, asymptotic=("N", "p")),
+        ),
+    )
+
+    outcome = analyze(request)
+
+    assert outcome.status == "success"
+    assert outcome.system is not None
+    system = outcome.system
+    assert [equation.name for equation in system.equations] == [
+        "displacement",
+        "multipoles",
+        "translation",
+    ]
+    assert system.dependency_edges == (
+        ("displacement", "multipoles"),
+        ("multipoles", "translation"),
+    )
+    assert [(item.producer, item.consumer, item.references) for item in system.reuse] == [
+        ("displacement", "multipoles", 1),
+        ("multipoles", "translation", 2),
+    ]
+    assert [item.interpretation.normalized_sympy for item in system.equations] == [
+        "Eq(D[i, d], -center[leaf[i], d] + x[i, d])",
+        "Eq(M[b, a], Sum(basis(a, D[i, 0])*q[i], (i, 0, n[b] - 1)))",
+        (
+            "Eq(L[b, a], Sum(translate(a, k, M[neighbor[b, c], k]) + "
+            "M[neighbor[b, c], k], (k, 0, K(p) - 1), "
+            "(c, 0, interaction_count[b] - 1)))"
+        ),
+    ]
+    assert [item.interpretation.normalized_latex for item in system.equations] == [
+        r"{D}_{i,d} = - {center}_{{leaf}_{i},d} + {x}_{i,d}",
+        (
+            r"{M}_{b,a} = \sum_{i=0}^{{n}_{b} - 1} "
+            r"\operatorname{basis}{\left(a,{D}_{i,0} \right)} {q}_{i}"
+        ),
+        (
+            r"{L}_{b,a} = \sum_{\substack{0 \leq k \leq K{\left(p \right)} - 1\\"
+            r"0 \leq c \leq {interaction_{count}}_{b} - 1}} "
+            r"\left(\operatorname{translate}{\left(a,k,{M}_{{neighbor}_{b,c},k} "
+            r"\right)} + {M}_{{neighbor}_{b,c},k}\right)"
+        ),
+    ]
+    assert system.equations[0].aggregate_work == "D_dim*N"
+    assert system.equations[1].aggregate_work == (
+        "N*Sum(2*a + 1, (a, 0, -1 + p**2)) + N*p**2 + "
+        "Sum(Max(0, n[b] - 1), (b, 0, B_leaf - 1))*p**2"
+    )
+    assert system.total_work.startswith("D_dim*N + N*Sum(2*a + 1")
+    assert system.primitive_invocations["basis"] == "N*p**2"
+    assert [item.name for item in system.relationships_used] == [
+        "function:K",
+        "particle_partition",
+    ]
+    assert system.unused_assumptions == ()
+    assert "C_translate" in system.unknown_costs
+    assert "unknown cost for translate" in system.unresolved
+    assert system.equations[1].primitive_invocations["basis"] == "N*p**2"
+    assert "C_translate" in system.equations[2].aggregate_work
+    assert len(outcome.scenarios) == 3
+    scenarios = {item.name: item for item in outcome.scenarios}
+    assert scenarios["particles_scale"].substitutions["p"] == "8"
+    assert "67*N" in scenarios["particles_scale"].substituted_work
+    assert scenarios["order_scales"].substitutions["N"] == "1000"
+    assert "1000*p**2" in scenarios["order_scales"].substituted_work
+    assert [item.name for item in scenarios["particles_scale"].relationships_used] == [
+        "function:K",
+        "particle_partition",
+    ]
+    assert scenarios["joint_scale"].asymptotic is None
+    assert "multivariate" in " ".join(scenarios["joint_scale"].unresolved)
+    assert system.total_work == outcome.system.total_work

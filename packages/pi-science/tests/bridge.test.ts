@@ -88,6 +88,7 @@ const success = {
     powers: 0,
   },
   abstract_work: 0,
+  scenarios: [],
 };
 const richSuccess = {
   ...success,
@@ -119,6 +120,7 @@ const richSuccess = {
         primitive_invocations: {},
         unknown_costs: [],
         unresolved: [],
+        relationships_used: [],
       },
     ],
     aggregate_operation_counts: {
@@ -135,6 +137,8 @@ const richSuccess = {
     unknown_costs: [],
     unresolved: [],
     extraction_opportunities: [],
+    relationships_used: [],
+    unused_assumptions: [],
   },
 };
 const responder = (result: unknown = success) =>
@@ -269,6 +273,28 @@ describe("private formula bridge", () => {
       "unknown array",
       (value: typeof richSuccess) => {
         setSystemField(value, "unknown_costs", [false]);
+      },
+    ],
+    [
+      "relationship provenance",
+      (value: typeof richSuccess) => {
+        setSystemField(value, "relationships_used", [
+          { name: "missing-source" },
+        ]);
+      },
+    ],
+    [
+      "unused assumptions",
+      (value: typeof richSuccess) => {
+        setSystemField(value, "unused_assumptions", [1]);
+      },
+    ],
+    [
+      "expression-only scenarios",
+      (value: typeof richSuccess) => {
+        (value as Record<string, unknown>).scenarios = [
+          { name: "not-transported" },
+        ];
       },
     ],
   ])("fails closed for malformed rich response %s", async (_name, mutate) => {

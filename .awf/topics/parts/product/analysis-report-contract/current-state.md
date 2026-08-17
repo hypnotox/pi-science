@@ -5,3 +5,7 @@ The report contract governs inspectability, qualification, and unresolved analys
 ### `rule: qualified-inspectable-results`
 Every analysis reports the normalized interpretation actually analyzed and distinguishes exact results, assumption-dependent results, conservative bounds, conditional rewrites, and unresolved quantities. It never silently fixes a scaling variable, invents an unknown cost, or presents sampling as a mathematical bound.
 Origin: ADR-0001
+
+### `rule: provenance-preserving-system-work`
+Direct Python system reports preserve exact general symbolic work and identify every supported equality or directed definition used in a deterministic specialization. Bounded explicit scenarios report their substitutions, provenance, qualifications, and unresolved blockers; unsupported inference, ordering, multivariate dominance, monotonicity, and opaque costs remain explicit rather than becoming stronger claims. These reports analyze submitted mathematical structure and complexity, not physical correctness, implementation timing, or global optimality.
+Origin: ADR-adopt-compositional-indexed-equation-analysis

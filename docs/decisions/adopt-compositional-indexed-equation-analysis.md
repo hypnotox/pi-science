@@ -53,3 +53,4 @@ The public Python request and result contracts must gain whole-request complexit
 - 2026-08-17: Accepted; content-sha256: c27fd4c9189214c66c33fbced64540742a408e1df12bad9a3cd6a1b822e17d74
 - 2026-08-17: Implementing; content-sha256: c27fd4c9189214c66c33fbced64540742a408e1df12bad9a3cd6a1b822e17d74
 - 2026-08-17: Applied; operations: add `product/mathematical-input-contract:compositional-indexed-equation-requests`, add `product/mathematical-analysis-model:ideal-equation-dependency-work`
+- 2026-08-17: Applied; operations: add `product/analysis-report-contract:provenance-preserving-system-work`

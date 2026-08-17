@@ -11,6 +11,13 @@ MAX_EQUATIONS = 128
 MAX_FUNCTIONS = 128
 MAX_VARIABLES = 256
 MAX_PRIMITIVE_COSTS = 128
+MAX_ASSUMPTIONS = 128
+MAX_DEFINITIONS = 128
+MAX_SCENARIOS = 64
+MAX_TREATMENTS_PER_SCENARIO = 64
+MAX_CHOICES_PER_VARIABLE = 32
+MAX_GENERATED_SCENARIO_RESULTS = 256
+MAX_SCENARIO_INTEGER_BITS = 3_402
 MAX_DOMAINS_PER_EQUATION = 32
 MAX_PARAMETERS = 32
 _NAME_PATTERN = r"^[A-Za-z][A-Za-z0-9_]*$"
@@ -55,6 +62,82 @@ class IndexDomain(StructuredModel):
 
 class VariableDeclaration(StructuredModel):
     domain: MathematicalDomain
+
+
+class Assumption(StructuredModel):
+    name: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
+    relationship: str
+
+
+class DirectedDefinition(StructuredModel):
+    variable: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
+    expression: str
+
+
+class IntervalBound(StructuredModel):
+    lower: int
+    upper: int
+
+    @model_validator(mode="after")
+    def validate_order(self) -> "IntervalBound":
+        if self.lower > self.upper:
+            raise ValueError("interval lower bound must not exceed its upper bound")
+        if max(self.lower.bit_length(), self.upper.bit_length()) > MAX_SCENARIO_INTEGER_BITS:
+            raise ValueError("interval integer exceeds its size bound")
+        return self
+
+
+class Scenario(StructuredModel):
+    name: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
+    fixed: dict[str, int] = Field(default_factory=dict)
+    choices: dict[str, tuple[int, ...]] = Field(default_factory=dict)
+    definitions: tuple[DirectedDefinition, ...] = Field(default=(), max_length=MAX_DEFINITIONS)
+    asymptotic: tuple[str, ...] = ()
+    bounds: dict[str, IntervalBound] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_treatments(self) -> "Scenario":
+        populations = (
+            len(self.fixed)
+            + len(self.choices)
+            + len(self.definitions)
+            + len(self.asymptotic)
+            + len(self.bounds)
+        )
+        if populations > MAX_TREATMENTS_PER_SCENARIO:
+            raise ValueError("scenario treatment collection exceeds its bound")
+        names = [
+            *self.fixed,
+            *self.choices,
+            *(item.variable for item in self.definitions),
+            *self.asymptotic,
+            *self.bounds,
+        ]
+        if any(
+            len(name) > MAX_NAME_LENGTH or re.fullmatch(_NAME_PATTERN, name) is None
+            for name in names
+        ):
+            raise ValueError("scenario variable names must be ordinary identifiers")
+        if len(names) != len(set(names)):
+            raise ValueError("a scenario variable may have only one treatment")
+        if any(
+            not values or len(values) > MAX_CHOICES_PER_VARIABLE for values in self.choices.values()
+        ):
+            raise ValueError("finite choices must be nonempty and within their bound")
+        if any(len(values) != len(set(values)) for values in self.choices.values()):
+            raise ValueError("finite choices must be unique")
+        integers = [
+            *self.fixed.values(),
+            *(value for values in self.choices.values() for value in values),
+        ]
+        if any(value.bit_length() > MAX_SCENARIO_INTEGER_BITS for value in integers):
+            raise ValueError("scenario integer exceeds its size bound")
+        generated = 1
+        for values in self.choices.values():
+            generated *= len(values)
+            if generated > MAX_GENERATED_SCENARIO_RESULTS:
+                raise ValueError("scenario generated-result population exceeds its bound")
+        return self
 
 
 class EquationRequest(StructuredModel):
@@ -113,6 +196,9 @@ class AnalysisRequest(StructuredModel):
     variables: dict[str, VariableDeclaration] = Field(default_factory=dict)
     functions: tuple[FunctionDefinition, ...] = Field(default=(), max_length=MAX_FUNCTIONS)
     primitive_costs: tuple[PrimitiveCost, ...] = Field(default=(), max_length=MAX_PRIMITIVE_COSTS)
+    assumptions: tuple[Assumption, ...] = Field(default=(), max_length=MAX_ASSUMPTIONS)
+    definitions: tuple[DirectedDefinition, ...] = Field(default=(), max_length=MAX_DEFINITIONS)
+    scenarios: tuple[Scenario, ...] = Field(default=(), max_length=MAX_SCENARIOS)
 
     @model_validator(mode="after")
     def validate_request(self) -> "AnalysisRequest":
@@ -132,8 +218,26 @@ class AnalysisRequest(StructuredModel):
         cost_names = {cost.name for cost in self.primitive_costs}
         if definition_names & cost_names:
             raise ValueError("a function cannot have both a definition and primitive work")
-        if {"Eq", "Sum", "Max"} & (definition_names | cost_names):
-            raise ValueError("Eq, Sum, and Max are reserved mathematical constructs")
+        callable_names = definition_names | cost_names
+        if {"Eq", "Sum", "Max", "cardinality"} & callable_names or any(
+            name.startswith("C_") for name in callable_names
+        ):
+            raise ValueError(
+                "Eq, Sum, Max, cardinality, and C_ names are reserved mathematical constructs"
+            )
+        _require_unique((item.name for item in self.assumptions), "assumption names")
+        _require_unique(
+            (item.variable for item in self.definitions), "directed definition variables"
+        )
+        _require_unique((item.name for item in self.scenarios), "scenario names")
+        generated_results = 0
+        for scenario in self.scenarios:
+            population = 1
+            for values in scenario.choices.values():
+                population *= len(values)
+            generated_results += population
+        if generated_results > MAX_GENERATED_SCENARIO_RESULTS:
+            raise ValueError("request generated scenario-result population exceeds its bound")
         return self
 
 
@@ -185,6 +289,30 @@ class EquationReport(StructuredModel):
     primitive_invocations: dict[str, str] = Field(default_factory=dict)
     unknown_costs: tuple[str, ...] = ()
     unresolved: tuple[str, ...] = ()
+    relationships_used: tuple["RelationshipUse", ...] = ()
+
+
+class RelationshipUse(StructuredModel):
+    name: str
+    relationship: str
+
+
+class IntervalResult(StructuredModel):
+    lower_work: str
+    upper_work: str
+    conservative: bool = True
+
+
+class ScenarioResult(StructuredModel):
+    name: str
+    substituted_work: str
+    choice_work: dict[str, str] = Field(default_factory=dict)
+    asymptotic: str | None = None
+    interval: IntervalResult | None = None
+    substitutions: dict[str, str] = Field(default_factory=dict)
+    relationships_used: tuple[RelationshipUse, ...] = ()
+    qualifications: tuple[str, ...] = ()
+    unresolved: tuple[str, ...] = ()
 
 
 class ReuseReport(StructuredModel):
@@ -203,6 +331,8 @@ class SystemReport(StructuredModel):
     unknown_costs: tuple[str, ...] = ()
     unresolved: tuple[str, ...] = ()
     extraction_opportunities: tuple[str, ...] = ()
+    relationships_used: tuple[RelationshipUse, ...] = ()
+    unused_assumptions: tuple[str, ...] = ()
 
 
 class AnalysisSuccess(StructuredModel):
@@ -211,6 +341,7 @@ class AnalysisSuccess(StructuredModel):
     operation_counts: OperationCounts
     abstract_work: int = Field(ge=0)
     system: SystemReport | None = None
+    scenarios: tuple[ScenarioResult, ...] = ()
 
 
 class AnalysisFailure(StructuredModel):

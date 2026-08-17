@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from itertools import product
 
 from py_science.formula.analyzer import OperationTally, count_operations
 from py_science.formula.expressions import (
@@ -11,6 +12,9 @@ from py_science.formula.expressions import (
     Expression,
     ExpressionTooComplex,
     IndexedValue,
+    IntegerLiteral,
+    Relationship,
+    RelationshipOperator,
     Sum,
     Symbol,
     expression_children,
@@ -27,8 +31,12 @@ from py_science.formula.models import (
     EquationReport,
     EquationRequest,
     Interpretation,
+    IntervalResult,
+    MathematicalDomain,
     OperationCounts,
+    RelationshipUse,
     ReuseReport,
+    ScenarioResult,
     SourceLocation,
     SystemReport,
 )
@@ -36,6 +44,8 @@ from py_science.formula.parser import ParseFailure, ParseFailureKind, parse_expr
 from py_science.formula.sympy_backend import (
     NormalizationError,
     NormalizedRendering,
+    is_nondecreasing_polynomial,
+    polynomial_degree,
     render,
     render_system,
 )
@@ -46,12 +56,17 @@ from py_science.formula.work import (
     WorkAnalysis,
     WorkContext,
     WorkRenderBudget,
+    aggregate_analysis,
     analyze_work,
-    cardinality,
+    expand_function_values,
     is_integer_expression,
+    map_analysis,
     render_invocations,
     render_operations,
     render_work,
+    replace_exact,
+    simplify_constants,
+    substitute_analysis,
 )
 
 MAX_REQUEST_BYTES = 262_144
@@ -74,17 +89,37 @@ class Producer:
     arity: int
 
 
+@dataclass(frozen=True, slots=True)
+class NamedRelationship:
+    name: str
+    source: str
+    value: Relationship
+
+
+@dataclass(frozen=True, slots=True)
+class NamedDefinition:
+    name: str
+    source: str
+    expression: Expression
+
+
+@dataclass(frozen=True, slots=True)
+class Knowledge:
+    assumptions: tuple[NamedRelationship, ...] = ()
+    definitions: tuple[NamedDefinition, ...] = ()
+
+
 class FormulaLoader:
     def __init__(self) -> None:
         self.nodes = 0
 
-    def parse(self, source: str) -> Expression | Equation | AnalysisFailure:
+    def parse(self, source: str) -> Expression | Equation | Relationship | AnalysisFailure:
         parsed = parse_expression(source)
         if isinstance(parsed, ParseFailure):
             return _parse_failure(parsed)
         formula_nodes = (
             expression_node_count(parsed.left) + expression_node_count(parsed.right) + 1
-            if isinstance(parsed, Equation)
+            if isinstance(parsed, (Equation, Relationship))
             else expression_node_count(parsed)
         )
         self.nodes += formula_nodes
@@ -112,6 +147,9 @@ def analyze(request: AnalysisRequest) -> AnalysisOutcome:
     request_failure = _request_size_failure(request)
     if request_failure is not None:
         return request_failure
+    scenario_failure = _scenario_domain_failure(request)
+    if scenario_failure is not None:
+        return scenario_failure
     loader = FormulaLoader()
     definitions_or_failure = _parse_definitions(request, loader)
     if isinstance(definitions_or_failure, AnalysisFailure):
@@ -125,16 +163,140 @@ def analyze(request: AnalysisRequest) -> AnalysisOutcome:
             name: declaration.domain for name, declaration in request.variables.items()
         },
     )
+    knowledge_or_failure = _parse_knowledge(request, loader)
+    if isinstance(knowledge_or_failure, AnalysisFailure):
+        return knowledge_or_failure
+    knowledge = knowledge_or_failure
     try:
         if request.expression is not None:
             outcome = _analyze_single(
-                request, request.expression, loader, context, request_unknown_arities
+                request, request.expression, loader, context, request_unknown_arities, knowledge
             )
         else:
-            outcome = _analyze_system(request, loader, context, request_unknown_arities)
+            outcome = _analyze_system(request, loader, context, request_unknown_arities, knowledge)
     except ExpressionTooComplex as error:
         return _complexity_failure(str(error))
     return _bound_result(outcome)
+
+
+def _parse_knowledge(
+    request: AnalysisRequest, loader: FormulaLoader
+) -> Knowledge | AnalysisFailure:
+    assumptions: list[NamedRelationship] = []
+    for item in request.assumptions:
+        parsed = loader.parse(item.relationship)
+        if isinstance(parsed, AnalysisFailure):
+            return parsed
+        if not isinstance(parsed, Relationship):
+            return _invalid(f"assumption {item.name} must be an equality or inequality")
+        assumptions.append(NamedRelationship(item.name, item.relationship, parsed))
+    definitions: list[NamedDefinition] = []
+    for item in request.definitions:
+        parsed = loader.parse(item.expression)
+        if isinstance(parsed, AnalysisFailure):
+            return parsed
+        if isinstance(parsed, (Equation, Relationship)):
+            return _invalid(f"definition {item.variable} must be an expression")
+        definitions.append(
+            NamedDefinition(item.variable, f"{item.variable} = {item.expression}", parsed)
+        )
+    for scenario in request.scenarios:
+        scenario_expressions: dict[str, Expression] = {}
+        for definition in scenario.definitions:
+            parsed = loader.parse(definition.expression)
+            if isinstance(parsed, AnalysisFailure):
+                return parsed
+            if isinstance(parsed, (Equation, Relationship)):
+                return _invalid(
+                    f"scenario {scenario.name} definition "
+                    f"{definition.variable} must be an expression"
+                )
+            scenario_expressions[definition.variable] = parsed
+        scenario_names = set(scenario_expressions)
+        scenario_graph = {
+            name: _symbol_names(expression) & scenario_names
+            for name, expression in scenario_expressions.items()
+        }
+        if _topological(scenario_graph) is None:
+            return _invalid(f"scenario {scenario.name} definitions contain a cycle")
+    graph = {
+        item.name: _symbol_names(item.expression) & {other.name for other in definitions}
+        for item in definitions
+    }
+    order = _topological(graph)
+    if order is None:
+        return _invalid("directed definitions contain a cycle")
+    by_name = {item.name: item for item in definitions}
+    contradiction = _direct_contradiction(tuple(assumptions), request)
+    if contradiction is not None:
+        return _invalid(contradiction)
+    return Knowledge(tuple(assumptions), tuple(by_name[name] for name in order))
+
+
+def _direct_contradiction(
+    assumptions: tuple[NamedRelationship, ...], request: AnalysisRequest
+) -> str | None:
+    bounds: dict[Expression, dict[str, tuple[int, bool]]] = {}
+    reverse = {
+        RelationshipOperator.LESS: RelationshipOperator.GREATER,
+        RelationshipOperator.LESS_EQUAL: RelationshipOperator.GREATER_EQUAL,
+        RelationshipOperator.GREATER: RelationshipOperator.LESS,
+        RelationshipOperator.GREATER_EQUAL: RelationshipOperator.LESS_EQUAL,
+        RelationshipOperator.EQUAL: RelationshipOperator.EQUAL,
+    }
+    for item in assumptions:
+        relation = item.value
+        if isinstance(relation.right, IntegerLiteral):
+            expression, value, operator = relation.left, relation.right.value, relation.operator
+        elif isinstance(relation.left, IntegerLiteral):
+            expression, value = relation.right, relation.left.value
+            operator = reverse[relation.operator]
+        else:
+            continue
+        entry = bounds.setdefault(expression, {})
+        candidates: tuple[tuple[str, tuple[int, bool]], ...]
+        if operator is RelationshipOperator.EQUAL:
+            candidates = (("lower", (value, True)), ("upper", (value, True)))
+        elif operator in {RelationshipOperator.GREATER, RelationshipOperator.GREATER_EQUAL}:
+            candidates = (("lower", (value, operator is RelationshipOperator.GREATER_EQUAL)),)
+        else:
+            candidates = (("upper", (value, operator is RelationshipOperator.LESS_EQUAL)),)
+        for kind, candidate in candidates:
+            prior = entry.get(kind)
+            if (
+                prior is None
+                or (kind == "lower" and candidate[0] > prior[0])
+                or (kind == "upper" and candidate[0] < prior[0])
+            ):
+                entry[kind] = candidate
+            elif prior[0] == candidate[0]:
+                entry[kind] = (prior[0], prior[1] and candidate[1])
+        lower = entry.get("lower")
+        upper = entry.get("upper")
+        if (
+            lower is not None
+            and upper is not None
+            and (lower[0] > upper[0] or (lower[0] == upper[0] and not (lower[1] and upper[1])))
+        ):
+            return "contradictory assumptions bound the same expression outside an interval"
+        if isinstance(expression, Symbol):
+            declaration = request.variables.get(expression.name)
+            if declaration is not None:
+                domain_lower = {
+                    MathematicalDomain.POSITIVE_INTEGER: (1, True),
+                    MathematicalDomain.POSITIVE_REAL: (0, False),
+                    MathematicalDomain.NONNEGATIVE_INTEGER: (0, True),
+                }.get(declaration.domain)
+                if (
+                    domain_lower is not None
+                    and upper is not None
+                    and (
+                        upper[0] < domain_lower[0]
+                        or (upper[0] == domain_lower[0] and not (upper[1] and domain_lower[1]))
+                    )
+                ):
+                    return f"assumption contradicts declared domain for {expression.name}"
+    return None
 
 
 def _parse_definitions(
@@ -147,8 +309,8 @@ def _parse_definitions(
         parsed = loader.parse(definition.body)
         if isinstance(parsed, AnalysisFailure):
             return parsed
-        if isinstance(parsed, Equation):
-            return _invalid(f"function {definition.name} body cannot contain Eq")
+        if isinstance(parsed, (Equation, Relationship)):
+            return _invalid(f"function {definition.name} body cannot contain a relationship")
         index_error, _ = _validate_index_scopes(
             parsed,
             set(definition.parameters),
@@ -166,13 +328,14 @@ def _parse_definitions(
             definition.name,
             definition.parameters,
             parsed,
+            definition.body,
         )
     for primitive in request.primitive_costs:
         parsed = loader.parse(primitive.work)
         if isinstance(parsed, AnalysisFailure):
             return parsed
-        if isinstance(parsed, Equation):
-            return _invalid(f"primitive cost {primitive.name} cannot contain Eq")
+        if isinstance(parsed, (Equation, Relationship)):
+            return _invalid(f"primitive cost {primitive.name} cannot contain a relationship")
         index_error, _ = _validate_index_scopes(
             parsed,
             set(primitive.parameters),
@@ -227,12 +390,13 @@ def _analyze_single(
     loader: FormulaLoader,
     context: WorkContext,
     request_unknown_arities: dict[str, int],
+    knowledge: Knowledge,
 ) -> AnalysisOutcome:
     parsed = loader.parse(source)
     if isinstance(parsed, AnalysisFailure):
         return parsed
-    if isinstance(parsed, Equation):
-        return _invalid("an ordinary expression request cannot contain Eq")
+    if isinstance(parsed, (Equation, Relationship)):
+        return _unsupported("relationships are supported only in assumption fields")
     call_failure = _check_call_arities(
         parsed,
         {
@@ -256,6 +420,9 @@ def _analyze_single(
         request.functions
         or request.primitive_costs
         or request.variables
+        or request.assumptions
+        or request.definitions
+        or request.scenarios
         or _contains_advanced(parsed)
     )
     if not advanced:
@@ -270,6 +437,7 @@ def _analyze_single(
     _bound_substitution_expansion(parsed, context.definitions)
     analysis = analyze_work(parsed, context)
     analysis.unresolved.update(index_unresolved)
+    analysis, relationships = _apply_knowledge(analysis, knowledge, context.definitions)
     work_render_budget = WorkRenderBudget()
     report = _equation_report(
         "expression",
@@ -278,15 +446,28 @@ def _analyze_single(
         analysis,
         (),
         work_render_budget,
+        relationships,
     )
     system = _system_report(
-        (report,), WorkAnalysis().combine(analysis), (), (), (), work_render_budget
+        (report,),
+        WorkAnalysis().combine(analysis),
+        (),
+        (),
+        (),
+        work_render_budget,
+        relationships,
+        tuple(
+            item.name
+            for item in knowledge.assumptions
+            if item.name not in {used.name for used in relationships}
+        ),
     )
     return AnalysisSuccess(
         interpretation=interpretation,
         operation_counts=_counts(tally),
         abstract_work=tally.total,
         system=system,
+        scenarios=_scenario_results(request, analysis, work_render_budget, relationships),
     )
 
 
@@ -295,6 +476,7 @@ def _analyze_system(
     loader: FormulaLoader,
     context: WorkContext,
     request_unknown_arities: dict[str, int],
+    knowledge: Knowledge,
 ) -> AnalysisOutcome:
     parsed_or_failure = _parse_equations(request, loader)
     if isinstance(parsed_or_failure, AnalysisFailure):
@@ -317,6 +499,7 @@ def _analyze_system(
     work_render_budget = WorkRenderBudget()
     reports: dict[str, EquationReport] = {}
     analyses: dict[str, WorkAnalysis] = {}
+    relationship_uses: dict[str, RelationshipUse] = {}
     all_extractions: list[str] = []
     for name in order:
         equation = by_name[name]
@@ -337,15 +520,20 @@ def _analyze_system(
         analysis = analyze_work(equation.formula.right, scoped_context)
         analysis.unresolved.update(index_unresolved.get(name, ()))
         for index, (lower, upper) in equation.domains.items():
-            count, unresolved = cardinality(
+            analysis, unresolved = aggregate_analysis(
+                analysis,
+                index,
                 lower,
                 upper,
                 scoped_context,
                 f"equation {name} output index {index}",
             )
-            analysis = analysis.scale(count)
             if unresolved is not None:
                 analysis.unresolved.add(unresolved)
+        analysis, used = _apply_knowledge(
+            analysis, knowledge, context.definitions, report_unmatched=False
+        )
+        relationship_uses.update({item.name: item for item in used})
         analyses[name] = analysis
         tally = count_operations(equation.formula.right)
         reports[name] = _equation_report(
@@ -355,12 +543,24 @@ def _analyze_system(
             analysis,
             tuple(sorted(edges[name])),
             work_render_budget,
+            used,
         )
         all_extractions.extend(_extraction_opportunities(name, equation.formula.right, producers))
 
     combined = WorkAnalysis()
     for name in order:
         combined = combined.combine(analyses[name])
+    used_assumption_names = {
+        name for name in relationship_uses if name in {item.name for item in knowledge.assumptions}
+    }
+    for assumption in knowledge.assumptions:
+        if (
+            assumption.name not in used_assumption_names
+            and assumption.value.operator is RelationshipOperator.EQUAL
+        ):
+            combined.unresolved.add(
+                f"assumption {assumption.name}: exact normalized subexpression did not match"
+            )
     reuse = tuple(
         ReuseReport(producer=producer, consumer=consumer, references=count)
         for (consumer, producer), count in sorted(reference_counts.items())
@@ -372,6 +572,7 @@ def _analyze_system(
     system_interpretation = render_budget.accept(system_rendering)
     if isinstance(system_interpretation, AnalysisFailure):
         return system_interpretation
+    used_relationships = tuple(relationship_uses[name] for name in sorted(relationship_uses))
     system = _system_report(
         tuple(reports[name] for name in order),
         combined,
@@ -379,6 +580,8 @@ def _analyze_system(
         reuse,
         tuple(sorted(set(all_extractions))),
         work_render_budget,
+        used_relationships,
+        tuple(item.name for item in knowledge.assumptions if item.name not in relationship_uses),
     )
     submitted = OperationTally()
     for name in order:
@@ -388,6 +591,7 @@ def _analyze_system(
         operation_counts=_counts(submitted),
         abstract_work=submitted.total,
         system=system,
+        scenarios=_scenario_results(request, combined, work_render_budget, used_relationships),
     )
 
 
@@ -415,7 +619,9 @@ def _parse_equations(
             upper = loader.parse(domain.upper)
             if isinstance(upper, AnalysisFailure):
                 return upper
-            if isinstance(lower, Equation) or isinstance(upper, Equation):
+            if isinstance(lower, (Equation, Relationship)) or isinstance(
+                upper, (Equation, Relationship)
+            ):
                 return _invalid(f"equation {item.name} domain bounds cannot contain Eq")
             domains[index] = (lower, upper)
         output_indices = set(domains)
@@ -680,9 +886,7 @@ def _bound_substitution_expansion(
     def consume(value: Expression, depth: int) -> None:
         nonlocal remaining
         if depth > max_depth:
-            raise ExpressionTooComplex(
-                "substitution-expanded work exceeds its depth bound"
-            )
+            raise ExpressionTooComplex("substitution-expanded work exceeds its depth bound")
         if isinstance(value, Call) and (definition := definitions.get(value.name)) is not None:
             expanded = substitute(
                 definition.body,
@@ -693,9 +897,7 @@ def _bound_substitution_expansion(
             return
         remaining -= 1
         if remaining < 0:
-            raise ExpressionTooComplex(
-                "substitution-expanded work exceeds its structural bound"
-            )
+            raise ExpressionTooComplex("substitution-expanded work exceeds its structural bound")
         for child in expression_children(value):
             consume(child, depth + 1)
 
@@ -747,6 +949,22 @@ def _symbol_names(expression: Expression) -> set[str]:
     return result
 
 
+def _value_names(expression: Expression) -> set[str]:
+    result: set[str] = (
+        {expression.name} if isinstance(expression, (Symbol, IndexedValue)) else set()
+    )
+    for child in expression_children(expression):
+        result.update(_value_names(child))
+    return result
+
+
+def _indexed_value_names(expression: Expression) -> set[str]:
+    result: set[str] = {expression.name} if isinstance(expression, IndexedValue) else set()
+    for child in expression_children(expression):
+        result.update(_indexed_value_names(child))
+    return result
+
+
 def _contains_advanced(expression: Expression) -> bool:
     if isinstance(expression, (IndexedValue, Call, Sum)):
         return True
@@ -783,6 +1001,281 @@ def _extraction_opportunities(
     return tuple(sorted(opportunities))
 
 
+def _apply_knowledge(
+    analysis: WorkAnalysis,
+    knowledge: Knowledge,
+    function_definitions: dict[str, FunctionRule],
+    *,
+    report_unmatched: bool = True,
+) -> tuple[WorkAnalysis, tuple[RelationshipUse, ...]]:
+    result = analysis
+    uses: list[RelationshipUse] = []
+    replacements: dict[str, Expression] = {}
+    definition_provenance: dict[str, set[str]] = {}
+    used_definitions: set[str] = set()
+    for definition in knowledge.definitions:
+        dependencies = _symbol_names(definition.expression) & set(replacements)
+        expression = substitute(definition.expression, replacements, max_nodes=MAX_WORK_NODES)
+        replacements[definition.name] = expression
+        definition_provenance[definition.name] = {definition.name}.union(
+            *(definition_provenance[name] for name in dependencies)
+        )
+        updated = substitute_analysis(result, {definition.name: expression})
+        if updated != result:
+            used_definitions.update(definition_provenance[definition.name])
+        result = updated
+    for definition in knowledge.definitions:
+        if definition.name in used_definitions:
+            uses.append(
+                RelationshipUse(
+                    name=f"definition:{definition.name}", relationship=definition.source
+                )
+            )
+    for assumption in knowledge.assumptions:
+        relation = assumption.value
+        if relation.operator is not RelationshipOperator.EQUAL:
+            result.unresolved.add(
+                f"assumption {assumption.name}: inequality inference is unsupported"
+            )
+            continue
+        changed = False
+        if expression_node_count(relation.left) >= expression_node_count(relation.right):
+            target, replacement = relation.left, relation.right
+        else:
+            target, replacement = relation.right, relation.left
+
+        def transform(
+            value: Expression,
+            target: Expression = target,
+            replacement: Expression = replacement,
+        ) -> Expression:
+            nonlocal changed
+            updated, local = replace_exact(value, target, replacement)
+            changed = changed or local
+            return updated
+
+        result = map_analysis(result, transform)
+        if changed:
+            uses.append(RelationshipUse(name=assumption.name, relationship=assumption.source))
+        elif report_unmatched:
+            result.unresolved.add(
+                f"assumption {assumption.name}: exact normalized subexpression did not match"
+            )
+    used_functions: set[str] = set()
+
+    def expand(value: Expression) -> Expression:
+        pending = [call.name for call in _calls(value)]
+        while pending:
+            name = pending.pop()
+            if name in used_functions or name not in function_definitions:
+                continue
+            used_functions.add(name)
+            pending.extend(call.name for call in _calls(function_definitions[name].body))
+        return expand_function_values(value, function_definitions)
+
+    result = map_analysis(result, expand)
+    for name, definition in function_definitions.items():
+        if name in used_functions:
+            parameters = ", ".join(definition.parameters)
+            uses.append(
+                RelationshipUse(
+                    name=f"function:{name}",
+                    relationship=f"{name}({parameters}) = {definition.source}",
+                )
+            )
+    return result, tuple(uses)
+
+
+def _scenario_results(
+    request: AnalysisRequest,
+    general: WorkAnalysis,
+    budget: WorkRenderBudget,
+    general_relationships: tuple[RelationshipUse, ...],
+) -> tuple[ScenarioResult, ...]:
+    results: list[ScenarioResult] = []
+    declared = set(request.variables)
+    indexed_values = _indexed_value_names(general.total_work)
+    for scenario in request.scenarios:
+        treated = (
+            set(scenario.fixed)
+            | set(scenario.choices)
+            | {item.variable for item in scenario.definitions}
+            | set(scenario.asymptotic)
+            | set(scenario.bounds)
+        )
+        unresolved: set[str] = set(general.unresolved)
+        qualifications = ["exact general symbolic work preserved"]
+        indexed_treatments = (
+            set(scenario.fixed)
+            | set(scenario.choices)
+            | {item.variable for item in scenario.definitions}
+        ) & indexed_values
+        if indexed_treatments:
+            unresolved.add(
+                "scalar substitution is unsupported for indexed variables: "
+                + ", ".join(sorted(indexed_treatments))
+            )
+        unknown_treatments = treated - declared
+        if unknown_treatments:
+            unresolved.add(
+                "scenario treats undeclared variables: " + ", ".join(sorted(unknown_treatments))
+            )
+        replacements: dict[str, Expression] = {
+            name: IntegerLiteral(value)
+            for name, value in scenario.fixed.items()
+            if name not in indexed_values
+        }
+        relationships: list[RelationshipUse] = []
+        parsed_definitions: dict[str, tuple[str, Expression]] = {}
+        for definition in scenario.definitions:
+            if definition.variable in indexed_values:
+                continue
+            parsed = parse_expression(definition.expression)
+            if isinstance(parsed, (ParseFailure, Equation, Relationship)):
+                unresolved.add(f"scenario definition for {definition.variable} is invalid")
+                continue
+            parsed_definitions[definition.variable] = (definition.expression, parsed)
+        definition_names = set(parsed_definitions)
+        graph = {
+            name: _symbol_names(parsed) & definition_names
+            for name, (_, parsed) in parsed_definitions.items()
+        }
+        for name in _topological(graph) or ():
+            source, parsed = parsed_definitions[name]
+            value = substitute(parsed, replacements, max_nodes=MAX_WORK_NODES)
+            replacements[name] = value
+            relationships.append(
+                RelationshipUse(
+                    name=f"derived:{name}",
+                    relationship=f"{name} = {source}",
+                )
+            )
+        specialized = map_analysis(substitute_analysis(general, replacements), simplify_constants)
+        expression = specialized.total_work
+        relevant = _value_names(expression) & declared
+        substituted_work = render_work(expression, budget)
+        choice_work: dict[str, str] = {}
+        if scenario.fixed and not (set(scenario.fixed) & indexed_values):
+            qualifications.append("fixed values substituted exactly")
+        choice_names = sorted(scenario.choices)
+        choice_values = [scenario.choices[name] for name in choice_names]
+        for values in product(*choice_values):
+            selected = dict(zip(choice_names, values, strict=True))
+            value = simplify_constants(
+                substitute(
+                    expression,
+                    {name: IntegerLiteral(item) for name, item in selected.items()},
+                    max_nodes=MAX_WORK_NODES,
+                )
+            )
+            key = ",".join(f"{name}={selected[name]}" for name in choice_names)
+            choice_work[key] = render_work(value, budget)
+        if scenario.choices and not (set(scenario.choices) & indexed_values):
+            qualifications.append("finite choices substituted exactly")
+        asymptotic: str | None = None
+        if len(scenario.asymptotic) > 1:
+            unresolved.add("multivariate asymptotic dominance is unsupported")
+        elif scenario.asymptotic:
+            variable = scenario.asymptotic[0]
+            declaration = request.variables.get(variable)
+            untreated = relevant - treated
+            if variable in indexed_values:
+                unresolved.add(
+                    f"asymptotic treatment for indexed variable {variable} is unsupported"
+                )
+            elif untreated:
+                unresolved.add(
+                    "untreated symbols block asymptotic classification: "
+                    + ", ".join(sorted(untreated))
+                )
+            elif declaration is None or declaration.domain not in {
+                MathematicalDomain.NONNEGATIVE_INTEGER,
+                MathematicalDomain.POSITIVE_INTEGER,
+                MathematicalDomain.POSITIVE_REAL,
+            }:
+                unresolved.add(f"asymptotic variable {variable} lacks a nonnegative domain")
+            else:
+                degree = polynomial_degree(expression, variable)
+                if degree is None or not is_nondecreasing_polynomial(expression, variable):
+                    unresolved.add(f"asymptotic classification for {variable} is unsupported")
+                else:
+                    asymptotic = (
+                        "Theta(1)"
+                        if degree == 0
+                        else f"Theta({variable}{'**' + str(degree) if degree != 1 else ''})"
+                    )
+                    relationships.append(
+                        RelationshipUse(
+                            name=f"domain:{variable}",
+                            relationship=f"{variable} in {declaration.domain.value}",
+                        )
+                    )
+                    qualifications.append(
+                        "univariate polynomial asymptotic classification uses the declared domain"
+                    )
+        interval: IntervalResult | None = None
+        if scenario.bounds:
+            if len(scenario.bounds) != 1:
+                unresolved.add("multivariate interval reasoning is unsupported")
+            else:
+                variable, bound = next(iter(scenario.bounds.items()))
+                untreated = relevant - treated
+                if variable in indexed_values:
+                    unresolved.add(
+                        f"interval treatment for indexed variable {variable} is unsupported"
+                    )
+                elif untreated:
+                    unresolved.add(
+                        "untreated symbols block interval reasoning: "
+                        + ", ".join(sorted(untreated))
+                    )
+                elif bound.lower < 0 or not is_nondecreasing_polynomial(expression, variable):
+                    unresolved.add(f"monotonic interval relationship for {variable} is unproved")
+                else:
+                    lower = simplify_constants(
+                        substitute(
+                            expression,
+                            {variable: IntegerLiteral(bound.lower)},
+                            max_nodes=MAX_WORK_NODES,
+                        )
+                    )
+                    upper = simplify_constants(
+                        substitute(
+                            expression,
+                            {variable: IntegerLiteral(bound.upper)},
+                            max_nodes=MAX_WORK_NODES,
+                        )
+                    )
+                    interval = IntervalResult(
+                        lower_work=render_work(lower, budget), upper_work=render_work(upper, budget)
+                    )
+                    relationships.append(
+                        RelationshipUse(
+                            name=f"bound:{variable}",
+                            relationship=f"{bound.lower} <= {variable} <= {bound.upper}",
+                        )
+                    )
+                    qualifications.append(
+                        "interval endpoints use a proven nondecreasing univariate polynomial"
+                    )
+        results.append(
+            ScenarioResult(
+                name=scenario.name,
+                substituted_work=substituted_work,
+                choice_work=choice_work,
+                asymptotic=asymptotic,
+                interval=interval,
+                substitutions={
+                    name: render_work(value, budget) for name, value in sorted(replacements.items())
+                },
+                relationships_used=(*general_relationships, *relationships),
+                qualifications=tuple(qualifications),
+                unresolved=tuple(sorted(unresolved)),
+            )
+        )
+    return tuple(results)
+
+
 def _equation_report(
     name: str,
     interpretation: Interpretation,
@@ -790,6 +1283,7 @@ def _equation_report(
     analysis: WorkAnalysis,
     dependencies: tuple[str, ...],
     work_render_budget: WorkRenderBudget,
+    relationships_used: tuple[RelationshipUse, ...] = (),
 ) -> EquationReport:
     return EquationReport(
         name=name,
@@ -801,6 +1295,7 @@ def _equation_report(
         primitive_invocations=render_invocations(analysis.invocations, work_render_budget),
         unknown_costs=tuple(sorted(analysis.unknown_costs)),
         unresolved=tuple(sorted(analysis.unresolved)),
+        relationships_used=relationships_used,
     )
 
 
@@ -811,6 +1306,8 @@ def _system_report(
     reuse: tuple[ReuseReport, ...],
     extraction_opportunities: tuple[str, ...],
     work_render_budget: WorkRenderBudget,
+    relationships_used: tuple[RelationshipUse, ...] = (),
+    unused_assumptions: tuple[str, ...] = (),
 ) -> SystemReport:
     return SystemReport(
         equations=equations,
@@ -822,6 +1319,8 @@ def _system_report(
         unknown_costs=tuple(sorted(analysis.unknown_costs)),
         unresolved=tuple(sorted(analysis.unresolved)),
         extraction_opportunities=extraction_opportunities,
+        relationships_used=relationships_used,
+        unused_assumptions=unused_assumptions,
     )
 
 
@@ -840,6 +1339,44 @@ def _topological(edges: dict[str, set[str]]) -> list[str] | None:
     return result
 
 
+def _scenario_domain_failure(request: AnalysisRequest) -> AnalysisFailure | None:
+    def valid(value: int, domain: MathematicalDomain) -> bool:
+        if domain in {MathematicalDomain.POSITIVE_INTEGER, MathematicalDomain.POSITIVE_REAL}:
+            return value > 0
+        if domain is MathematicalDomain.NONNEGATIVE_INTEGER:
+            return value >= 0
+        return True
+
+    for scenario in request.scenarios:
+        treatment_names = (
+            set(scenario.fixed)
+            | set(scenario.choices)
+            | {item.variable for item in scenario.definitions}
+            | set(scenario.asymptotic)
+            | set(scenario.bounds)
+        )
+        missing = treatment_names - set(request.variables)
+        if missing:
+            return _invalid(
+                f"scenario {scenario.name} treats undeclared variables: "
+                + ", ".join(sorted(missing))
+            )
+        values_by_name = {
+            **{name: (value,) for name, value in scenario.fixed.items()},
+            **scenario.choices,
+            **{name: (bound.lower, bound.upper) for name, bound in scenario.bounds.items()},
+        }
+        for name, values in values_by_name.items():
+            declaration = request.variables.get(name)
+            if declaration is not None and any(
+                not valid(value, declaration.domain) for value in values
+            ):
+                return _invalid(
+                    f"scenario {scenario.name} treatment contradicts declared domain for {name}"
+                )
+    return None
+
+
 def _request_size_failure(request: AnalysisRequest) -> AnalysisFailure | None:
     try:
         sources: list[str] = []
@@ -855,6 +1392,22 @@ def _request_size_failure(request: AnalysisRequest) -> AnalysisFailure | None:
             sources.extend((definition.name, *definition.parameters, definition.body))
         for primitive in request.primitive_costs:
             sources.extend((primitive.name, *primitive.parameters, primitive.work))
+        for assumption in request.assumptions:
+            sources.extend((assumption.name, assumption.relationship))
+        for definition in request.definitions:
+            sources.extend((definition.variable, definition.expression))
+        for scenario in request.scenarios:
+            sources.append(scenario.name)
+            for name, value in scenario.fixed.items():
+                sources.extend((name, str(value)))
+            for name, values in scenario.choices.items():
+                sources.append(name)
+                sources.extend(str(value) for value in values)
+            for definition in scenario.definitions:
+                sources.extend((definition.variable, definition.expression))
+            sources.extend(scenario.asymptotic)
+            for name, bound in scenario.bounds.items():
+                sources.extend((name, str(bound.lower), str(bound.upper)))
         source_bytes = sum(len(source.encode("utf-8")) for source in sources)
     except UnicodeEncodeError:
         return AnalysisFailure(
@@ -894,6 +1447,16 @@ def _parse_failure(parsed: ParseFailure) -> AnalysisFailure:
                 and parsed.column >= 0
                 else None
             ),
+        )
+    )
+
+
+def _unsupported(message: str) -> AnalysisFailure:
+    return AnalysisFailure(
+        error=AnalysisError(
+            code=AnalysisErrorCode.UNSUPPORTED_CONSTRUCT,
+            message=message,
+            location=SourceLocation(line=1, column=0),
         )
     )
 

@@ -4,6 +4,14 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 
+class RelationshipOperator(StrEnum):
+    EQUAL = "equal"
+    LESS = "less"
+    LESS_EQUAL = "less_equal"
+    GREATER = "greater"
+    GREATER_EQUAL = "greater_equal"
+
+
 class BinaryOperator(StrEnum):
     ADD = "add"
     SUBTRACT = "subtract"
@@ -55,8 +63,15 @@ class Equation:
     right: Expression
 
 
+@dataclass(frozen=True, slots=True)
+class Relationship:
+    operator: RelationshipOperator
+    left: Expression
+    right: Expression
+
+
 type Expression = IntegerLiteral | Symbol | IndexedValue | Call | Sum | BinaryExpression
-type Formula = Expression | Equation
+type Formula = Expression | Equation | Relationship
 
 
 def expression_children(expression: Expression) -> tuple[Expression, ...]:

@@ -104,6 +104,18 @@ function validStringMap(value: unknown): boolean {
     Object.values(value).every((item) => typeof item === "string")
   );
 }
+function validRelationshipUses(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (item) =>
+        isRecord(item) &&
+        exactKeys(item, ["name", "relationship"]) &&
+        typeof item.name === "string" &&
+        typeof item.relationship === "string",
+    )
+  );
+}
 function validEquationReport(value: unknown): boolean {
   return (
     isRecord(value) &&
@@ -117,6 +129,7 @@ function validEquationReport(value: unknown): boolean {
       "primitive_invocations",
       "unknown_costs",
       "unresolved",
+      "relationships_used",
     ]) &&
     typeof value.name === "string" &&
     validInterpretation(value.interpretation) &&
@@ -126,7 +139,8 @@ function validEquationReport(value: unknown): boolean {
     validStringArray(value.dependencies) &&
     validStringMap(value.primitive_invocations) &&
     validStringArray(value.unknown_costs) &&
-    validStringArray(value.unresolved)
+    validStringArray(value.unresolved) &&
+    validRelationshipUses(value.relationships_used)
   );
 }
 function validSystemReport(value: unknown): boolean {
@@ -142,6 +156,8 @@ function validSystemReport(value: unknown): boolean {
       "unknown_costs",
       "unresolved",
       "extraction_opportunities",
+      "relationships_used",
+      "unused_assumptions",
     ])
   )
     return false;
@@ -173,7 +189,9 @@ function validSystemReport(value: unknown): boolean {
     validStringMap(value.primitive_invocations) &&
     validStringArray(value.unknown_costs) &&
     validStringArray(value.unresolved) &&
-    validStringArray(value.extraction_opportunities)
+    validStringArray(value.extraction_opportunities) &&
+    validRelationshipUses(value.relationships_used) &&
+    validStringArray(value.unused_assumptions)
   );
 }
 function validResult(value: unknown): value is BridgeResult {
@@ -184,6 +202,7 @@ function validResult(value: unknown): value is BridgeResult {
       "interpretation",
       "operation_counts",
       "abstract_work",
+      "scenarios",
     ];
     if ("system" in value) keys.push("system");
     return (
@@ -191,7 +210,9 @@ function validResult(value: unknown): value is BridgeResult {
       validInterpretation(value.interpretation) &&
       validOperationCounts(value.operation_counts) &&
       nonNegativeInteger(value.abstract_work) &&
-      (!("system" in value) || validSystemReport(value.system))
+      (!("system" in value) || validSystemReport(value.system)) &&
+      Array.isArray(value.scenarios) &&
+      value.scenarios.length === 0
     );
   }
   if (value.status === "failure") {

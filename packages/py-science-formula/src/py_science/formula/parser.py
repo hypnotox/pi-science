@@ -16,6 +16,8 @@ from py_science.formula.expressions import (
     Formula,
     IndexedValue,
     IntegerLiteral,
+    Relationship,
+    RelationshipOperator,
     Sum,
     Symbol,
 )
@@ -176,6 +178,8 @@ def _convert(node: ast.expr) -> ParseResult:
         return _convert_indexed(node)
     if isinstance(node, ast.Call):
         return _convert_call(node)
+    if isinstance(node, ast.Compare):
+        return _convert_relationship(node)
     return _failure(
         ParseFailureKind.UNSUPPORTED,
         f"unsupported construct: {type(node).__name__}",
@@ -193,6 +197,37 @@ def _symbol(node: ast.Name) -> Symbol | ParseFailure:
     return Symbol(node.id)
 
 
+def _convert_relationship(node: ast.Compare) -> ParseResult:
+    if len(node.ops) != 1 or len(node.comparators) != 1:
+        return _failure(
+            ParseFailureKind.UNSUPPORTED, "chained relationships are not supported", node
+        )
+    comparison = node.ops[0]
+    if isinstance(comparison, ast.Eq):
+        operator = RelationshipOperator.EQUAL
+    elif isinstance(comparison, ast.Lt):
+        operator = RelationshipOperator.LESS
+    elif isinstance(comparison, ast.LtE):
+        operator = RelationshipOperator.LESS_EQUAL
+    elif isinstance(comparison, ast.Gt):
+        operator = RelationshipOperator.GREATER
+    elif isinstance(comparison, ast.GtE):
+        operator = RelationshipOperator.GREATER_EQUAL
+    else:
+        operator = None
+    if operator is None:
+        return _failure(ParseFailureKind.UNSUPPORTED, "unsupported relationship operator", node)
+    left = _convert(node.left)
+    right = _convert(node.comparators[0])
+    if isinstance(left, ParseFailure):
+        return left
+    if isinstance(right, ParseFailure):
+        return right
+    if isinstance(left, (Equation, Relationship)) or isinstance(right, (Equation, Relationship)):
+        return _failure(ParseFailureKind.UNSUPPORTED, "relationships cannot be nested", node)
+    return Relationship(operator, left, right)
+
+
 def _convert_binary(node: ast.BinOp) -> ParseResult:
     operator = _binary_operator(node.op)
     if operator is None:
@@ -207,7 +242,7 @@ def _convert_binary(node: ast.BinOp) -> ParseResult:
     right = _convert(node.right)
     if isinstance(right, ParseFailure):
         return right
-    if isinstance(left, Equation) or isinstance(right, Equation):
+    if isinstance(left, (Equation, Relationship)) or isinstance(right, (Equation, Relationship)):
         return _failure(
             ParseFailureKind.UNSUPPORTED,
             "Eq cannot be nested inside an expression",
@@ -240,10 +275,10 @@ def _convert_indexed(node: ast.Subscript) -> ParseResult:
         converted = _convert(value)
         if isinstance(converted, ParseFailure):
             return converted
-        if isinstance(converted, Equation):
+        if isinstance(converted, (Equation, Relationship)):
             return _failure(
                 ParseFailureKind.UNSUPPORTED,
-                "Eq cannot be used as an index",
+                "relationships cannot be used as an index",
                 value,
             )
         indices.append(converted)
@@ -282,10 +317,10 @@ def _convert_call(node: ast.Call) -> ParseResult:
         converted = _convert(argument)
         if isinstance(converted, ParseFailure):
             return converted
-        if isinstance(converted, Equation):
+        if isinstance(converted, (Equation, Relationship)):
             return _failure(
                 ParseFailureKind.UNSUPPORTED,
-                "Eq cannot be used as a function argument",
+                "relationships cannot be used as a function argument",
                 argument,
             )
         arguments.append(converted)
@@ -312,10 +347,10 @@ def _convert_sum(node: ast.Call) -> ParseResult:
         converted = _convert(part)
         if isinstance(converted, ParseFailure):
             return converted
-        if isinstance(converted, Equation):
+        if isinstance(converted, (Equation, Relationship)):
             return _failure(
                 ParseFailureKind.UNSUPPORTED,
-                "Eq cannot be nested inside Sum",
+                "relationships cannot be nested inside Sum",
                 part,
             )
         converted_parts.append(converted)
@@ -342,7 +377,7 @@ def _convert_equation(node: ast.Call) -> ParseResult:
             "equation left side must be a scalar or indexed result",
             node.args[0],
         )
-    if isinstance(right, Equation):
+    if isinstance(right, (Equation, Relationship)):
         return _failure(
             ParseFailureKind.UNSUPPORTED,
             "Eq cannot be nested inside Eq",

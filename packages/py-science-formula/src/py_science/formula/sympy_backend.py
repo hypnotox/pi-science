@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 
 import sympy  # pyright: ignore[reportMissingTypeStubs]
 from py_science.formula.expressions import (
@@ -54,6 +54,39 @@ def render(formula: Expression | Equation) -> NormalizedRendering:
         return _render_value(_to_sympy(formula))
     except Exception as error:
         raise NormalizationError("SymPy normalization failed") from error
+
+
+def polynomial_degree(expression: Expression, variable: str) -> int | None:
+    """Return a safe univariate polynomial degree without parsing submitted text."""
+    try:
+        symbol = cast(Callable[[str], SympyExpression], sympy.Symbol)(variable)
+        value: Any = _to_sympy(expression)
+        free_symbols = {str(item) for item in value.free_symbols}
+        if free_symbols - {variable}:
+            return None
+        polynomial = value.as_poly(symbol)
+        if polynomial is None:
+            return None
+        return int(polynomial.degree())
+    except Exception:
+        return None
+
+
+def is_nondecreasing_polynomial(expression: Expression, variable: str) -> bool:
+    """Prove endpoint ordering for polynomials with nonnegative derivative coefficients."""
+    try:
+        symbol: Any = cast(Callable[[str], SympyExpression], sympy.Symbol)(variable)
+        value: Any = _to_sympy(expression)
+        free_symbols = {str(item) for item in value.free_symbols}
+        if free_symbols - {variable}:
+            return False
+        polynomial: Any = value.as_poly(symbol)
+        if polynomial is None:
+            return False
+        derivative: Any = polynomial.diff()
+        return all(bool(coefficient >= 0) for coefficient in derivative.all_coeffs())
+    except Exception:
+        return False
 
 
 def render_system(equations: tuple[Equation, ...]) -> NormalizedRendering:

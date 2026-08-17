@@ -70,6 +70,7 @@ describe("readiness gate", () => {
         powers: 0,
       },
       abstract_work: 0,
+      scenarios: [],
     };
     await start(
       current.api,

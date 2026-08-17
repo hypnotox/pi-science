@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from py_science.formula.expressions import (
@@ -42,6 +43,7 @@ class FunctionRule:
     name: str
     parameters: tuple[str, ...]
     body: Expression
+    source: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,6 +199,9 @@ def cardinality(
 ) -> tuple[Expression, str | None]:
     if isinstance(lower, IntegerLiteral) and isinstance(upper, IntegerLiteral):
         return IntegerLiteral(max(upper.value - lower.value + 1, 0)), None
+    extent_value = _zero_to_nonnegative_extent(lower, upper, context)
+    if extent_value is not None:
+        return extent_value, None
     if is_integer_expression(lower, context) and is_integer_expression(upper, context):
         extent = _add(_subtract(upper, lower), _ONE)
         return Call("Max", (extent, _ZERO)), None
@@ -204,6 +209,82 @@ def cardinality(
         Call("cardinality", (lower, upper)),
         f"{label} cardinality requires integral bounds",
     )
+
+
+def _zero_to_nonnegative_extent(
+    lower: Expression, upper: Expression, context: WorkContext
+) -> Expression | None:
+    if not _is_zero(lower) or not isinstance(upper, BinaryExpression):
+        return None
+    if upper.operator is not BinaryOperator.SUBTRACT or not _is_one(upper.right):
+        return None
+    extent = upper.left
+    if not is_integer_expression(extent, context) or not is_nonnegative_expression(extent, context):
+        return None
+    return extent
+
+
+def is_nonnegative_expression(expression: Expression, context: WorkContext) -> bool:
+    if isinstance(expression, IntegerLiteral):
+        return expression.value >= 0
+    if isinstance(expression, (Symbol, IndexedValue)):
+        declaration = context.variable_domains.get(expression.name)
+        return declaration in {
+            MathematicalDomain.NONNEGATIVE_INTEGER,
+            MathematicalDomain.POSITIVE_INTEGER,
+            MathematicalDomain.POSITIVE_REAL,
+        }
+    if isinstance(expression, Call):
+        definition = context.definitions.get(expression.name)
+        if definition is None or len(definition.parameters) != len(expression.arguments):
+            return False
+        replacements = dict(zip(definition.parameters, expression.arguments, strict=True))
+        return is_nonnegative_expression(
+            substitute(definition.body, replacements, max_nodes=MAX_WORK_NODES), context
+        )
+    if isinstance(expression, BinaryExpression):
+        if expression.operator in {BinaryOperator.ADD, BinaryOperator.MULTIPLY}:
+            return is_nonnegative_expression(
+                expression.left, context
+            ) and is_nonnegative_expression(expression.right, context)
+        if expression.operator is BinaryOperator.POWER and isinstance(
+            expression.right, IntegerLiteral
+        ):
+            return expression.right.value >= 0 and (
+                expression.right.value % 2 == 0
+                or is_nonnegative_expression(expression.left, context)
+            )
+    return False
+
+
+def is_positive_expression(expression: Expression, context: WorkContext) -> bool:
+    if isinstance(expression, IntegerLiteral):
+        return expression.value > 0
+    if isinstance(expression, (Symbol, IndexedValue)):
+        return context.variable_domains.get(expression.name) in {
+            MathematicalDomain.POSITIVE_INTEGER,
+            MathematicalDomain.POSITIVE_REAL,
+        }
+    if isinstance(expression, Call):
+        definition = context.definitions.get(expression.name)
+        if definition is None or len(definition.parameters) != len(expression.arguments):
+            return False
+        replacements = dict(zip(definition.parameters, expression.arguments, strict=True))
+        return is_positive_expression(
+            substitute(definition.body, replacements, max_nodes=MAX_WORK_NODES), context
+        )
+    if isinstance(expression, BinaryExpression) and expression.operator is BinaryOperator.MULTIPLY:
+        return is_positive_expression(expression.left, context) and is_positive_expression(
+            expression.right, context
+        )
+    if (
+        isinstance(expression, BinaryExpression)
+        and expression.operator is BinaryOperator.POWER
+        and isinstance(expression.right, IntegerLiteral)
+        and expression.right.value > 0
+    ):
+        return is_positive_expression(expression.left, context)
+    return False
 
 
 def is_integer_expression(expression: Expression, context: WorkContext) -> bool:
@@ -274,11 +355,7 @@ def _rendered_size_upper_bound(expression: Expression) -> int:
         )
     if isinstance(expression, Sum):
         parts = (expression.body, expression.lower, expression.upper)
-        return (
-            16
-            + len(expression.index)
-            + sum(_rendered_size_upper_bound(part) for part in parts)
-        )
+        return 16 + len(expression.index) + sum(_rendered_size_upper_bound(part) for part in parts)
     return (
         3
         + _rendered_size_upper_bound(expression.left)
@@ -300,6 +377,191 @@ def render_invocations(
     invocations: dict[str, Expression], budget: WorkRenderBudget
 ) -> dict[str, str]:
     return {name: render_work(count, budget) for name, count in sorted(invocations.items())}
+
+
+def map_analysis(
+    analysis: WorkAnalysis, transform: Callable[[Expression], Expression]
+) -> WorkAnalysis:
+    return WorkAnalysis(
+        operations=SymbolicTally(
+            additions=transform(analysis.operations.additions),
+            subtractions=transform(analysis.operations.subtractions),
+            multiplications=transform(analysis.operations.multiplications),
+            divisions=transform(analysis.operations.divisions),
+            powers=transform(analysis.operations.powers),
+        ),
+        opaque_work=transform(analysis.opaque_work),
+        invocations={name: transform(count) for name, count in analysis.invocations.items()},
+        unknown_costs=set(analysis.unknown_costs),
+        unresolved=set(analysis.unresolved),
+    )
+
+
+def aggregate_analysis(
+    analysis: WorkAnalysis,
+    index: str,
+    lower: Expression,
+    upper: Expression,
+    context: WorkContext,
+    label: str,
+) -> tuple[WorkAnalysis, str | None]:
+    """Aggregate over an output domain without erasing index-dependent work."""
+    count, unresolved = cardinality(lower, upper, context, label)
+
+    def aggregate(value: Expression) -> Expression:
+        if _contains_symbol(value, index):
+            return factor_independent(Sum(value, index, lower, upper), index)
+        return _multiply(count, value)
+
+    return map_analysis(analysis, aggregate), unresolved
+
+
+def factor_independent(expression: Expression, index: str) -> Expression:
+    """Apply the one deterministic factoring rule needed for indexed work."""
+    if not isinstance(expression, Sum) or not isinstance(expression.body, BinaryExpression):
+        return expression
+    body = expression.body
+    if body.operator is not BinaryOperator.MULTIPLY:
+        return expression
+    left_depends = _contains_symbol(body.left, index)
+    right_depends = _contains_symbol(body.right, index)
+    if left_depends == right_depends:
+        return expression
+    independent, dependent = (body.right, body.left) if left_depends else (body.left, body.right)
+    return _multiply(independent, Sum(dependent, index, expression.lower, expression.upper))
+
+
+def replace_exact(
+    expression: Expression, target: Expression, replacement: Expression
+) -> tuple[Expression, bool]:
+    if expression == target:
+        return replacement, True
+    changed = False
+
+    def visit(value: Expression) -> Expression:
+        nonlocal changed
+        replaced, did_change = replace_exact(value, target, replacement)
+        changed = changed or did_change
+        return replaced
+
+    if isinstance(expression, IndexedValue):
+        result: Expression = IndexedValue(
+            expression.name, tuple(visit(item) for item in expression.indices)
+        )
+    elif isinstance(expression, Call):
+        result = Call(expression.name, tuple(visit(item) for item in expression.arguments))
+    elif isinstance(expression, Sum):
+        result = Sum(
+            visit(expression.body),
+            expression.index,
+            visit(expression.lower),
+            visit(expression.upper),
+        )
+    elif isinstance(expression, BinaryExpression):
+        result = BinaryExpression(
+            expression.operator, visit(expression.left), visit(expression.right)
+        )
+    else:
+        result = expression
+    return result, changed
+
+
+def _contains_symbol(expression: Expression, name: str) -> bool:
+    if isinstance(expression, Symbol):
+        return expression.name == name
+    return any(_contains_symbol(child, name) for child in _expression_children(expression))
+
+
+def _expression_children(expression: Expression) -> tuple[Expression, ...]:
+    if isinstance(expression, BinaryExpression):
+        return (expression.left, expression.right)
+    if isinstance(expression, IndexedValue):
+        return expression.indices
+    if isinstance(expression, Call):
+        return expression.arguments
+    if isinstance(expression, Sum):
+        return (expression.lower, expression.upper, expression.body)
+    return ()
+
+
+def expand_function_values(
+    expression: Expression, definitions: dict[str, FunctionRule]
+) -> Expression:
+    """Expand validated acyclic mathematical definitions in derived work values."""
+    if isinstance(expression, IndexedValue):
+        result: Expression = IndexedValue(
+            expression.name,
+            tuple(expand_function_values(item, definitions) for item in expression.indices),
+        )
+    elif isinstance(expression, Call):
+        arguments = tuple(
+            expand_function_values(item, definitions) for item in expression.arguments
+        )
+        definition = definitions.get(expression.name)
+        if definition is None:
+            result = Call(expression.name, arguments)
+        else:
+            result = expand_function_values(
+                substitute(
+                    definition.body,
+                    dict(zip(definition.parameters, arguments, strict=True)),
+                    max_nodes=MAX_WORK_NODES,
+                ),
+                definitions,
+            )
+    elif isinstance(expression, Sum):
+        result = Sum(
+            expand_function_values(expression.body, definitions),
+            expression.index,
+            expand_function_values(expression.lower, definitions),
+            expand_function_values(expression.upper, definitions),
+        )
+    elif isinstance(expression, BinaryExpression):
+        result = BinaryExpression(
+            expression.operator,
+            expand_function_values(expression.left, definitions),
+            expand_function_values(expression.right, definitions),
+        )
+    else:
+        result = expression
+    if expression_node_count(result) > MAX_WORK_NODES:
+        raise ExpressionTooComplex("definition-expanded work exceeds its structural bound")
+    return result
+
+
+def simplify_constants(expression: Expression) -> Expression:
+    if isinstance(expression, IndexedValue):
+        return IndexedValue(
+            expression.name, tuple(simplify_constants(item) for item in expression.indices)
+        )
+    if isinstance(expression, Call):
+        arguments = tuple(simplify_constants(item) for item in expression.arguments)
+        if expression.name == "Max" and all(isinstance(item, IntegerLiteral) for item in arguments):
+            return IntegerLiteral(
+                max(item.value for item in arguments if isinstance(item, IntegerLiteral))
+            )
+        return Call(expression.name, arguments)
+    if isinstance(expression, Sum):
+        return Sum(
+            simplify_constants(expression.body),
+            expression.index,
+            simplify_constants(expression.lower),
+            simplify_constants(expression.upper),
+        )
+    if not isinstance(expression, BinaryExpression):
+        return expression
+    left = simplify_constants(expression.left)
+    right = simplify_constants(expression.right)
+    if isinstance(left, IntegerLiteral) and isinstance(right, IntegerLiteral):
+        if expression.operator is BinaryOperator.ADD:
+            return IntegerLiteral(left.value + right.value)
+        if expression.operator is BinaryOperator.SUBTRACT:
+            return IntegerLiteral(left.value - right.value)
+        if expression.operator is BinaryOperator.MULTIPLY:
+            return IntegerLiteral(left.value * right.value)
+        if expression.operator is BinaryOperator.POWER and right.value >= 0:
+            return IntegerLiteral(left.value**right.value)
+    return BinaryExpression(expression.operator, left, right)
 
 
 def substitute_analysis(
@@ -342,7 +604,11 @@ def _analyze_sum(expression: Sum, context: WorkContext) -> WorkAnalysis:
         f"sum index {expression.index}",
     )
     result = body.scale(count)
-    reduction = _max_zero(_subtract(count, _ONE))
+    reduction = (
+        _subtract(count, _ONE)
+        if is_positive_expression(count, context)
+        else _max_zero(_subtract(count, _ONE))
+    )
     result.operations = result.operations.combine(SymbolicTally(additions=reduction))
     if unresolved is not None:
         result.unresolved.add(unresolved)
