@@ -93,6 +93,17 @@ def test_known_token_span_is_end_exclusive() -> None:
     assert outcome.error.source.span.end.column == 3
 
 
+def test_syntax_error_span_uses_utf8_byte_columns_after_unicode() -> None:
+    outcome = service.analyze(
+        AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="α + * 1")  # noqa: RUF001
+    )
+    assert isinstance(outcome, AnalysisFailure)
+    assert outcome.error.source is not None
+    assert outcome.error.source.span is not None
+    assert outcome.error.source.span.start.column == 5
+    assert outcome.error.source.span.end.column == 6
+
+
 def test_parse_errors_identify_the_nested_request_source() -> None:
     outcome = service.analyze(
         AnalysisRequest(

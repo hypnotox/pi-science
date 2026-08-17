@@ -74,11 +74,9 @@ def parse_expression(source: str) -> ParseResult:
             return complexity_failure
         return _convert(root, numeric_lexemes)
     except SyntaxError as error:
-        column = error.offset - 1 if error.offset is not None and error.offset > 0 else None
-        end_column = (
-            error.end_offset - 1
-            if error.end_offset is not None and error.end_offset > 0
-            else None
+        column = _syntax_error_byte_column(source, error.lineno, error.offset)
+        end_column = _syntax_error_byte_column(
+            source, error.end_lineno, error.end_offset
         )
         return ParseFailure(
             ParseFailureKind.MALFORMED,
@@ -93,6 +91,18 @@ def parse_expression(source: str) -> ParseResult:
             ParseFailureKind.TOO_COMPLEX,
             "expression nesting exceeds the supported limit",
         )
+
+
+def _syntax_error_byte_column(
+    source: str, line: int | None, one_based_offset: int | None
+) -> int | None:
+    if line is None or line < 1 or one_based_offset is None or one_based_offset <= 0:
+        return None
+    source_lines = source.splitlines()
+    if line > len(source_lines):
+        return None
+    character_column = one_based_offset - 1
+    return len(source_lines[line - 1][:character_column].encode("utf-8"))
 
 
 def _failure(

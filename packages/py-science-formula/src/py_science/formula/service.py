@@ -691,7 +691,9 @@ def _analyze_single(
     _bound_substitution_expansion(parsed, context.definitions)
     analysis = analyze_work(parsed, context)
     analysis.unresolved.update(index_unresolved)
-    analysis, relationships = _apply_knowledge(analysis, knowledge, context.definitions)
+    analysis, relationships = _apply_knowledge(
+        analysis, knowledge, context.definitions, mathematical_expression=parsed
+    )
     work_render_budget = WorkRenderBudget()
     report = _equation_report(
         "expression",
@@ -796,7 +798,11 @@ def _analyze_system(
             if unresolved is not None:
                 analysis.unresolved.add(unresolved)
         analysis, used = _apply_knowledge(
-            analysis, knowledge, context.definitions, report_unmatched=False
+            analysis,
+            knowledge,
+            context.definitions,
+            report_unmatched=False,
+            mathematical_expression=equation.formula.right,
         )
         relationship_uses.update({item.name: item for item in used})
         analyses[name] = analysis
@@ -1335,11 +1341,15 @@ def _apply_knowledge(
     function_definitions: dict[str, FunctionRule],
     *,
     report_unmatched: bool = True,
+    mathematical_expression: Expression | None = None,
 ) -> tuple[WorkAnalysis, tuple[RelationshipUse, ...]]:
     result = analysis
     uses: list[RelationshipUse] = []
     replacements: dict[str, Expression] = {}
     definition_provenance: dict[str, set[str]] = {}
+    mathematical_expression_had_infinity = (
+        mathematical_expression is not None and _contains_infinity(mathematical_expression)
+    )
     used_definitions: set[str] = set()
     for definition in knowledge.definitions:
         dependencies = _symbol_names(definition.expression) & set(replacements)
@@ -1349,7 +1359,18 @@ def _apply_knowledge(
             *(definition_provenance[name] for name in dependencies)
         )
         updated = substitute_analysis(result, {definition.name: expression})
-        if updated != result:
+        definition_changed_expression = False
+        if mathematical_expression is not None:
+            resolved_mathematical_expression = substitute(
+                mathematical_expression,
+                {definition.name: expression},
+                max_nodes=MAX_WORK_NODES,
+            )
+            definition_changed_expression = (
+                resolved_mathematical_expression != mathematical_expression
+            )
+            mathematical_expression = resolved_mathematical_expression
+        if updated != result or definition_changed_expression:
             used_definitions.update(definition_provenance[definition.name])
             for used_name in definition_provenance[definition.name]:
                 qualification = next(
@@ -1360,6 +1381,14 @@ def _apply_knowledge(
                 if qualification is not None:
                     updated.unresolved.add(qualification)
         result = updated
+    if (
+        mathematical_expression is not None
+        and not mathematical_expression_had_infinity
+        and _contains_infinity(mathematical_expression)
+    ):
+        result.direct_work_blockers.add(
+            "mathematical infinity has no finite direct-evaluation work"
+        )
     for definition in knowledge.definitions:
         if definition.name in used_definitions:
             uses.append(

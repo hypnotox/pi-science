@@ -143,11 +143,16 @@ def test_infinity_is_rejected_in_finite_primitive_work() -> None:
     assert outcome.error.source.path == "primitive_costs[0].work"
 
 
-def test_definition_substitution_reclassifies_direct_work_as_nonfinite() -> None:
+@pytest.mark.parametrize(
+    "expression", ("n", "n + 1", "2 * n", "Sum(x[i], (i, 0, n))")
+)
+def test_definition_substitution_reclassifies_direct_work_as_nonfinite(
+    expression: str,
+) -> None:
     outcome = analyze(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
-            expression="Sum(x[i], (i, 0, n))",
+            expression=expression,
             variables={
                 "n": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER)
             },
