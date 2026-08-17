@@ -61,6 +61,14 @@ def test_query_contract_rejects_invalid_context_and_points():
     with pytest.raises(ValidationError): request(queries=({"name":"q", "kind":"properties", "checks":[]},))
     with pytest.raises(ValidationError): request(queries=({"name":"q", "kind":"properties", "checks":[{"kind":"sign", "variable":"x"}]},))
     with pytest.raises(ValidationError): request(queries=({"name":"q", "kind":"properties", "checks":[{"kind":"sign"}, {"kind":"sign"}]},))
+    for query in (
+        {"name":"oo", "kind":"equivalence", "comparison":"x"},
+        {"name":"q", "kind":"properties", "checks":({"kind":"valid_domain", "variable":"oo"},)},
+        {"name":"q", "kind":"limit", "variable":"oo", "point":"0", "direction":"both"},
+        {"name":"q", "kind":"asymptotic", "variable":"oo", "point":"oo", "order":1},
+    ):
+        with pytest.raises(ValidationError):
+            request(queries=(query,))
 
 
 def test_counterexamples_obey_domains_and_all_supported_assumptions():
@@ -127,6 +135,24 @@ def test_symbolic_constant_differences_require_valid_assignments():
         assert evidence.substitutions
         if expression == "1/x":
             assert evidence.substitutions["x"] != "0"
+
+
+def test_impossible_denominator_obligations_remain_unresolved():
+    for expression, comparison in (
+        ("1/0", "1/0"),
+        ("0**-1", "0**-1"),
+        ("(x-x)/(x-x)", "1"),
+    ):
+        outcome = analyze(AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression=expression,
+            queries=({"name":"q", "kind":"equivalence", "comparison":comparison},),
+        ))
+        assert outcome.status == "success"
+        answer = outcome.queries[0].answers[0]
+        assert answer.conclusion == "unresolved"
+        assert answer.evidence is None
+        assert answer.blockers == ("query denominator is identically zero",)
 
 
 def test_negative_integral_powers_preserve_nonzero_obligations():

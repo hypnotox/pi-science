@@ -683,6 +683,8 @@ function validQueryEvidence(value: unknown): boolean {
         "comparison_value",
       ]) &&
       validStringMap(value.substitutions) &&
+      Object.keys(value.substitutions as Record<string, string>).length <=
+        256 &&
       Object.entries(value.substitutions as Record<string, string>).every(
         ([name, item]) =>
           ordinaryIdentifier(name) && canonicalExactScalar(item),
@@ -758,6 +760,7 @@ function validQueryAnswer(value: unknown): boolean {
     value.conditions.length > 256 ||
     !value.conditions.every(boundedQueryText) ||
     !validRelationshipUses(value.assumptions_used) ||
+    (value.assumptions_used as unknown[]).length > 128 ||
     !validStringArray(value.relevant_unsupported_assumptions) ||
     value.relevant_unsupported_assumptions.length > 128 ||
     !value.relevant_unsupported_assumptions.every(boundedQueryText) ||

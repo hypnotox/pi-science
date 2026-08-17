@@ -213,6 +213,13 @@ class EquationTarget(StructuredModel):
     kind: Literal["equation"] = "equation"
     name: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
 
+    @field_validator("name")
+    @classmethod
+    def ordinary_name(cls, name: str) -> str:
+        if name == "oo":
+            raise ValueError("oo is reserved for mathematical infinity")
+        return name
+
 
 class ExpressionTarget(StructuredModel):
     kind: Literal["expression"] = "expression"
@@ -221,6 +228,13 @@ class ExpressionTarget(StructuredModel):
 class VariablePropertyCheck(StructuredModel):
     kind: Literal["valid_domain", "singularities", "monotonicity"]
     variable: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
+
+    @field_validator("variable")
+    @classmethod
+    def ordinary_variable(cls, variable: str) -> str:
+        if variable == "oo":
+            raise ValueError("oo is reserved for mathematical infinity")
+        return variable
 
 
 class SignPropertyCheck(StructuredModel):
@@ -233,6 +247,13 @@ type PropertyCheck = Annotated[VariablePropertyCheck | SignPropertyCheck, Field(
 class QueryBase(StructuredModel):
     name: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
     target: EquationTarget | None = None
+
+    @field_validator("name")
+    @classmethod
+    def ordinary_name(cls, name: str) -> str:
+        if name == "oo":
+            raise ValueError("oo is reserved for mathematical infinity")
+        return name
 
 
 class EquivalenceQuery(QueryBase):
@@ -258,6 +279,13 @@ class PropertiesQuery(QueryBase):
 class LimitQuery(QueryBase):
     kind: Literal["limit"] = "limit"
     variable: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
+
+    @field_validator("variable")
+    @classmethod
+    def ordinary_variable(cls, variable: str) -> str:
+        if variable == "oo":
+            raise ValueError("oo is reserved for mathematical infinity")
+        return variable
     point: str | int
     direction: Literal["left", "right", "both"] | None = None
 
@@ -275,6 +303,13 @@ class LimitQuery(QueryBase):
 class AsymptoticQuery(QueryBase):
     kind: Literal["asymptotic"] = "asymptotic"
     variable: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
+
+    @field_validator("variable")
+    @classmethod
+    def ordinary_variable(cls, variable: str) -> str:
+        if variable == "oo":
+            raise ValueError("oo is reserved for mathematical infinity")
+        return variable
     point: str | int
     direction: Literal["left", "right", "both"] | None = None
     order: int = Field(ge=1, le=8)
@@ -391,6 +426,13 @@ class QueryAnswer(StructuredModel):
 class QueryResultCommon(StructuredModel):
     name: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
     target: ResolvedTarget
+
+    @field_validator("name")
+    @classmethod
+    def ordinary_name(cls, name: str) -> str:
+        if name == "oo":
+            raise ValueError("oo is reserved for mathematical infinity")
+        return name
     normalized_target: "Interpretation"
     summary: str = Field(min_length=1, max_length=4096)
     answers: tuple[QueryAnswer, ...]

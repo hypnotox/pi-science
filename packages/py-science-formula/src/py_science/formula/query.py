@@ -183,6 +183,14 @@ def _equivalence(
     conditions: list[str] = []
     obligation_uses = []
     for denominator in original_denominators:
+        denominator_normalized = bounded_rational_difference(
+            denominator,
+            IntegerLiteral(0),
+        )
+        if denominator_normalized is None:
+            return _unresolved_with("query denominator exceeds its bound", unsupported)
+        if denominator_normalized.numerator == 0:
+            return _unresolved_with("query denominator is identically zero", unsupported)
         try:
             statement = f"{render(denominator).sympy} != 0"
         except Exception:
@@ -210,6 +218,8 @@ def _equivalence(
         and not normalized.right.free_symbols
         and normalized.numerator.is_number
     ):
+        if not normalized.left.is_Rational or not normalized.right.is_Rational:
+            return _unresolved_with("query evidence is not a finite exact value", unsupported)
         target_rendered = str(normalized.left)
         comparison_rendered = str(normalized.right)
         if max(len(target_rendered), len(comparison_rendered)) > 4096:
@@ -245,6 +255,8 @@ def _equivalence(
             target_value = normalized.left.subs(values)
             comparison_value = normalized.right.subs(values)
             if target_value.free_symbols or comparison_value.free_symbols:
+                continue
+            if not target_value.is_Rational or not comparison_value.is_Rational:
                 continue
             target_rendered = str(target_value)
             comparison_rendered = str(comparison_value)

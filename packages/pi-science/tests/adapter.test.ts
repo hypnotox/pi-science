@@ -89,6 +89,72 @@ describe("formula adapter protocol boundary", () => {
       }),
     ],
     [
+      "reserved query name",
+      JSON.stringify({
+        version: 4,
+        request: {
+          syntax: "sympy",
+          expression: "x",
+          queries: [{ name: "oo", kind: "equivalence", comparison: "x" }],
+        },
+      }),
+    ],
+    [
+      "reserved property variable",
+      JSON.stringify({
+        version: 4,
+        request: {
+          syntax: "sympy",
+          expression: "x",
+          queries: [
+            {
+              name: "q",
+              kind: "properties",
+              checks: [{ kind: "valid_domain", variable: "oo" }],
+            },
+          ],
+        },
+      }),
+    ],
+    [
+      "reserved limit variable",
+      JSON.stringify({
+        version: 4,
+        request: {
+          syntax: "sympy",
+          expression: "x",
+          queries: [
+            {
+              name: "q",
+              kind: "limit",
+              variable: "oo",
+              point: "0",
+              direction: "both",
+            },
+          ],
+        },
+      }),
+    ],
+    [
+      "reserved asymptotic variable",
+      JSON.stringify({
+        version: 4,
+        request: {
+          syntax: "sympy",
+          expression: "x",
+          queries: [
+            {
+              name: "q",
+              kind: "asymptotic",
+              variable: "oo",
+              point: "oo",
+              order: 1,
+            },
+          ],
+        },
+      }),
+    ],
+    [
       "duplicate envelope key",
       '{"version":3,"version":3,"request":{"syntax":"sympy","expression":"x"}}',
     ],

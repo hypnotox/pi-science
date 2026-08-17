@@ -571,6 +571,32 @@ describe("private formula bridge", () => {
         ],
       },
       {
+        ...counterexample,
+        answers: [
+          {
+            ...counterexample.answers[0],
+            evidence: {
+              ...counterexample.answers[0].evidence,
+              substitutions: Object.fromEntries(
+                Array.from({ length: 257 }, (_, index) => [`x${index}`, "1"]),
+              ),
+            },
+          },
+        ],
+      },
+      {
+        ...query,
+        answers: [
+          {
+            ...identityAnswer,
+            assumptions_used: Array.from({ length: 129 }, (_, index) => ({
+              name: `a${index}`,
+              relationship: "x > 0",
+            })),
+          },
+        ],
+      },
+      {
         ...futureEvidence[1],
         answers: [futureEvidence[1].answers[0], futureEvidence[1].answers[0]],
       },
