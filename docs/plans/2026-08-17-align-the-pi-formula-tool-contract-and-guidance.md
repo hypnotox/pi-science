@@ -2,7 +2,7 @@
 format: plan-v2
 date: 2026-08-17
 adrs: []
-status: Proposed
+status: Implemented
 ---
 # Plan: Align the Pi formula tool contract and guidance
 
