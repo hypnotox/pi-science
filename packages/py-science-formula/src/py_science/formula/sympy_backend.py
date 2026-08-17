@@ -1,9 +1,11 @@
-# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false
+# ruff: noqa: E501
+# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false, reportArgumentType=false, reportAssignmentType=false, reportAttributeAccessIssue=false, reportReturnType=false
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
 from fractions import Fraction
+from math import comb
 from typing import Any, Protocol, cast
 
 import sympy  # pyright: ignore[reportMissingTypeStubs]
@@ -19,6 +21,7 @@ from py_science.formula.expressions import (
     RationalLiteral,
     Sum,
     Symbol,
+    expression_children,
     expression_node_count,
 )
 
@@ -61,6 +64,25 @@ class BoundedRationalDifference:
     numerator: Any
     denominator: Any
     symbols: tuple[Any, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class BoundedAsymptoticRational:
+    statement: str
+    local_parameter: str
+    conditions: tuple[str, ...]
+    symbols: tuple[str, ...]
+    failure: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class BoundedExponentialDecomposition:
+    source: str
+    rendered: str
+    bases: tuple[Expression, ...]
+    coefficient_symbols: tuple[str, ...]
+    conditions: tuple[str, ...]
+    symbols: tuple[str, ...]
 
 
 # Property operations are deliberately centralized here.  The policy layer only
@@ -699,6 +721,321 @@ def _endpoint_tail_tends_to_zero(tail: Any, endpoint: Any, ratio: Any) -> bool:
         return True
     except Exception:
         return False
+
+
+def bounded_exponential_decomposition(
+    expression: Expression, variable: str, point: str, order: int
+) -> BoundedExponentialDecomposition | None:
+    """Recognize and independently reconstruct finite linear-exponential terms."""
+    if point not in {"oo", "-oo"} or expression_node_count(expression) > 512:
+        return None
+    terms = _exp_add_terms(expression)
+    decoded: list[tuple[Any, Any, Expression]] = []
+    for term in terms:
+        factors = _exp_multiply_factors(term)
+        powers = [factor for factor in factors if _exp_power_base(factor, variable) is not None]
+        if len(powers) != 1:
+            return None
+        base = _exp_power_base(powers[0], variable)
+        if base is None:
+            return None
+        remaining = [factor for factor in factors if factor is not powers[0]]
+        linear = _exp_linear_product(remaining, variable)
+        if linear is None:
+            return None
+        slope, intercept = linear
+        decoded.append((slope, intercept, base))
+    # Each submitted additive term must reconstruct exactly; do not merge bases.
+    rendered_terms: list[tuple[int, str]] = []
+    bases: list[Expression] = []
+    coefficient_symbols: set[str] = set()
+    reconstructed: Any = sympy.Integer(0)
+    source: Any = _to_query_sympy(expression)
+    query_symbol = sympy.Symbol(variable)
+    try:
+        if not _exponential_value_is_bounded(source, query_symbol):
+            return None
+        for slope, intercept, base in decoded:
+            base_value = _to_query_sympy(base)
+            if not _property_value_is_bounded(base_value):
+                return None
+            coefficient_symbols.update(
+                str(item) for item in (slope.free_symbols | intercept.free_symbols) if str(item) != variable
+            )
+            polynomial = slope * query_symbol + intercept
+            piece = polynomial * base_value ** query_symbol
+            if not _exponential_value_is_bounded(piece, query_symbol):
+                return None
+            reconstructed += piece
+            if not _exponential_value_is_bounded(reconstructed, query_symbol):
+                return None
+            degree = 1 if slope != 0 else 0
+            rendered_terms.append(
+                (degree, f"({sympy.sstr(polynomial)})*({sympy.sstr(base_value)})**{variable}")
+            )
+            bases.append(base)
+        # Validate the source, every reconstruction intermediate, and the uncancelled
+        # difference before independently cancelling the exact identity.
+        difference = source - reconstructed
+        if not _exponential_value_is_bounded(difference, query_symbol):
+            return None
+        cancelled = sympy.cancel(difference)
+        if not _exponential_value_is_bounded(cancelled, query_symbol) or cancelled != 0:
+            return None
+        if len(decoded) > order:
+            # Each accepted source addend is one polynomial-times-exponential term.
+            return None
+        rendered = " + ".join(item[1] for item in sorted(rendered_terms, key=lambda item: item[0], reverse=True))
+        source_text = sympy.sstr(source)
+        if max(len(source_text), len(rendered)) > 4096:
+            return None
+        symbols = tuple(sorted(str(item) for item in source.free_symbols))
+        return BoundedExponentialDecomposition(source_text, rendered, tuple(bases), tuple(sorted(coefficient_symbols)), (), symbols)
+    except Exception:
+        return None
+
+
+def _exponential_value_is_bounded(value: Any, variable: Any) -> bool:
+    """Bound the restricted symbolic-power grammar used by this decomposition."""
+    try:
+        if sum(1 for _ in sympy.preorder_traversal(value)) > 4096:
+            return False
+        if value.is_Atom:
+            return bool(value.is_Number or value.is_Symbol)
+        if value.is_Pow:
+            return value.exp == variable and _property_value_is_bounded(value.base)
+        if value.is_Add or value.is_Mul:
+            return all(_exponential_value_is_bounded(item, variable) for item in value.args)
+        return False
+    except Exception:
+        return False
+
+
+def _exp_add_terms(value: Expression) -> list[Expression]:
+    if isinstance(value, BinaryExpression) and value.operator is BinaryOperator.ADD:
+        return [*_exp_add_terms(value.left), *_exp_add_terms(value.right)]
+    if isinstance(value, BinaryExpression) and value.operator is BinaryOperator.SUBTRACT:
+        return [*_exp_add_terms(value.left), BinaryExpression(BinaryOperator.MULTIPLY, IntegerLiteral(-1), value.right)]
+    return [value]
+
+
+def _exp_multiply_factors(value: Expression) -> list[Expression]:
+    if isinstance(value, BinaryExpression) and value.operator is BinaryOperator.MULTIPLY:
+        return [*_exp_multiply_factors(value.left), *_exp_multiply_factors(value.right)]
+    return [value]
+
+
+def _exp_power_base(value: Expression, variable: str) -> Expression | None:
+    if isinstance(value, BinaryExpression) and value.operator is BinaryOperator.POWER and isinstance(value.right, Symbol) and value.right.name == variable:
+        return value.left
+    return None
+
+
+def _exp_constant(value: Expression, variable: str) -> Any | None:
+    # Coefficients may be parameters, but never contain the approach variable.
+    try:
+        if variable in {str(item) for item in _to_query_sympy(value).free_symbols}:
+            return None
+        if not rational_ir_preflight(value):
+            return None
+        result: Any = _to_query_sympy(value)
+        return result if sum(1 for _ in sympy.preorder_traversal(result)) <= 4096 else None
+    except Exception:
+        return None
+
+
+def _exp_linear(value: Expression, variable: str) -> tuple[Any, Any] | None:
+    constant = _exp_constant(value, variable)
+    if constant is not None:
+        return sympy.Integer(0), constant
+    if isinstance(value, Symbol) and value.name == variable:
+        return sympy.Integer(1), sympy.Integer(0)
+    if not isinstance(value, BinaryExpression):
+        return None
+    left, right = _exp_linear(value.left, variable), _exp_linear(value.right, variable)
+    if left is None or right is None:
+        return None
+    if value.operator is BinaryOperator.ADD:
+        return left[0] + right[0], left[1] + right[1]
+    if value.operator is BinaryOperator.SUBTRACT:
+        return left[0] - right[0], left[1] - right[1]
+    if value.operator is BinaryOperator.MULTIPLY and not (left[0] and right[0]):
+        return left[0] * right[1] + left[1] * right[0], left[1] * right[1]
+    return None
+
+
+def _exp_linear_product(factors: list[Expression], variable: str) -> tuple[Any, Any] | None:
+    slope, intercept = sympy.Integer(0), sympy.Integer(1)
+    for factor in factors:
+        linear = _exp_linear(factor, variable)
+        if linear is None or (slope and linear[0]):
+            return None
+        slope, intercept = slope * linear[1] + intercept * linear[0], intercept * linear[1]
+    return slope, intercept
+
+
+def bounded_asymptotic_rational(
+    expression: Expression,
+    original: Expression,
+    variable_name: str,
+    point: str,
+    order: int,
+    direction: object,
+    real_parameters: frozenset[str],
+) -> BoundedAsymptoticRational | None:
+    """Translate, divide, verify, and render one guarded rational expansion.
+
+    This is deliberately the sole asymptotic polynomial/SymPy seam.  It validates
+    both the submitted and transformed values before and after each operation.
+    """
+    normalized = bounded_rational_difference(expression, IntegerLiteral(0))
+    if normalized is None:
+        return None
+    variable = sympy.Symbol(variable_name)
+    parameter_symbols = {str(item) for item in normalized.symbols} - {variable_name}
+    if not parameter_symbols <= real_parameters:
+        return None
+    try:
+        numerator = sympy.Poly(normalized.left.as_numer_denom()[0], variable)
+        denominator = sympy.Poly(normalized.left.as_numer_denom()[1], variable)
+        # Parameter-dependent denominator roots need path ordering that this
+        # bounded recurrence intentionally does not model.
+        if {str(item) for item in denominator.as_expr().free_symbols} - {variable_name}:
+            return None
+        if denominator.is_zero:
+            return BoundedAsymptoticRational("", "", (), (), "query denominator is identically zero")
+        # SymPy gives the zero polynomial degree -oo; it is an exact expansion,
+        # never an integer degree conversion.
+        if numerator.is_zero:
+            if point == "oo":
+                local, approach = f"1/{variable_name}", f"{variable_name} -> oo"
+            elif point == "-oo":
+                local, approach = f"-1/{variable_name}", f"{variable_name} -> -oo"
+            else:
+                parsed = _parse_backend_scalar(point)
+                if parsed is None:
+                    return BoundedAsymptoticRational("", "", (), (), "asymptotic point is invalid")
+                center = sympy.Rational(parsed.numerator, parsed.denominator)
+                local, approach = f"{variable_name} - {center}", f"{variable_name} -> {center} ({direction})"
+            conditions = _asymptotic_denominator_conditions(original)
+            if conditions is None:
+                return BoundedAsymptoticRational("", "", (), (), "original denominator exceeds its bound")
+            statement = f"0 = 0 + O(t**{order}) as {approach}, t = {local}"
+            if len(statement) > 4096:
+                return BoundedAsymptoticRational("", "", (), (), "query result rendering exceeds its bound")
+            return BoundedAsymptoticRational(statement, local, (approach, *conditions), (), None)
+        if max(int(numerator.degree()), int(denominator.degree())) > 8:
+            return None
+        if point in {"oo", "-oo"}:
+            sign = 1 if point == "oo" else -1
+            local, approach = ((f"1/{variable_name}", f"{variable_name} -> oo") if sign > 0 else (f"-1/{variable_name}", f"{variable_name} -> -oo"))
+            top = _asymptotic_reversed(numerator, sign)
+            bottom = _asymptotic_reversed(denominator, sign)
+            shift = int(denominator.degree()) - int(numerator.degree())
+        else:
+            parsed = _parse_backend_scalar(point)
+            if parsed is None:
+                return BoundedAsymptoticRational("", "", (), (), "asymptotic point is invalid")
+            center = sympy.Rational(parsed.numerator, parsed.denominator)
+            local, approach = f"{variable_name} - {center}", f"{variable_name} -> {center} ({direction})"
+            top, bottom = _asymptotic_shifted(numerator, center), _asymptotic_shifted(denominator, center)
+            top_order, bottom_order = _asymptotic_valuation(top), _asymptotic_valuation(bottom)
+            if bottom_order is None:
+                return BoundedAsymptoticRational("", "", (), (), "query denominator is identically zero")
+            shift = (top_order or 0) - bottom_order
+            top, bottom = top[top_order or 0 :], bottom[bottom_order:]
+        if not bottom or bottom[0] == 0:
+            return BoundedAsymptoticRational("", "", (), (), "asymptotic local denominator is unsupported")
+        count = order - shift
+        coefficients = [] if count <= 0 else _asymptotic_divide(top, bottom, count)
+        if coefficients is None:
+            return BoundedAsymptoticRational("", "", (), (), "asymptotic intermediate exceeds its bound")
+        if not _asymptotic_verify(top, bottom, coefficients):
+            return BoundedAsymptoticRational("", "", (), (), "asymptotic remainder verification failed")
+        terms = _asymptotic_render_terms(coefficients, shift)
+        conditions = _asymptotic_denominator_conditions(original)
+        if conditions is None:
+            return BoundedAsymptoticRational("", "", (), (), "original denominator exceeds its bound")
+        statement = f"{sympy.sstr(normalized.left)} = {terms} + O(t**{order}) as {approach}, t = {local}"
+        if len(statement) > 4096 or any(len(sympy.sstr(value)) > 4096 for value in coefficients):
+            return BoundedAsymptoticRational("", "", (), (), "query result rendering exceeds its bound")
+        return BoundedAsymptoticRational(statement, local, (approach, *conditions), tuple(str(item) for item in normalized.symbols), None)
+    except Exception:
+        return BoundedAsymptoticRational("", "", (), (), "asymptotic intermediate exceeds its bound")
+
+
+def _parse_backend_scalar(value: str) -> Any:
+    from py_science.formula.exact_values import parse_exact_scalar
+    return parse_exact_scalar(value)
+
+
+def _asymptotic_denominator_conditions(expression: Expression) -> tuple[str, ...] | None:
+    found: list[Expression] = []
+    def visit(value: Expression) -> None:
+        if isinstance(value, BinaryExpression) and value.operator is BinaryOperator.DIVIDE:
+            found.append(value.right)
+        if isinstance(value, BinaryExpression) and value.operator is BinaryOperator.POWER and isinstance(value.right, IntegerLiteral) and value.right.value < 0:
+            found.append(value.left)
+        for child in expression_children(value):
+            visit(child)
+    visit(expression)
+    result: list[str] = []
+    for item in found:
+        normalized = bounded_rational_difference(item, IntegerLiteral(0))
+        if normalized is None:
+            return None
+        rendered = f"{sympy.sstr(normalized.left)} != 0"
+        if len(rendered) > 4096:
+            return None
+        if rendered not in result:
+            result.append(rendered)
+    return tuple(result)
+
+
+def _asymptotic_reversed(poly: Any, sign: int) -> list[Any]:
+    degree = int(poly.degree())
+    return [poly.nth(degree - index) * sign ** (degree - index) for index in range(degree + 1)]
+
+
+def _asymptotic_shifted(poly: Any, center: Any) -> list[Any]:
+    degree = int(poly.degree())
+    result = [sympy.Rational(0) for _ in range(degree + 1)]
+    for power in range(degree + 1):
+        for local_power in range(power + 1):
+            result[local_power] += poly.nth(power) * comb(power, local_power) * center ** (power - local_power)
+    return result
+
+
+def _asymptotic_valuation(values: list[Any]) -> int | None:
+    return next((index for index, value in enumerate(values) if value != 0), None)
+
+
+def _asymptotic_divide(top: list[Any], bottom: list[Any], count: int) -> list[Any] | None:
+    quotient: list[Any] = []
+    for index in range(count):
+        value = (top[index] if index < len(top) else sympy.Rational(0)) - sum(bottom[offset] * quotient[index - offset] for offset in range(1, min(index, len(bottom) - 1) + 1))
+        coefficient = value / bottom[0]
+        if not _property_value_is_bounded(coefficient):
+            return None
+        quotient.append(coefficient)
+    return quotient
+
+
+def _asymptotic_verify(top: list[Any], bottom: list[Any], quotient: list[Any]) -> bool:
+    try:
+        return all(sympy.cancel((top[index] if index < len(top) else 0) - sum(bottom[offset] * quotient[index - offset] for offset in range(min(index, len(bottom) - 1) + 1))) == 0 for index in range(len(quotient)))
+    except Exception:
+        return False
+
+
+def _asymptotic_render_terms(coefficients: list[Any], shift: int) -> str:
+    values: list[str] = []
+    for index, coefficient in enumerate(coefficients):
+        if coefficient == 0:
+            continue
+        exponent, rendered = shift + index, sympy.sstr(coefficient)
+        values.append(rendered if exponent == 0 else f"({rendered})*t" if exponent == 1 else f"({rendered})*t**{exponent}")
+    return " + ".join(values) or "0"
 
 
 def render(formula: Expression | Equation) -> NormalizedRendering:

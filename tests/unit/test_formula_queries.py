@@ -1,9 +1,9 @@
 # ruff: noqa: E501, E701
 # pyright: basic, reportArgumentType=false, reportOptionalMemberAccess=false
-import py_science.formula.asymptotics as formula_asymptotics
 import py_science.formula.query as formula_query
 import py_science.formula.series as formula_series
 import py_science.formula.sympy_backend as formula_sympy
+import py_science.formula.sympy_backend as sympy_backend
 import pytest
 from py_science.formula import (
     AnalysisRequest,
@@ -424,7 +424,7 @@ def test_asymptotic_rational_local_parameters_orders_and_remainders():
         },)))
         assert outcome.status == "success"
         answer = outcome.queries[0].answers[0]
-        assert answer.conclusion == "proved"
+        assert answer.conclusion == "proved_under_assumptions"
         assert answer.evidence is not None and answer.evidence.kind == "asymptotic"
         assert term in answer.evidence.statement
         assert answer.evidence.remainder is not None
@@ -442,7 +442,7 @@ def test_asymptotic_exponential_linear_terms_are_degree_ordered_and_exactly_exha
     evidence = outcome.queries[0].answers[0].evidence
     assert evidence is not None and evidence.kind == "asymptotic"
     assert evidence.remainder is None
-    assert evidence.statement.index("(1)*x") < evidence.statement.index("(3)")
+    assert "x + 3" in evidence.statement
 
 
 def test_asymptotic_intermediate_and_result_rendering_refusals_are_terminal(monkeypatch):
@@ -451,12 +451,12 @@ def test_asymptotic_intermediate_and_result_rendering_refusals_are_terminal(monk
         expression="(x + 1)/(x - 1)",
         queries=({"name": "a", "kind": "asymptotic", "variable": "x", "point": "oo", "order": 2},),
     )
-    monkeypatch.setattr(formula_asymptotics, "_truncated_divide", lambda *_args: None)
+    monkeypatch.setattr(sympy_backend, "_asymptotic_divide", lambda *_args: None)
     refused = analyze(request_value)
     assert refused.status == "success"
     assert refused.queries[0].answers[0].blockers == ("asymptotic intermediate exceeds its bound",)
     monkeypatch.undo()
-    monkeypatch.setattr(formula_asymptotics, "_render_terms", lambda *_args: "x" * 4097)
+    monkeypatch.setattr(sympy_backend, "_asymptotic_render_terms", lambda *_args: "x" * 4097)
     oversized = analyze(request_value)
     assert oversized.status == "success"
     assert oversized.queries[0].answers[0].blockers == ("query result rendering exceeds its bound",)

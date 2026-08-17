@@ -113,7 +113,15 @@ def evaluate_queries(
             result = LimitResult(name=query.name, target=target.target, normalized_target=target.interpretation, summary="bounded exact directional limit", answers=(answer,))
         else:
             expression, qualification = _property_expression(target.expression, reasoning)
-            answer = _with_closed_form_qualification(asymptotic_answer(expression, query, reasoning), qualification)
+            answer = _with_closed_form_qualification(
+                asymptotic_answer(
+                    expression,
+                    query,
+                    reasoning,
+                    original_expression=target.expression,
+                ),
+                qualification,
+            )
             result = AsymptoticResult(name=query.name, target=target.target, normalized_target=target.interpretation, summary="qualified bounded asymptotic expansion", answers=(answer,))
         results.append(result)
     return tuple(results)

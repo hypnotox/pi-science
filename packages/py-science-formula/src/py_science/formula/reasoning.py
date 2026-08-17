@@ -377,6 +377,40 @@ class ReasoningContext:
                 return -1, fact.sources
         return None, ()
 
+    def exponential_base_uses(self, bases: tuple[Expression, ...]) -> tuple[RelationshipUse, ...]:
+        uses: list[RelationshipUse] = []
+        for base in bases:
+            _, found = self.sign(base)
+            uses.extend(found)
+        return _unique_uses(uses)
+
+    def exponential_facts_hold(
+        self, bases: tuple[Expression, ...], coefficient_symbols: tuple[str, ...]
+    ) -> bool:
+        """Require independently established positive bases and real coefficients."""
+        for base in bases:
+            sign, _ = self.sign(base)
+            if sign is None or sign <= 0:
+                return False
+        return all(self._real_expression(Symbol(symbol)) for symbol in coefficient_symbols)
+
+    def real_symbols_hold(self, symbols: tuple[str, ...]) -> bool:
+        """A symbolic coefficient is real only with retained domain/fact evidence."""
+        return all(self._real_expression(Symbol(symbol)) for symbol in symbols)
+
+    def _real_expression(self, expression: Expression) -> bool:
+        applied = self.apply(expression)
+        if isinstance(applied, (IntegerLiteral, RationalLiteral)):
+            return True
+        if isinstance(applied, Symbol):
+            # An undeclared symbol has no retained realness evidence.  Any domain
+            # declaration or affine fact is sufficient because this model's facts
+            # describe scalar-real domains.
+            return applied.name in self.facts
+        if isinstance(applied, BinaryExpression):
+            return self._real_expression(applied.left) and self._real_expression(applied.right)
+        return False
+
     def prove_equal_one(self, expression: Expression) -> tuple[bool, tuple[RelationshipUse, ...]]:
         applied = self.apply(expression)
         if isinstance(applied, IntegerLiteral):
