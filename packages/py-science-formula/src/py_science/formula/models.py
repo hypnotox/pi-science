@@ -359,6 +359,10 @@ class CounterexampleEvidence(StructuredModel):
         parsed = (parse_exact_scalar(value) for value in self.substitutions.values())
         if any(item is None or render_exact(item) != value for item, value in zip(parsed, self.substitutions.values(), strict=True)):
             raise ValueError("counterexample substitutions must be canonical exact scalars")
+        for value in (self.target_value, self.comparison_value):
+            exact = parse_exact_scalar(value)
+            if exact is None or render_exact(exact) != value:
+                raise ValueError("counterexample values must be canonical exact scalars")
         return self
 
 

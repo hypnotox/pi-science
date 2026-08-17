@@ -689,8 +689,10 @@ function validQueryEvidence(value: unknown): boolean {
         ([name, item]) =>
           ordinaryIdentifier(name) && canonicalExactScalar(item),
       ) &&
-      boundedQueryText(value.target_value) &&
-      boundedQueryText(value.comparison_value)
+      typeof value.target_value === "string" &&
+      canonicalExactScalar(value.target_value) &&
+      typeof value.comparison_value === "string" &&
+      canonicalExactScalar(value.comparison_value)
     );
   if (value.kind === "closed_form")
     return (

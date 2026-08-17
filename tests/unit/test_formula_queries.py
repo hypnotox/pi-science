@@ -229,6 +229,16 @@ def test_later_consumers_preserve_exact_answer_shape_and_check_order():
     assert dumped["queries"][1]["answers"][0]["evidence"] is None
 
 
+def test_counterexample_model_rejects_noncanonical_values():
+    for target_value, comparison_value in (("zoo", "0"), ("nan", "0"), ("2/4", "0")):
+        with pytest.raises(ValidationError):
+            CounterexampleEvidence(
+                substitutions={"x": "1"},
+                target_value=target_value,
+                comparison_value=comparison_value,
+            )
+
+
 def test_result_models_reject_wrong_evidence_and_answer_cardinality():
     interpretation = Interpretation(normalized_sympy="x", normalized_latex="x")
     answer = QueryAnswer(conclusion="proved", evidence=IdentityEvidence(statement="same"))
@@ -237,6 +247,33 @@ def test_result_models_reject_wrong_evidence_and_answer_cardinality():
         EquivalenceResult(name="q", target={"kind":"expression"}, normalized_target=interpretation, summary="same", answers=(answer, answer))
     with pytest.raises(ValidationError):
         QueryAnswer(conclusion="unresolved", blockers=("unsupported",), derived_candidates=({"interpretation": interpretation, "operation_counts": OperationCounts()},))
+
+
+def test_provenance_population_refusal_does_not_escape_analyze():
+    terms = ["x", *(f"y{index}" for index in range(128))]
+    while len(terms) > 1:
+        terms = [
+            f"({terms[index]} + {terms[index + 1]})"
+            if index + 1 < len(terms)
+            else terms[index]
+            for index in range(0, len(terms), 2)
+        ]
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression=terms[0],
+        variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
+        definitions=(DirectedDefinition(variable="x", expression="1"),),
+        assumptions=tuple(
+            Assumption(name=f"a{index}", relationship=f"y{index} == x")
+            for index in range(128)
+        ),
+        queries=({"name":"q", "kind":"equivalence", "comparison":"129"},),
+    ))
+    assert outcome.status == "success"
+    assert outcome.queries[0].answers[0].conclusion == "unresolved"
+    assert outcome.queries[0].answers[0].blockers == (
+        "query assumption provenance exceeds its bound",
+    )
 
 
 def test_reasoning_expansion_failures_are_contained_as_unresolved():
@@ -278,6 +315,21 @@ def test_query_preflight_rejects_before_denominator_rendering(monkeypatch):
     )
     assert isinstance(result, tuple)
     assert result[0].answers[0].conclusion == "unresolved"
+    assert not called
+
+
+def test_expanded_term_growth_is_rejected_before_backend_calls(monkeypatch):
+    parsed = parse_expression(f"({' + '.join('abcdefghij')})**8")
+    assert not isinstance(parsed, tuple)
+    called = False
+
+    def forbidden(_value):
+        nonlocal called
+        called = True
+        raise AssertionError("term-growth preflight must precede backend conversion")
+
+    monkeypatch.setattr(formula_sympy, "_to_sympy", forbidden)
+    assert formula_sympy.bounded_rational_difference(parsed, IntegerLiteral(0)) is None  # pyright: ignore[reportArgumentType]
     assert not called
 
 

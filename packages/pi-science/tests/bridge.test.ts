@@ -522,6 +522,18 @@ describe("private formula bridge", () => {
           },
         ],
       },
+      ...["zoo", "nan", "2/4"].map((targetValue) => ({
+        ...counterexample,
+        answers: [
+          {
+            ...counterexample.answers[0],
+            evidence: {
+              ...counterexample.answers[0].evidence,
+              target_value: targetValue,
+            },
+          },
+        ],
+      })),
       {
         ...counterexample,
         answers: [

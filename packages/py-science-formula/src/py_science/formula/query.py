@@ -204,6 +204,8 @@ def _equivalence(
             obligation_uses.extend(uses)
     used = reasoning.relevant_uses(relevant_symbols, include_facts=bool(original_denominators))
     used = _unique_uses((*used, *obligation_uses))
+    if len(used) > 128:
+        return _unresolved_with("query assumption provenance exceeds its bound", unsupported)
     if normalized.numerator == 0:
         conclusion = "proved_under_assumptions" if used or conditions else "proved"
         return QueryAnswer(
@@ -262,10 +264,13 @@ def _equivalence(
             comparison_rendered = str(comparison_value)
             if max(len(target_rendered), len(comparison_rendered)) > 4096:
                 return _unresolved_with("query evidence rendering exceeds its bound", unsupported)
+            candidate_uses = reasoning.relevant_uses(relevant_symbols, include_facts=True)
+            if len(candidate_uses) > 128:
+                return _unresolved_with("query assumption provenance exceeds its bound", unsupported)
             return QueryAnswer(
                 conclusion="disproved",
                 conditions=tuple(conditions),
-                assumptions_used=reasoning.relevant_uses(relevant_symbols, include_facts=True),
+                assumptions_used=candidate_uses,
                 relevant_unsupported_assumptions=unsupported,
                 evidence=CounterexampleEvidence(
                     substitutions={str(key): _canonical_exact(value) for key, value in values.items()},
