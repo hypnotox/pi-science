@@ -619,30 +619,45 @@ def substitute_analysis(
     analysis: WorkAnalysis,
     replacements: dict[str, Expression],
 ) -> WorkAnalysis:
-    return WorkAnalysis(
-        operations=SymbolicTally(
-            additions=substitute(
-                analysis.operations.additions, replacements, max_nodes=MAX_WORK_NODES
-            ),
-            subtractions=substitute(
-                analysis.operations.subtractions, replacements, max_nodes=MAX_WORK_NODES
-            ),
-            multiplications=substitute(
-                analysis.operations.multiplications, replacements, max_nodes=MAX_WORK_NODES
-            ),
-            divisions=substitute(
-                analysis.operations.divisions, replacements, max_nodes=MAX_WORK_NODES
-            ),
-            powers=substitute(analysis.operations.powers, replacements, max_nodes=MAX_WORK_NODES),
+    operations = SymbolicTally(
+        additions=substitute(
+            analysis.operations.additions, replacements, max_nodes=MAX_WORK_NODES
         ),
-        opaque_work=substitute(analysis.opaque_work, replacements, max_nodes=MAX_WORK_NODES),
-        invocations={
-            name: substitute(count, replacements, max_nodes=MAX_WORK_NODES)
-            for name, count in analysis.invocations.items()
-        },
+        subtractions=substitute(
+            analysis.operations.subtractions, replacements, max_nodes=MAX_WORK_NODES
+        ),
+        multiplications=substitute(
+            analysis.operations.multiplications, replacements, max_nodes=MAX_WORK_NODES
+        ),
+        divisions=substitute(
+            analysis.operations.divisions, replacements, max_nodes=MAX_WORK_NODES
+        ),
+        powers=substitute(analysis.operations.powers, replacements, max_nodes=MAX_WORK_NODES),
+    )
+    opaque_work = substitute(analysis.opaque_work, replacements, max_nodes=MAX_WORK_NODES)
+    invocations = {
+        name: substitute(count, replacements, max_nodes=MAX_WORK_NODES)
+        for name, count in analysis.invocations.items()
+    }
+    blockers = set(analysis.direct_work_blockers)
+    substituted_work = (
+        operations.additions,
+        operations.subtractions,
+        operations.multiplications,
+        operations.divisions,
+        operations.powers,
+        opaque_work,
+        *invocations.values(),
+    )
+    if any(_contains_infinity(value) for value in substituted_work):
+        blockers.add(_INFINITY_WORK_BLOCKER)
+    return WorkAnalysis(
+        operations=operations,
+        opaque_work=opaque_work,
+        invocations=invocations,
         unknown_costs=set(analysis.unknown_costs),
         unresolved=set(analysis.unresolved),
-        direct_work_blockers=set(analysis.direct_work_blockers),
+        direct_work_blockers=blockers,
     )
 
 

@@ -1,5 +1,16 @@
 import pytest
-from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+from py_science.formula import (
+    AnalysisRequest,
+    DirectedDefinition,
+    EquationRequest,
+    FormulaSyntax,
+    IndexDomain,
+    MathematicalDomain,
+    PrimitiveCost,
+    Scenario,
+    VariableDeclaration,
+    analyze,
+)
 from py_science.formula.exact_values import ExactRational, parse_exact_scalar, render_exact
 from py_science.formula.expressions import BinaryExpression, InfinityLiteral, RationalLiteral
 from py_science.formula.parser import ParseFailure, parse_expression
@@ -71,5 +82,71 @@ def test_infinite_sum_is_structural_but_has_no_finite_direct_work() -> None:
 
 
 def test_infinity_is_rejected_as_an_output_bound() -> None:
-    # Parser preserves infinity; equation-domain validation exercises the finite-bound rule.
-    assert not isinstance(parse_expression("Sum(x[i], (i, 0, oo))"), ParseFailure)
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=(
+                EquationRequest(
+                    name="values",
+                    expression="Eq(y[i], x[i])",
+                    domains={"i": IndexDomain(lower="0", upper="oo + 1")},
+                ),
+            ),
+            variables={
+                "x": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER)
+            },
+        )
+    )
+    assert outcome.status == "failure"
+    assert outcome.error.source is not None
+    assert outcome.error.source.path == "equations[0].domains.i.upper"
+
+
+def test_infinity_is_rejected_in_finite_primitive_work() -> None:
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="cost(x)",
+            primitive_costs=(PrimitiveCost(name="cost", parameters=("z",), work="oo"),),
+        )
+    )
+    assert outcome.status == "failure"
+    assert outcome.error.source is not None
+    assert outcome.error.source.path == "primitive_costs[0].work"
+
+
+def test_definition_substitution_reclassifies_direct_work_as_nonfinite() -> None:
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="Sum(x[i], (i, 0, n))",
+            variables={
+                "n": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER)
+            },
+            definitions=(DirectedDefinition(variable="n", expression="oo"),),
+        )
+    )
+    assert outcome.status == "success"
+    assert outcome.direct_work_applicability == "not_finite"
+    assert outcome.abstract_work is None
+
+
+def test_infinity_is_rejected_in_scenario_work_definitions() -> None:
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="Sum(x[i], (i, 0, n))",
+            variables={
+                "n": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER)
+            },
+            scenarios=(
+                Scenario(
+                    name="infinite",
+                    definitions=(DirectedDefinition(variable="n", expression="oo"),),
+                ),
+            ),
+        )
+    )
+    assert outcome.status == "failure"
+    assert outcome.error.source is not None
+    assert outcome.error.source.path == "scenarios[0].definitions[0].expression"

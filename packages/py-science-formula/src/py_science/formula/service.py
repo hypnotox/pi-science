@@ -238,16 +238,22 @@ def _parse_knowledge(
     for scenario_position, scenario in enumerate(request.scenarios):
         scenario_expressions: dict[str, Expression] = {}
         for definition_position, definition in enumerate(scenario.definitions):
-            parsed = loader.parse(
-                definition.expression,
-                f"scenarios[{scenario_position}].definitions[{definition_position}].expression",
+            definition_path = (
+                f"scenarios[{scenario_position}].definitions[{definition_position}].expression"
             )
+            parsed = loader.parse(definition.expression, definition_path)
             if isinstance(parsed, AnalysisFailure):
                 return parsed
             if isinstance(parsed, (Equation, Relationship)):
                 return _invalid(
                     f"scenario {scenario.name} definition "
                     f"{definition.variable} must be an expression"
+                )
+            if _contains_infinity(parsed):
+                return _invalid(
+                    f"scenario {scenario.name} definition {definition.variable} must be finite",
+                    source=SourceReference(path=definition_path),
+                    supported_alternative="use a finite scenario work definition",
                 )
             scenario_expressions[definition.variable] = parsed
         globally_defined = set(resolved_definitions)
@@ -572,11 +578,18 @@ def _parse_definitions(
             definition.body,
         )
     for position, primitive in enumerate(request.primitive_costs):
-        parsed = loader.parse(primitive.work, f"primitive_costs[{position}].work")
+        primitive_path = f"primitive_costs[{position}].work"
+        parsed = loader.parse(primitive.work, primitive_path)
         if isinstance(parsed, AnalysisFailure):
             return parsed
         if isinstance(parsed, (Equation, Relationship)):
             return _invalid(f"primitive cost {primitive.name} cannot contain a relationship")
+        if _contains_infinity(parsed):
+            return _invalid(
+                f"primitive cost {primitive.name} must be finite",
+                source=SourceReference(path=primitive_path),
+                supported_alternative="use a finite symbolic work expression",
+            )
         index_error, _ = _validate_index_scopes(
             parsed,
             set(primitive.parameters),
@@ -880,22 +893,30 @@ def _parse_equations(
             return _invalid(f"equation {item.name} domains must exactly bind its output indices")
         domains: dict[str, tuple[Expression, Expression]] = {}
         for index, domain in item.domains.items():
-            lower = loader.parse(
-                domain.lower, f"equations[{equation_position}].domains.{index}.lower"
-            )
+            lower_path = f"equations[{equation_position}].domains.{index}.lower"
+            upper_path = f"equations[{equation_position}].domains.{index}.upper"
+            lower = loader.parse(domain.lower, lower_path)
             if isinstance(lower, AnalysisFailure):
                 return lower
-            upper = loader.parse(
-                domain.upper, f"equations[{equation_position}].domains.{index}.upper"
-            )
+            upper = loader.parse(domain.upper, upper_path)
             if isinstance(upper, AnalysisFailure):
                 return upper
             if isinstance(lower, (Equation, Relationship)) or isinstance(
                 upper, (Equation, Relationship)
             ):
                 return _invalid(f"equation {item.name} domain bounds cannot contain Eq")
-            if isinstance(lower, InfinityLiteral) or isinstance(upper, InfinityLiteral):
-                return _invalid(f"equation {item.name} domain bounds cannot be infinite")
+            if _contains_infinity(lower):
+                return _invalid(
+                    f"equation {item.name} domain bounds cannot be infinite",
+                    source=SourceReference(path=lower_path),
+                    supported_alternative="use a finite computational domain bound",
+                )
+            if _contains_infinity(upper):
+                return _invalid(
+                    f"equation {item.name} domain bounds cannot be infinite",
+                    source=SourceReference(path=upper_path),
+                    supported_alternative="use a finite computational domain bound",
+                )
             domains[index] = (lower, upper)
         output_indices = set(domains)
         for lower, upper in domains.values():
@@ -1245,6 +1266,12 @@ def _indexed_value_names(expression: Expression) -> set[str]:
     for child in expression_children(expression):
         result.update(_indexed_value_names(child))
     return result
+
+
+def _contains_infinity(expression: Expression) -> bool:
+    return isinstance(expression, InfinityLiteral) or any(
+        _contains_infinity(child) for child in expression_children(expression)
+    )
 
 
 def _contains_advanced(expression: Expression) -> bool:
