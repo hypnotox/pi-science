@@ -431,39 +431,54 @@ def factor_independent(expression: Expression, index: str) -> Expression:
     return _multiply(independent, Sum(dependent, index, expression.lower, expression.upper))
 
 
+def _free_symbol_names(
+    expression: Expression, bound: frozenset[str] = frozenset()
+) -> set[str]:
+    if isinstance(expression, Symbol):
+        return set() if expression.name in bound else {expression.name}
+    if isinstance(expression, Sum):
+        return (
+            _free_symbol_names(expression.lower, bound)
+            | _free_symbol_names(expression.upper, bound)
+            | _free_symbol_names(expression.body, bound | {expression.index})
+        )
+    result: set[str] = set()
+    for child in _expression_children(expression):
+        result.update(_free_symbol_names(child, bound))
+    return result
+
+
 def replace_exact(
     expression: Expression, target: Expression, replacement: Expression
 ) -> tuple[Expression, bool]:
-    if expression == target:
-        return replacement, True
+    replacement_symbols = _free_symbol_names(target) | _free_symbol_names(replacement)
     changed = False
 
-    def visit(value: Expression) -> Expression:
+    def visit(value: Expression, bound: frozenset[str]) -> Expression:
         nonlocal changed
-        replaced, did_change = replace_exact(value, target, replacement)
-        changed = changed or did_change
-        return replaced
+        if value == target and not (replacement_symbols & bound):
+            changed = True
+            return replacement
+        if isinstance(value, IndexedValue):
+            return IndexedValue(
+                value.name, tuple(visit(item, bound) for item in value.indices)
+            )
+        if isinstance(value, Call):
+            return Call(value.name, tuple(visit(item, bound) for item in value.arguments))
+        if isinstance(value, Sum):
+            return Sum(
+                visit(value.body, bound | {value.index}),
+                value.index,
+                visit(value.lower, bound),
+                visit(value.upper, bound),
+            )
+        if isinstance(value, BinaryExpression):
+            return BinaryExpression(
+                value.operator, visit(value.left, bound), visit(value.right, bound)
+            )
+        return value
 
-    if isinstance(expression, IndexedValue):
-        result: Expression = IndexedValue(
-            expression.name, tuple(visit(item) for item in expression.indices)
-        )
-    elif isinstance(expression, Call):
-        result = Call(expression.name, tuple(visit(item) for item in expression.arguments))
-    elif isinstance(expression, Sum):
-        result = Sum(
-            visit(expression.body),
-            expression.index,
-            visit(expression.lower),
-            visit(expression.upper),
-        )
-    elif isinstance(expression, BinaryExpression):
-        result = BinaryExpression(
-            expression.operator, visit(expression.left), visit(expression.right)
-        )
-    else:
-        result = expression
-    return result, changed
+    return visit(expression, frozenset()), changed
 
 
 def _contains_symbol(expression: Expression, name: str) -> bool:

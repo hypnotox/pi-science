@@ -1171,12 +1171,21 @@ def _calls(expression: Expression) -> tuple[Call, ...]:
 
 
 def _symbol_names(expression: Expression) -> set[str]:
-    if isinstance(expression, Symbol):
-        return {expression.name}
-    result: set[str] = set()
-    for child in expression_children(expression):
-        result.update(_symbol_names(child))
-    return result
+    def collect(value: Expression, bound: frozenset[str]) -> set[str]:
+        if isinstance(value, Symbol):
+            return set() if value.name in bound else {value.name}
+        if isinstance(value, Sum):
+            return (
+                collect(value.lower, bound)
+                | collect(value.upper, bound)
+                | collect(value.body, bound | {value.index})
+            )
+        result: set[str] = set()
+        for child in expression_children(value):
+            result.update(collect(child, bound))
+        return result
+
+    return collect(expression, frozenset())
 
 
 def _value_names(expression: Expression) -> set[str]:

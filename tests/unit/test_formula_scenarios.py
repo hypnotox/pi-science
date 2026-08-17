@@ -179,6 +179,32 @@ def test_equality_replacement_is_canonical_and_never_replaces_literals() -> None
     assert true_literal.system.unresolved == ()
 
 
+def test_assumption_replacement_respects_bound_sum_indices() -> None:
+    result = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=(
+                EquationRequest(
+                    name="indexed_work",
+                    expression="Eq(A[i], primitive(i))",
+                    domains={"i": IndexDomain(lower="0", upper="N - 1")},
+                ),
+            ),
+            variables={"N": declared(MathematicalDomain.POSITIVE_INTEGER)},
+            primitive_costs=(
+                PrimitiveCost(name="primitive", parameters=("z",), work="z"),
+            ),
+            assumptions=(Assumption(name="free_i", relationship="i == 1"),),
+        )
+    )
+
+    assert result.status == "success"
+    assert result.system is not None
+    assert result.system.total_work == "Sum(i, (i, 0, N - 1))"
+    assert result.system.relationships_used == ()
+    assert result.system.unused_assumptions == ("free_i",)
+
+
 def test_relationships_share_parser_budget_and_reject_direct_contradictions() -> None:
     contradiction = analyze(
         AnalysisRequest(
@@ -281,6 +307,44 @@ def test_directed_definitions_reject_cycles() -> None:
     assert "directed definitions contain a cycle" in result.error.message
     assert scenario.status == "failure"
     assert "definitions contain a cycle" in scenario.error.message
+
+
+def test_definition_dependencies_ignore_bound_sum_indices() -> None:
+    definitions = (
+        DirectedDefinition(variable="i", expression="r"),
+        DirectedDefinition(variable="r", expression="Sum(x[i], (i, 0, N - 1))"),
+    )
+    variables = {
+        "N": declared(MathematicalDomain.POSITIVE_INTEGER),
+        "x": declared(MathematicalDomain.REAL),
+        "i": declared(MathematicalDomain.REAL),
+        "r": declared(MathematicalDomain.REAL),
+    }
+    primitive = (PrimitiveCost(name="primitive", parameters=("z",), work="z"),)
+    global_result = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="primitive(i)",
+            variables=variables,
+            primitive_costs=primitive,
+            definitions=definitions,
+        )
+    )
+    scenario_result = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="primitive(i)",
+            variables=variables,
+            primitive_costs=primitive,
+            scenarios=(Scenario(name="derived", definitions=definitions),),
+        )
+    )
+
+    assert global_result.status == "success"
+    assert global_result.system is not None
+    assert global_result.system.total_work == "Sum(x[i], (i, 0, N - 1))"
+    assert scenario_result.status == "success"
+    assert scenario_result.scenarios[0].substituted_work == "Sum(x[i], (i, 0, N - 1))"
 
 
 def test_definitions_validate_declared_domains_globally_and_per_scenario() -> None:
