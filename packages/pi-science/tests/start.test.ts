@@ -127,9 +127,7 @@ describe("readiness gate", () => {
         expect.stringMatching(
           /Before first using analyze_formula.*pi-science-formula-analysis skill/,
         ),
-        expect.stringMatching(
-          /analyze_formula rejects.*Python-owned diagnostic/,
-        ),
+        expect.stringMatching(/analyze_formula rejects.*Python-owned message/),
       ],
     });
     const parameters = current.tools[0]!.parameters;

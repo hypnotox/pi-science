@@ -104,7 +104,7 @@ Each answer reports `proved`, `proved_under_assumptions`, `disproved`, `unresolv
 
 ## Diagnostics and non-goals
 
-Request diagnostics identify a field path and, for parsed source, a span and supported alternative. Correct the localized request from those details rather than broadening the dialect. Query blockers and proof qualifications remain part of the answer, not warnings to discard.
+Request diagnostics provide a Python-owned message, identify a field path when available, and may include a source span or supported alternative. Correct the localized request from the available details rather than broadening the dialect. Query blockers and proof qualifications remain part of the answer, not warnings to discard.
 
 The implemented analyzer does not accept LaTeX input, infer formulas from source, evaluate represented values numerically, validate physics, profile implementations, predict runtime or hardware behavior, model dimensions or implicit vectors, differentiate, approximate numerically, prove arbitrary theorems, solve general systems, generate recurrences, or generate code.
 

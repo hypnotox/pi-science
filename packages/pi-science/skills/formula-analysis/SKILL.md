@@ -12,7 +12,7 @@ Use `analyze_formula` for one bounded restricted-SymPy expression or one nonempt
 The parser accepts:
 
 - integer and exact decimal literals, ordinary symbols, and signed infinity `oo` or `-oo`;
-- arithmetic `+`, `-`, `*`, `/`, and `**`, including unary signs on numeric literals;
+- arithmetic `+`, `-`, `*`, `/`, and `**`, including signed integers and negative decimal literals;
 - indexed scalars such as `x[i]` and `A[i, j]`;
 - ordinary named calls with positional arguments, such as `basis(k, x[i])`;
 - one-limit inclusive sums spelled exactly `Sum(body, (index, lower, upper))`;
@@ -94,7 +94,7 @@ Accepted query shape does not promise a proved answer. The shipped evaluators ar
 
 First inspect every normalized SymPy and LaTeX interpretation. Then inspect submitted and aggregate work, dependency reuse, relationship provenance, scenario qualifications, unknown costs, unresolved items, and query proof qualifications before drawing a conclusion. A scenario specialization does not replace exact general work.
 
-When a request fails, use the returned field path and source span to locate it, then follow the diagnostic's supported alternative rather than guessing a broader spelling. For query answers, read `conclusion`, conditions, assumptions used, relevant unsupported assumptions, blockers, evidence, and any informational derived candidates. Treat `proved_under_assumptions`, conservative bounds, `unresolved`, and `inapplicable` as distinct outcomes.
+When a request fails, retain the Python-owned message and use any returned field path, source span, or supported alternative to correct it rather than guessing a broader spelling. For query answers, read `conclusion`, conditions, assumptions used, relevant unsupported assumptions, blockers, evidence, and any informational derived candidates. Treat `proved_under_assumptions`, conservative bounds, `unresolved`, and `inapplicable` as distinct outcomes.
 
 The tool analyzes formulas and directly attached mathematical schema only. It does not accept LaTeX input, infer formulas from source, evaluate represented values numerically, validate physics, profile an implementation, predict runtime or hardware behavior, prove arbitrary theorems, or generate code.
 

@@ -103,7 +103,7 @@ export async function start(
       "Analyze restricted-SymPy formulas for normalized interpretation and qualified symbolic work",
     promptGuidelines: [
       "Before first using analyze_formula, read the available pi-science-formula-analysis skill for the accepted dialect, request modeling, and result interpretation.",
-      "When analyze_formula rejects a request, use its Python-owned diagnostic path, span, and supported alternatives to correct the request.",
+      "When analyze_formula rejects a request, use its Python-owned message and any returned path, span, or supported alternative to correct the request.",
     ],
     parameters: formulaSchema,
     async execute(_id, params: FormulaParameters, signal) {

@@ -18,7 +18,7 @@ describe("npm package boundary", () => {
     expect(skill).toContain("do not include `syntax` in a tool call");
     expect(skill).toContain("Sum(body, (index, lower, upper))");
     expect(skill).toContain("Parser acceptance, request-context validity");
-    expect(skill).toContain("field path and source span");
+    expect(skill).toContain("any returned field path, source span");
     expect(skill).toContain("proof qualifications");
     expect(skill).toContain("py_science.formula");
     expect(skill).toContain("PEP 723");
