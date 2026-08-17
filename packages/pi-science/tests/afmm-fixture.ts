@@ -61,3 +61,16 @@ export const afmmParameters = parameters;
 
 export const afmmTotalWork =
   "B*p*(2*C - 1) + C*Sum(C_translate(M[neighbor[b, c], k]), (b, 0, B - 1), (k, 0, p - 1)) + N*dim + 2*N*p + N*Sum(k + 1, (k, 0, p - 1)) + p*Sum(Max(0, n[b] - 1), (b, 0, B - 1))";
+
+export const afmmTailParameters = {
+  expression: "Sum((k + 1) * q**k, (k, p, oo))",
+  variables: {
+    p: { domain: "nonnegative_integer" as const },
+    q: { domain: "real" as const },
+  },
+  assumptions: [
+    { name: "q_nonnegative", relationship: "0 <= q" },
+    { name: "tail_ratio", relationship: "q < 1" },
+  ],
+  queries: [{ name: "afmm_tail", kind: "closed_form" as const }],
+};

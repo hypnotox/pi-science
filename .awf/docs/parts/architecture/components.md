@@ -4,3 +4,4 @@
 - `packages/pi-science/src/bridge.ts`: exact request/result translation, bounded subprocess client, and diagnostic translation.
 - `packages/pi-science/src/index.ts`: strict expression-or-system Pi schema, tool registration, and always-available doctor.
 - `packages/pi-science/tests/`: bridge, AFMM round-trip, package, and readiness-gate regression evidence.
+- `packages/pi-science/skills/formula-analysis/`: caller guidance for explicit bounded general-context queries and qualified reports.

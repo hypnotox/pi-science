@@ -77,21 +77,21 @@ describe("formula adapter protocol boundary", () => {
     [
       "extra request key",
       JSON.stringify({
-        version: 5,
+        version: 6,
         request: { syntax: "sympy", expression: "x", extra: true },
       }),
     ],
     [
       "invalid request type",
       JSON.stringify({
-        version: 5,
+        version: 6,
         request: { syntax: "sympy", expression: 1 },
       }),
     ],
     [
       "reserved query name",
       JSON.stringify({
-        version: 5,
+        version: 6,
         request: {
           syntax: "sympy",
           expression: "x",
@@ -102,7 +102,7 @@ describe("formula adapter protocol boundary", () => {
     [
       "reserved property variable",
       JSON.stringify({
-        version: 5,
+        version: 6,
         request: {
           syntax: "sympy",
           expression: "x",
@@ -119,7 +119,7 @@ describe("formula adapter protocol boundary", () => {
     [
       "reserved limit variable",
       JSON.stringify({
-        version: 5,
+        version: 6,
         request: {
           syntax: "sympy",
           expression: "x",
@@ -138,7 +138,7 @@ describe("formula adapter protocol boundary", () => {
     [
       "reserved asymptotic variable",
       JSON.stringify({
-        version: 5,
+        version: 6,
         request: {
           syntax: "sympy",
           expression: "x",
@@ -165,7 +165,7 @@ describe("formula adapter protocol boundary", () => {
     expect(result.stderr).toBe("");
     expect(Buffer.byteLength(result.stdout)).toBeLessThan(10_000);
     expect(JSON.parse(result.stdout)).toMatchObject({
-      version: 5,
+      version: 6,
       error: { kind: "request" },
     });
   });
@@ -188,10 +188,10 @@ print(module._encoded({"result": "x" * 262401}) is None)
     expect(result.stdout.trim()).toBe("True");
   });
 
-  it("preserves mandatory nulls in populated protocol-v5 query answers", () => {
+  it("preserves mandatory nulls in populated protocol-v6 query answers", () => {
     const result = invoke(
       JSON.stringify({
-        version: 5,
+        version: 6,
         request: {
           syntax: "sympy",
           expression: "x",
@@ -218,7 +218,7 @@ print(module._encoded({"result": "x" * 262401}) is None)
   it("canonicalizes exact real scenario values and interval endpoints", () => {
     const result = invoke(
       JSON.stringify({
-        version: 5,
+        version: 6,
         request: {
           syntax: "sympy",
           expression: "primitive(x)",
@@ -241,7 +241,7 @@ print(module._encoded({"result": "x" * 262401}) is None)
     expect(result.status).toBe(2); // One variable cannot have fixed and bound treatments.
     const bounded = invoke(
       JSON.stringify({
-        version: 5,
+        version: 6,
         request: {
           syntax: "sympy",
           expression: "primitive(x)",
@@ -273,13 +273,13 @@ print(module._encoded({"result": "x" * 262401}) is None)
 
   it("round trips a complete equation-system request through the real adapter", () => {
     const result = invoke(
-      JSON.stringify({ version: 5, request: systemRequest }),
+      JSON.stringify({ version: 6, request: systemRequest }),
     );
     expect(result.status).toBe(0);
     expect(result.stderr).toBe("");
     const envelope = JSON.parse(result.stdout);
     expect(envelope).toMatchObject({
-      version: 5,
+      version: 6,
       result: {
         status: "success",
         system: {

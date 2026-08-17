@@ -1,7 +1,7 @@
 import { TextDecoder } from "node:util";
 import { spawnIsolated, terminateTree } from "./process.js";
 
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 export const MAX_FORMULA_BYTES = 65_536;
 export const MAX_ENVELOPE_BYTES = 2_097_152;
 export const MAX_RESPONSE_BYTES = 262_400;
@@ -48,6 +48,60 @@ export type Scenario = {
   asymptotic?: string[];
   bounds?: Record<string, IntervalBound>;
 };
+export type EquationTarget = { kind: "equation"; name: string };
+export type PropertyCheckRequest =
+  | { kind: "sign" }
+  | {
+      kind: "valid_domain" | "singularities" | "monotonicity";
+      variable: string;
+    };
+export type QueryRequest =
+  | {
+      name: string;
+      kind: "equivalence";
+      target?: EquationTarget;
+      comparison: string;
+    }
+  | { name: string; kind: "closed_form"; target?: EquationTarget }
+  | {
+      name: string;
+      kind: "properties";
+      target?: EquationTarget;
+      checks: PropertyCheckRequest[];
+    }
+  | {
+      name: string;
+      kind: "limit";
+      target?: EquationTarget;
+      variable: string;
+      point: ExactScenarioScalar;
+      direction: "left" | "right" | "both";
+    }
+  | {
+      name: string;
+      kind: "limit";
+      target?: EquationTarget;
+      variable: string;
+      point: "oo" | "-oo";
+    }
+  | {
+      name: string;
+      kind: "asymptotic";
+      target?: EquationTarget;
+      variable: string;
+      point: ExactScenarioScalar;
+      direction: "left" | "right" | "both";
+      order: number;
+    }
+  | {
+      name: string;
+      kind: "asymptotic";
+      target?: EquationTarget;
+      variable: string;
+      point: "oo" | "-oo";
+      order: number;
+    };
+
 type RequestMetadata = {
   variables?: Record<string, VariableDeclaration>;
   functions?: FunctionDefinition[];
@@ -55,6 +109,7 @@ type RequestMetadata = {
   assumptions?: Assumption[];
   definitions?: DirectedDefinition[];
   scenarios?: Scenario[];
+  queries?: QueryRequest[];
 };
 export type AnalysisRequest =
   | (RequestMetadata & {
@@ -971,6 +1026,11 @@ function formulaSources(request: AnalysisRequest): string[] {
   for (const scenario of request.scenarios ?? [])
     for (const definition of scenario.definitions ?? [])
       sources.push(definition.expression);
+  for (const query of request.queries ?? []) {
+    if (query.kind === "equivalence") sources.push(query.comparison);
+    if (query.kind === "limit" || query.kind === "asymptotic")
+      sources.push(String(query.point));
+  }
   return sources;
 }
 

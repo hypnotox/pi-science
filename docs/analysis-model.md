@@ -4,7 +4,7 @@
 <!-- awf:edit-in-place body: your edits below are preserved across syncs; awf owns the rest -->
 ## Implemented formula-analysis slice
 
-The independently importable `py-science-formula` distribution and readiness-gated Pi `analyze_formula` tool accept one ordinary restricted-SymPy expression or one nonempty list of uniquely named `Eq` equations over indexed scalar values, generic calls, and inclusive `Sum` forms. Requests may carry per-equation output domains, variable domains, function definitions, scalar primitive costs, named assumptions, directed definitions, and scenarios. Pi injects `syntax: sympy`; strict request validation rejects surplus fields and invalid expression/system unions before analysis.
+The independently importable `py-science-formula` distribution and readiness-gated Pi `analyze_formula` tool accept one ordinary restricted-SymPy expression or one nonempty list of uniquely named `Eq` equations over indexed scalar values, generic calls, and inclusive `Sum` forms. Requests may carry per-equation output domains, variable domains, function definitions, scalar primitive costs, named assumptions, directed definitions, scenarios, and optional bounded general-context queries. Pi injects `syntax: sympy`; strict request validation rejects surplus fields and invalid expression/system unions before analysis.
 
 The public Python boundary bounds request populations, aggregate source bytes and nodes, expression depth, integers, generated scenario results, rendering, and reports. The private protocol adds an exact versioned envelope, a whole-envelope UTF-8 byte bound, bounded serialized output, and exact rich-result validation before Pi consumes the report. Submitted formula, assumption, and definition text is converted from restricted Python AST data only: it is never evaluated or passed to a SymPy string parser. Mathematical policy remains in Python rather than the adapter or TypeScript bridge.
 
@@ -12,7 +12,11 @@ Each named equation is charged once per local output-domain point; downstream re
 
 Named equality or inequality assumptions and acyclic directed definitions support exact normalized-subexpression replacement and bounded deterministic factoring with recorded provenance. Separate fixed, finite-choice, derived, asymptotic, or interval scenarios leave the general symbolic report unchanged and report exact substitutions, conservative supported intervals, qualified univariate polynomial classifications, provenance, and unresolved blockers. Real-adapter and registered-tool AFMM-like acceptance proves these system and scenario surfaces survive the Pi boundary.
 
-LaTeX input, unrestricted theorem proving or solving, source inference, physical validation, empirical timing, hardware modelling, recurrences, and code generation are not implemented. The remaining sections define the broader product contract and MVP direction where they exceed this shipped Python and Pi slice.
+Restricted LaTeX input, scenario-context queries, complex values, dimensions, vector shorthand, differentiation, numerical approximation, unrestricted theorem proving or solving, source inference, physical validation, empirical timing, hardware modelling, recurrences, and code generation are not implemented. The remaining sections define the broader product contract and MVP direction where they exceed this shipped Python and Pi slice.
+
+## Bounded mathematical query contract
+
+A `queries` collection is optional and remains separate from submitted work and scenarios. `equivalence`, `closed_form`, `properties`, `limit`, and `asymptotic` queries explicitly name their request; they target the whole expression or one named equation RHS and use global assumptions only. Finite points use exact scalars and require direction, while signed infinity forbids it. Each answer reports a conservative conclusion, conditions, assumption provenance, unsupported relevant facts, blockers, evidence, and informational derived candidates. Valid unsupported questions are localized `unresolved` or `inapplicable` answers. The shipped evaluators cover bounded rational equivalence, geometric-linear closed forms, supported rational properties and limits, and bounded rational or linear-exponential asymptotics. Scenarios do not execute queries, and derived candidates never alter submitted direct work.
 
 ## Request envelope
 

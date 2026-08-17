@@ -25,6 +25,10 @@ Build equation dependency graphs, identify repeated subexpressions and invariant
 
 Suggest safe local factoring, reciprocal or norm reuse, repeated-call reduction, invariant extraction, and assumption-driven simplification. State every required assumption, arithmetic qualification, and estimated symbolic effect.
 
+### Future mathematical query contexts and notation
+
+Scenario-context queries, restricted LaTeX input, complex values, dimensions, vector shorthand, and differentiation remain deliberately deferred beyond the shipped bounded general-query contract.
+
 
 <!-- awf:edit deferred: from .awf/docs/parts/roadmap/deferred.md -->
 ## Deferred

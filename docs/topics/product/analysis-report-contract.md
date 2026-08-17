@@ -17,3 +17,7 @@ Origin: ADR-0001
 ### `rule: provenance-preserving-system-work`
 Direct Python system reports preserve exact general symbolic work and identify every supported equality or directed definition used in a deterministic specialization. Bounded explicit scenarios report their substitutions, provenance, qualifications, and unresolved blockers; unsupported inference, ordering, multivariate dominance, monotonicity, and opaque costs remain explicit rather than becoming stronger claims. These reports analyze submitted mathematical structure and complexity, not physical correctness, implementation timing, or global optimality.
 Origin: ADR-0003
+
+### `rule: qualified-query-conclusions`
+Each query result preserves its submitted target and normalized interpretation and returns only `proved`, `proved_under_assumptions`, `disproved`, `unresolved`, or `inapplicable` conclusions with inspectable evidence and qualifications. Derived candidates are informational and never replace submitted operation counts or direct work; no-query reports remain valid with an empty query collection.
+Origin: ADR-adopt-explicit-bounded-mathematical-queries

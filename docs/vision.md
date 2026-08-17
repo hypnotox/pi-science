@@ -21,7 +21,7 @@ The goal is not to replace agent reasoning. It is to make the mathematical struc
 ## Core use case
 
 1. An agent reasons about an algorithm or mathematical system.
-2. The agent expresses the planned computation in LaTeX or restricted SymPy syntax.
+2. The agent expresses the planned computation in restricted SymPy syntax.
 3. The agent supplies relevant domains, assumptions, scenarios, and opaque primitive costs.
 4. The tool safely parses and normalizes the submission into one internal mathematical model.
 5. The tool analyzes symbolic work, dependencies, scaling, and local improvement opportunities.
@@ -33,7 +33,7 @@ The same workflow supports a one-line expression and a named system of indexed e
 
 ### Familiar notation
 
-Agents use notation they already reason about well: LaTeX for concise readable mathematics and actual SymPy conventions for precise machine submission. The supported subsets are explicit and safely parsed as data; arbitrary Python evaluation is forbidden. The internal representation is not part of the public protocol.
+Agents submit actual restricted SymPy conventions for precise machine analysis. The bounded supported subset is explicit and safely parsed as data; arbitrary Python evaluation and LaTeX input are forbidden. The internal representation is not part of the public protocol.
 
 ### Mathematics plus metadata
 
@@ -55,14 +55,15 @@ Every response includes normalized SymPy and LaTeX renderings of what the tool a
 
 The MVP provides:
 
-1. safe parsing and normalization for supported LaTeX and SymPy subsets;
+1. safe parsing and normalization for the supported restricted-SymPy subset;
 2. symbolic counts for arithmetic, powers, roots, function calls, terms, and declared primitives;
 3. exact or qualified work-complexity analysis under supplied assumptions;
 4. scenario evaluation for fixed values, intervals, finite choices, definitions, and retained asymptotic variables;
 5. dependency, reuse, common-subexpression, and invariant-hoisting analysis for named equation systems;
 6. dominant-term analysis that retains lower-order terms when concrete ranges make them relevant;
 7. comparison of candidate formulations, including symbolic differences and crossover conditions;
-8. safe local mathematical rewrites with assumptions and estimated symbolic effect.
+8. safe local mathematical rewrites with assumptions and estimated symbolic effect;
+9. explicit bounded general-context mathematical queries with qualified evidence.
 
 The tooling includes a concise agent skill for formulating analyzable requests and inspecting the normalized result. [Analysis Model](analysis-model.md) defines the request and report contract.
 
@@ -76,7 +77,7 @@ The MVP does not:
 - model caches, vectorization, GPU occupancy, exact hardware timing, parallel schedules, or synchronization;
 - generate optimized source code or infer arbitrary high-level algorithm replacements;
 - provide a complete formal proof system;
-- accept arbitrary Python or all of LaTeX and SymPy;
+- accept arbitrary Python, LaTeX input, or unrestricted SymPy;
 - silently choose numerical approximations.
 
 Profiler integration may exist later as a separate post-implementation layer. Formula lowering may later produce implementation skeletons without moving implementation testing into the core analyzer.

@@ -9,3 +9,11 @@ Origin: ADR-0001
 ### `rule: ideal-equation-dependency-work`
 Direct Python equation systems resolve unique named producers into a deterministic acyclic graph. Each equation is charged once per local output-domain point, downstream references reuse that result, and inclusive bounded sums use nonnegative mathematical cardinality; unresolved primitive costs remain explicit.
 Origin: ADR-0003
+
+### `rule: assumption-aware-query-reasoning`
+The Python query evaluator, not Pi transport, combines declared domains and global assumptions for the supported bounded mathematical families. Answers conservatively identify used assumptions, relevant unsupported assumptions, conditions, blockers, and proof status; valid unsupported questions remain localized unresolved or inapplicable results rather than transport failures.
+Origin: ADR-adopt-explicit-bounded-mathematical-queries
+
+### `rule: exact-query-values-and-infinity`
+Query and scenario finite scalars are bounded exact rationals, including exact decimal syntax, while `oo` and `-oo` are explicit mathematical infinity. Infinite mathematical expressions remain analyzable but never imply finite direct-evaluation work.
+Origin: ADR-adopt-explicit-bounded-mathematical-queries

@@ -57,3 +57,28 @@ dependencies = [
 Compose the public API directly for a complex probe, importing it from `py_science.formula`. The [`py-science-formula` README](../../../py-science-formula/README.md) contains a matching equation-system request.
 
 For a one-off PEP 723 probe, put that dependency in the script metadata and run `uv run probe.py`; do not import from Pi's isolated backend or its managed checkout.
+
+## Bounded mathematical queries
+
+Add optional general-context `queries` only when asking one explicit mathematical question. Each query has a unique `name` and one of these strict shapes: `equivalence` has `comparison`; `closed_form` has no extra operand; `properties` has a nonempty unique `checks` list of `sign` or `valid_domain`, `singularities`, or `monotonicity` with `variable`; `limit` has `variable`, an exact finite `point` plus `left`, `right`, or `both` `direction`, or `oo`/`-oo` without direction; `asymptotic` has the same point rule and `order` 1 through 8. An expression query omits `target`; a system query supplies `{ "kind": "equation", "name": "..." }` for one named RHS. Query strings remain restricted SymPy data, and finite scalars use safe JSON integers or exact strings such as `1/2` and `1.20`.
+
+Inspect every answer's `conclusion` (`proved`, `proved_under_assumptions`, `disproved`, `unresolved`, or `inapplicable`), conditions, assumptions used, unsupported relevant assumptions, blockers, and evidence. Read diagnostics with their source path/span and supported alternative. Derived candidates are mathematical information only: they never replace submitted operation counts or work. Infinite mathematics may have a qualified answer but has no finite direct-work count. Scenarios do not run queries, and valid unsupported questions return localized qualified answers rather than an invented result.
+
+For example, this AFMM tail asks for a verified closed form under explicit global assumptions:
+
+```json
+{
+  "expression": "Sum((k + 1) * q**k, (k, p, oo))",
+  "variables": {
+    "p": { "domain": "nonnegative_integer" },
+    "q": { "domain": "real" }
+  },
+  "assumptions": [
+    { "name": "q_nonnegative", "relationship": "0 <= q" },
+    { "name": "tail_ratio", "relationship": "q < 1" }
+  ],
+  "queries": [{ "name": "afmm_tail", "kind": "closed_form" }]
+}
+```
+
+The initial families are bounded rational equivalence, geometric-linear finite or convergent infinite closed forms, supported rational properties and limits, and bounded rational or linear-exponential asymptotics. Scenario-context queries, LaTeX input, complex values, dimensions, vector shorthand, differentiation, numerical approximation, and general theorem proving are non-goals.

@@ -12,7 +12,11 @@ import {
   resolvePinnedSource,
   start,
 } from "../src/index.js";
-import { afmmParameters, afmmTotalWork } from "./afmm-fixture.js";
+import {
+  afmmParameters,
+  afmmTailParameters,
+  afmmTotalWork,
+} from "./afmm-fixture.js";
 
 const repositoryRoot = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -87,7 +91,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 5, result: response }),
+            JSON.stringify({ version: 6, result: response }),
           )}))`,
         ],
       }),
@@ -111,6 +115,29 @@ describe("readiness gate", () => {
         assumptions: [{ name: "known", relationship: "N > 0" }],
         definitions: [{ variable: "p", expression: "N + 1" }],
         scenarios: [{ name: "scale", asymptotic: ["N"] }],
+      }),
+    ).toBe(true);
+    expect(
+      Value.Check(parameters, {
+        expression: "x",
+        queries: [
+          { name: "same", kind: "equivalence", comparison: "x" },
+          { name: "domain", kind: "properties", checks: [{ kind: "sign" }] },
+          {
+            name: "at_zero",
+            kind: "limit",
+            variable: "x",
+            point: "0",
+            direction: "both",
+          },
+          {
+            name: "at_infinity",
+            kind: "asymptotic",
+            variable: "x",
+            point: "oo",
+            order: 2,
+          },
+        ],
       }),
     ).toBe(true);
     expect(
@@ -147,6 +174,44 @@ describe("readiness gate", () => {
         ],
       },
       { equations: [{ name: "a", expression: "Eq(a, x)", extra: true }] },
+      {
+        expression: "x",
+        queries: [{ name: "bad", kind: "limit", variable: "x", point: "0" }],
+      },
+      {
+        expression: "x",
+        queries: [
+          {
+            name: "bad",
+            kind: "asymptotic",
+            variable: "x",
+            point: "oo",
+            direction: "both",
+            order: 1,
+          },
+        ],
+      },
+      {
+        expression: "x",
+        queries: [
+          {
+            name: "bad",
+            kind: "equivalence",
+            comparison: "x",
+            target: { kind: "expression" },
+          },
+        ],
+      },
+      {
+        expression: "x",
+        queries: [
+          {
+            name: "bad",
+            kind: "properties",
+            checks: [{ kind: "sign" }, { kind: "sign" }],
+          },
+        ],
+      },
     ])
       expect(Value.Check(parameters, invalid)).toBe(false);
     const result = await current.tools[0]?.execute("id", { expression: "x" });
@@ -228,6 +293,43 @@ describe("readiness gate", () => {
     expect(result.content).toEqual([
       { type: "text", text: JSON.stringify(result.details) },
     ]);
+  });
+
+  it("round trips a query-bearing AFMM tail through the registered tool", async () => {
+    const current = host();
+    const adapter = fileURLToPath(
+      new URL("../bridge/formula_adapter.py", import.meta.url),
+    );
+    await start(
+      current.api,
+      Promise.resolve({
+        ready: true,
+        command: "uv",
+        args: ["run", "--locked", "python", adapter],
+      }),
+    );
+    const result = await current.tools[0]!.execute("id", afmmTailParameters);
+    expect(result.details).toMatchObject({
+      status: "success",
+      abstract_work: null,
+      direct_work_applicability: "not_finite",
+      queries: [
+        {
+          name: "afmm_tail",
+          kind: "closed_form",
+          answers: [
+            {
+              conclusion: "proved_under_assumptions",
+              evidence: {
+                kind: "closed_form",
+                verification: "infinite_partial_sum",
+              },
+              derived_candidates: [expect.any(Object)],
+            },
+          ],
+        },
+      ],
+    });
   });
 
   it("discovers the product skill only with the ready analysis tool", async () => {

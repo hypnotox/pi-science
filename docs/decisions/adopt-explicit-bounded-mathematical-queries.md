@@ -1,7 +1,7 @@
 ---
 format: current-state-v4
 slug: adopt-explicit-bounded-mathematical-queries
-status: Accepted
+status: Implementing
 date: 2026-08-17
 ---
 # ADR-adopt-explicit-bounded-mathematical-queries: Adopt explicit bounded mathematical queries
@@ -54,3 +54,5 @@ The analyzer must bound query populations, derived expressions, reasoning effort
 
 - 2026-08-17: Proposed
 - 2026-08-17: Accepted; content-sha256: cd33e6176c48971edd1faaa54db67fcfbcce568e9044ee8a0ea3dfdf9afe99f7
+- 2026-08-17: Implementing; content-sha256: cd33e6176c48971edd1faaa54db67fcfbcce568e9044ee8a0ea3dfdf9afe99f7
+- 2026-08-17: Applied; operations: update `product/product-boundary:symbolic-analysis-only`, add `product/mathematical-input-contract:explicit-mathematical-queries`, add `product/mathematical-analysis-model:assumption-aware-query-reasoning`, add `product/mathematical-analysis-model:exact-query-values-and-infinity`, add `product/analysis-report-contract:qualified-query-conclusions`

@@ -17,3 +17,7 @@ Origin: ADR-0001
 ### `rule: compositional-indexed-equation-requests`
 Direct Python requests safely accept either an ordinary expression or uniquely named indexed equations, bounded sums, generic calls, local output domains, declared external-variable domains, function definitions, and scalar primitive work. Formula text is bounded data parsed only through the restricted syntax.
 Origin: ADR-0003
+
+### `rule: explicit-mathematical-queries`
+Formula requests may carry an optional bounded `queries` collection of explicitly named `equivalence`, `closed_form`, `properties`, `limit`, or `asymptotic` questions. A query targets the whole expression or a named equation RHS; it cannot select nested syntax or a scenario context. Exact finite points use canonical rational or decimal scalar syntax and signed infinity is explicit. Restricted LaTeX, complex values, dimensions, vector shorthand, differentiation, and scenario-context queries remain future capabilities.
+Origin: ADR-adopt-explicit-bounded-mathematical-queries

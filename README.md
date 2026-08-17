@@ -60,3 +60,9 @@ Only formulas and directly attached mathematical schema are inputs. Analysis doe
 ```bash
 ./scripts/check-release --public-ref v0.2.0 --expected-sha <full-40-character-sha>
 ```
+
+## Explicit bounded mathematical queries
+
+`analyze_formula` also accepts an optional general-context `queries` collection. Queries explicitly request `equivalence` (with `comparison`), `closed_form`, `properties` (unique supported checks), `limit` (variable, exact point, and finite-point direction), or `asymptotic` (the same point rule and order 1-8). They analyze the whole expression or one named equation RHS, use declared domains and global assumptions, and return qualified `proved`, `proved_under_assumptions`, `disproved`, `unresolved`, or `inapplicable` answers with evidence, conditions, provenance, blockers, and source diagnostics. Exact finite scalars are safe JSON integers or canonical rational/decimal strings; `oo` and `-oo` are mathematical infinity.
+
+The initial bounded families cover rational equivalence, geometric-linear closed forms including the AFMM tail `Sum((k + 1) * q**k, (k, p, oo))` under `0 <= q < 1`, supported rational properties and limits, and bounded rational or linear-exponential asymptotics. Derived candidates are informational and never replace submitted work; infinite mathematical expressions have no finite direct-work count. No-query calls and scenario work remain unchanged, and scenarios do not run queries. Restricted LaTeX input, scenario-context queries, complex values, dimensions, vector shorthand, differentiation, numerical approximation, and general theorem proving remain explicit non-goals.

@@ -363,7 +363,7 @@ describe("private formula bridge", () => {
       await kind(invokeAdapter(node, responder(value), request()), "protocol");
   });
 
-  it("strictly validates populated protocol-v5 query result unions", async () => {
+  it("strictly validates populated protocol-v6 query result unions", async () => {
     const identityAnswer = {
       check: null,
       conclusion: "proved",
@@ -498,6 +498,10 @@ describe("private formula bridge", () => {
 
     const invalid = [
       { ...query, name: "not-valid" },
+      {
+        ...query,
+        answers: [{ ...identityAnswer, conclusion: "not_proved" }],
+      },
       { ...query, name: "x".repeat(129) },
       { ...query, name: "oo" },
       { ...query, target: { kind: "expression", extra: true } },
@@ -938,6 +942,23 @@ describe("private formula bridge", () => {
         request(),
       ),
       "malformed-output",
+    );
+  });
+
+  it("bounds equivalence operands before starting the adapter", async () => {
+    await kind(
+      invokeAdapter(node, responder(), {
+        syntax: "sympy",
+        expression: "x",
+        queries: [
+          {
+            name: "too_large",
+            kind: "equivalence",
+            comparison: "x".repeat(MAX_FORMULA_BYTES + 1),
+          },
+        ],
+      }),
+      "protocol",
     );
   });
 
