@@ -37,6 +37,7 @@ describe("npm package boundary", () => {
         expect.arrayContaining([
           "package/package.json",
           "package/packages/pi-science/src/index.ts",
+          "package/packages/pi-science/src/formula-schema.json",
           "package/packages/pi-science/src/bridge.ts",
           "package/packages/pi-science/src/provision.ts",
           "package/packages/pi-science/src/process.ts",

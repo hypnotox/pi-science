@@ -186,13 +186,31 @@ describe("readiness gate", () => {
       { equations: [] },
       { expression: "x", syntax: "latex" },
       { expression: "x", extra: true },
+      { equations: [{ name: "a", expression: "Eq(a, x)", extra: true }] },
+      {
+        expression: "x",
+        queries: [
+          {
+            name: "bad",
+            kind: "equivalence",
+            comparison: "x",
+            target: { kind: "expression" },
+          },
+        ],
+      },
+      {
+        equations: [{ name: "a", expression: "Eq(a, x)" }],
+        queries: [{ name: "missing_target", kind: "closed_form" }],
+      },
+    ])
+      expect(Value.Check(parameters, invalid)).toBe(false);
+    for (const pythonValidated of [
       {
         expression: "x",
         scenarios: [
           { name: "unsafe", fixed: { N: Number.MAX_SAFE_INTEGER + 1 } },
         ],
       },
-      { equations: [{ name: "a", expression: "Eq(a, x)", extra: true }] },
       {
         expression: "x",
         queries: [{ name: "bad", kind: "limit", variable: "x", point: "0" }],
@@ -209,21 +227,6 @@ describe("readiness gate", () => {
             order: 1,
           },
         ],
-      },
-      {
-        expression: "x",
-        queries: [
-          {
-            name: "bad",
-            kind: "equivalence",
-            comparison: "x",
-            target: { kind: "expression" },
-          },
-        ],
-      },
-      {
-        equations: [{ name: "a", expression: "Eq(a, x)" }],
-        queries: [{ name: "missing_target", kind: "closed_form" }],
       },
       {
         expression: "x",
@@ -262,7 +265,7 @@ describe("readiness gate", () => {
         ],
       },
     ])
-      expect(Value.Check(parameters, invalid)).toBe(false);
+      expect(Value.Check(parameters, pythonValidated)).toBe(true);
     const result = await current.tools[0]?.execute("id", { expression: "x" });
     expect(result).toEqual({
       content: [{ type: "text", text: JSON.stringify(response) }],
