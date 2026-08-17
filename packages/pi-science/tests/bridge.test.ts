@@ -386,8 +386,14 @@ describe("private formula bridge", () => {
       answers: [identityAnswer],
     };
     const populated = { ...success, queries: [query] };
+    const equivalenceRequest = {
+      ...request(),
+      queries: [
+        { name: "same", kind: "equivalence" as const, comparison: "x" },
+      ],
+    };
     await expect(
-      invokeAdapter(node, responder(populated), request()),
+      invokeAdapter(node, responder(populated), equivalenceRequest),
     ).resolves.toMatchObject(populated);
 
     const counterexample = {
@@ -471,7 +477,32 @@ describe("private formula bridge", () => {
       invokeAdapter(
         node,
         responder({ ...success, queries: [counterexample, ...futureEvidence] }),
-        request(),
+        {
+          ...request(),
+          queries: [
+            { name: "different", kind: "equivalence", comparison: "0" },
+            { name: "closed", kind: "closed_form" },
+            {
+              name: "properties",
+              kind: "properties",
+              checks: [{ kind: "sign" as const }],
+            },
+            {
+              name: "limit",
+              kind: "limit",
+              variable: "x",
+              point: "0",
+              direction: "both",
+            },
+            {
+              name: "asymptotic",
+              kind: "asymptotic",
+              variable: "x",
+              point: "oo",
+              order: 1,
+            },
+          ],
+        },
       ),
     ).resolves.toMatchObject({ queries: [counterexample, ...futureEvidence] });
 
@@ -489,11 +520,10 @@ describe("private formula bridge", () => {
       ],
     };
     await expect(
-      invokeAdapter(
-        node,
-        responder({ ...success, queries: [unresolved] }),
-        request(),
-      ),
+      invokeAdapter(node, responder({ ...success, queries: [unresolved] }), {
+        ...request(),
+        queries: [{ name: "later", kind: "closed_form" }],
+      }),
     ).resolves.toMatchObject({ queries: [unresolved] });
 
     const invalid = [
@@ -656,6 +686,72 @@ describe("private formula bridge", () => {
           responder({ ...success, queries: [malformedQuery] }),
           request(),
         ),
+        "protocol",
+      );
+  });
+
+  it("correlates query responses with the submitted query request", async () => {
+    const query = {
+      name: "domain",
+      kind: "properties",
+      target: { kind: "expression" },
+      normalized_target: success.interpretation,
+      summary: "properties",
+      answers: [
+        {
+          check: { kind: "sign" },
+          conclusion: "unresolved",
+          conditions: [],
+          assumptions_used: [],
+          relevant_unsupported_assumptions: [],
+          blockers: ["unsupported"],
+          evidence: null,
+          derived_candidates: [],
+        },
+      ],
+    };
+    const requestWithQuery = {
+      ...request(),
+      queries: [
+        {
+          name: "domain",
+          kind: "properties" as const,
+          checks: [{ kind: "sign" as const }],
+        },
+      ],
+    };
+    await expect(
+      invokeAdapter(
+        node,
+        responder({ ...success, queries: [query] }),
+        requestWithQuery,
+      ),
+    ).resolves.toMatchObject({ queries: [query] });
+    for (const response of [
+      { ...success, queries: [] },
+      { ...success, queries: [{ ...query, name: "other" }] },
+      { ...success, queries: [{ ...query, kind: "closed_form" }] },
+      {
+        ...success,
+        queries: [{ ...query, target: { kind: "equation", name: "q" } }],
+      },
+      {
+        ...success,
+        queries: [
+          {
+            ...query,
+            answers: [
+              {
+                ...query.answers[0],
+                check: { kind: "valid_domain", variable: "x" },
+              },
+            ],
+          },
+        ],
+      },
+    ])
+      await kind(
+        invokeAdapter(node, responder(response), requestWithQuery),
         "protocol",
       );
   });

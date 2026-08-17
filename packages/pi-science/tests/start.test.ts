@@ -203,6 +203,36 @@ describe("readiness gate", () => {
         ],
       },
       {
+        equations: [{ name: "a", expression: "Eq(a, x)" }],
+        queries: [{ name: "missing_target", kind: "closed_form" }],
+      },
+      {
+        expression: "x",
+        queries: [{ name: "oo", kind: "closed_form" }],
+      },
+      {
+        equations: [{ name: "a", expression: "Eq(a, x)" }],
+        queries: [
+          {
+            name: "bad_target",
+            kind: "closed_form",
+            target: { kind: "equation", name: "oo" },
+          },
+        ],
+      },
+      {
+        expression: "x",
+        queries: [
+          {
+            name: "bad_variable",
+            kind: "limit",
+            variable: "oo",
+            point: "0",
+            direction: "both",
+          },
+        ],
+      },
+      {
         expression: "x",
         queries: [
           {

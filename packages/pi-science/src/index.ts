@@ -68,80 +68,106 @@ const direction = Type.Union([
   Type.Literal("right"),
   Type.Literal("both"),
 ]);
-const queryName = identifier;
-const queryTarget = { target: Type.Optional(equationTarget) };
-const query = Type.Union([
-  Type.Object(
-    {
-      name: queryName,
-      kind: Type.Literal("equivalence"),
-      comparison: formula,
-      ...queryTarget,
-    },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    { name: queryName, kind: Type.Literal("closed_form"), ...queryTarget },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    {
-      name: queryName,
-      kind: Type.Literal("properties"),
-      checks: Type.Array(propertyCheck, {
-        minItems: 1,
-        maxItems: 32,
-        uniqueItems: true,
-      }),
-      ...queryTarget,
-    },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    {
-      name: queryName,
-      kind: Type.Literal("limit"),
-      variable: identifier,
-      point: finitePoint,
-      direction,
-      ...queryTarget,
-    },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    {
-      name: queryName,
-      kind: Type.Literal("limit"),
-      variable: identifier,
-      point: infinityPoint,
-      ...queryTarget,
-    },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    {
-      name: queryName,
-      kind: Type.Literal("asymptotic"),
-      variable: identifier,
-      point: finitePoint,
-      direction,
-      order: Type.Integer({ minimum: 1, maximum: 8 }),
-      ...queryTarget,
-    },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    {
-      name: queryName,
-      kind: Type.Literal("asymptotic"),
-      variable: identifier,
-      point: infinityPoint,
-      order: Type.Integer({ minimum: 1, maximum: 8 }),
-      ...queryTarget,
-    },
-    { additionalProperties: false },
-  ),
-]);
+const queryIdentifier = Type.String({
+  pattern: "^(?!oo$)[A-Za-z][A-Za-z0-9_]*$",
+  maxLength: 128,
+});
+const queryEquationTarget = Type.Object(
+  { kind: Type.Literal("equation"), name: queryIdentifier },
+  { additionalProperties: false },
+);
+const queryProperties = Type.Array(
+  Type.Union([
+    Type.Object(
+      { kind: Type.Literal("sign") },
+      { additionalProperties: false },
+    ),
+    Type.Object(
+      { kind: Type.Literal("valid_domain"), variable: queryIdentifier },
+      { additionalProperties: false },
+    ),
+    Type.Object(
+      { kind: Type.Literal("singularities"), variable: queryIdentifier },
+      { additionalProperties: false },
+    ),
+    Type.Object(
+      { kind: Type.Literal("monotonicity"), variable: queryIdentifier },
+      { additionalProperties: false },
+    ),
+  ]),
+  { minItems: 1, maxItems: 32, uniqueItems: true },
+);
+const queryVariants = (target: Record<string, typeof equationTarget>) =>
+  Type.Union([
+    Type.Object(
+      {
+        name: queryIdentifier,
+        kind: Type.Literal("equivalence"),
+        comparison: formula,
+        ...target,
+      },
+      { additionalProperties: false },
+    ),
+    Type.Object(
+      { name: queryIdentifier, kind: Type.Literal("closed_form"), ...target },
+      { additionalProperties: false },
+    ),
+    Type.Object(
+      {
+        name: queryIdentifier,
+        kind: Type.Literal("properties"),
+        checks: queryProperties,
+        ...target,
+      },
+      { additionalProperties: false },
+    ),
+    Type.Object(
+      {
+        name: queryIdentifier,
+        kind: Type.Literal("limit"),
+        variable: queryIdentifier,
+        point: finitePoint,
+        direction,
+        ...target,
+      },
+      { additionalProperties: false },
+    ),
+    Type.Object(
+      {
+        name: queryIdentifier,
+        kind: Type.Literal("limit"),
+        variable: queryIdentifier,
+        point: infinityPoint,
+        ...target,
+      },
+      { additionalProperties: false },
+    ),
+    Type.Object(
+      {
+        name: queryIdentifier,
+        kind: Type.Literal("asymptotic"),
+        variable: queryIdentifier,
+        point: finitePoint,
+        direction,
+        order: Type.Integer({ minimum: 1, maximum: 8 }),
+        ...target,
+      },
+      { additionalProperties: false },
+    ),
+    Type.Object(
+      {
+        name: queryIdentifier,
+        kind: Type.Literal("asymptotic"),
+        variable: queryIdentifier,
+        point: infinityPoint,
+        order: Type.Integer({ minimum: 1, maximum: 8 }),
+        ...target,
+      },
+      { additionalProperties: false },
+    ),
+  ]);
+const expressionQuery = queryVariants({});
+const systemQuery = queryVariants({ target: queryEquationTarget });
 const metadata = {
   variables: Type.Optional(
     Type.Record(
@@ -186,7 +212,6 @@ const metadata = {
     ),
   ),
   definitions: Type.Optional(Type.Array(directedDefinition, { maxItems: 128 })),
-  queries: Type.Optional(Type.Array(query, { maxItems: 32 })),
   scenarios: Type.Optional(
     Type.Array(
       Type.Object(
@@ -248,6 +273,7 @@ export const formulaSchema = Type.Union([
         maxLength: MAX_FORMULA_BYTES,
       }),
       ...metadata,
+      queries: Type.Optional(Type.Array(expressionQuery, { maxItems: 32 })),
     },
     { additionalProperties: false },
   ),
@@ -255,6 +281,7 @@ export const formulaSchema = Type.Union([
     {
       equations: Type.Array(equation, { minItems: 1, maxItems: 128 }),
       ...metadata,
+      queries: Type.Optional(Type.Array(systemQuery, { maxItems: 32 })),
     },
     { additionalProperties: false },
   ),

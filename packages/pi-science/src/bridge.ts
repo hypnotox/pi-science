@@ -932,7 +932,40 @@ function validQueryResult(value: unknown): boolean {
   );
 }
 
-function validResult(value: unknown): value is BridgeResult {
+function validQueryCorrelation(
+  request: AnalysisRequest,
+  results: QueryResult[],
+): boolean {
+  const queries = request.queries ?? [];
+  if (queries.length !== results.length) return false;
+  return queries.every((query, index) => {
+    const result = results[index];
+    if (
+      result === undefined ||
+      result.name !== query.name ||
+      result.kind !== query.kind ||
+      JSON.stringify(result.target) !==
+        JSON.stringify(
+          "expression" in request ? { kind: "expression" } : query.target,
+        )
+    )
+      return false;
+    return (
+      query.kind !== "properties" ||
+      (result.answers.length === query.checks.length &&
+        query.checks.every(
+          (check, checkIndex) =>
+            JSON.stringify(result.answers[checkIndex]?.check) ===
+            JSON.stringify(check),
+        ))
+    );
+  });
+}
+
+function validResult(
+  value: unknown,
+  request: AnalysisRequest,
+): value is BridgeResult {
   if (!isRecord(value) || typeof value.status !== "string") return false;
   if (value.status === "success") {
     const keys = [
@@ -965,7 +998,8 @@ function validResult(value: unknown): value is BridgeResult {
       Array.isArray(value.scenarios) &&
       value.scenarios.every(validScenarioResult) &&
       Array.isArray(value.queries) &&
-      value.queries.every(validQueryResult)
+      value.queries.every(validQueryResult) &&
+      validQueryCorrelation(request, value.queries as QueryResult[])
     );
   }
   if (value.status === "failure") {
@@ -1140,7 +1174,7 @@ export async function invokeAdapter(
           !isRecord(envelope) ||
           !exactKeys(envelope, ["version", "result"]) ||
           envelope.version !== PROTOCOL_VERSION ||
-          !validResult(envelope.result)
+          !validResult(envelope.result, request)
         )
           return finish(
             new BridgeError(
