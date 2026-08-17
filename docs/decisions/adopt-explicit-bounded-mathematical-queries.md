@@ -1,7 +1,7 @@
 ---
 format: current-state-v4
 slug: adopt-explicit-bounded-mathematical-queries
-status: Proposed
+status: Accepted
 date: 2026-08-17
 ---
 # ADR-adopt-explicit-bounded-mathematical-queries: Adopt explicit bounded mathematical queries
@@ -53,3 +53,4 @@ The analyzer must bound query populations, derived expressions, reasoning effort
 ## Status history
 
 - 2026-08-17: Proposed
+- 2026-08-17: Accepted; content-sha256: cd33e6176c48971edd1faaa54db67fcfbcce568e9044ee8a0ea3dfdf9afe99f7
