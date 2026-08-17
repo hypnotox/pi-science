@@ -348,6 +348,35 @@ class ReasoningContext:
         except Exception:
             return None, ()
 
+    def affine_sign(
+        self, symbol: str, coefficient: Fraction, constant: Fraction
+    ) -> tuple[int | None, tuple[RelationshipUse, ...]]:
+        """Prove one retained affine factor's sign from its active scalar domain."""
+        fact = self.facts.get(symbol)
+        if fact is None:
+            return None, ()
+        if coefficient > 0:
+            endpoint, strict = fact.lower, fact.lower_strict
+        elif coefficient < 0:
+            endpoint, strict = fact.upper, fact.upper_strict
+        else:
+            endpoint, strict = Fraction(0), False
+        if endpoint is not None:
+            bound = coefficient * endpoint + constant
+            if bound > 0 or (bound == 0 and strict and coefficient != 0):
+                return 1, fact.sources
+            if coefficient == 0 and bound == 0:
+                return 0, fact.sources
+        if coefficient > 0:
+            endpoint, strict = fact.upper, fact.upper_strict
+        elif coefficient < 0:
+            endpoint, strict = fact.lower, fact.lower_strict
+        if endpoint is not None:
+            upper = coefficient * endpoint + constant
+            if upper < 0 or (upper == 0 and strict and coefficient != 0):
+                return -1, fact.sources
+        return None, ()
+
     def prove_equal_one(self, expression: Expression) -> tuple[bool, tuple[RelationshipUse, ...]]:
         applied = self.apply(expression)
         if isinstance(applied, IntegerLiteral):

@@ -139,7 +139,7 @@ def test_parameter_limits_and_parameter_root_reporting_preserve_provenance():
     finite, infinity = analyze(request).queries
     assert finite.answers[0].evidence.value == "2*a"
     assert infinity.answers[0].evidence.value == "oo"
-    assert {use.name for use in finite.answers[0].assumptions_used} == {"a_positive"}
+    assert finite.answers[0].assumptions_used == ()
     roots = AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,
         expression="1/(x-a)",
@@ -245,6 +245,187 @@ def test_afmm_tail_exact_family_conditions_and_strictness_variants():
         "q_converges",
         "p_upper",
     }
+
+
+def test_phase_four_residual_sign_denominator_ordering_and_provenance():
+    def properties(expression, variables, assumptions=(), checks=({"kind": "sign"},)):
+        return (
+            analyze(
+                AnalysisRequest(
+                    syntax=FormulaSyntax.SYMPY,
+                    expression=expression,
+                    variables=variables,
+                    assumptions=assumptions,
+                    queries=({"name": "p", "kind": "properties", "checks": checks},),
+                )
+            )
+            .queries[0]
+            .answers
+        )
+
+    real_x = {"x": VariableDeclaration(domain=MathematicalDomain.REAL)}
+    for relationship, expected in (("a > 0", "positive"), ("a < 0", "negative")):
+        answer = properties(
+            "a*x",
+            {**real_x, "a": VariableDeclaration(domain=MathematicalDomain.REAL)},
+            ({"name": "a_sign", "relationship": relationship},),
+        )[0]
+        assert answer.conclusion == "proved_under_assumptions"
+        assert answer.evidence.intervals[1].endswith(expected)
+        assert {use.name for use in answer.assumptions_used} == {"a_sign"}
+    varying = properties(
+        "(a-1/2)*x",
+        {**real_x, "a": VariableDeclaration(domain=MathematicalDomain.REAL)},
+        ({"name": "lower", "relationship": "a > 0"}, {"name": "upper", "relationship": "a < 1"}),
+    )[0]
+    assert varying.conclusion == "unresolved"
+
+    nonzero = properties(
+        "x/a",
+        {**real_x, "a": VariableDeclaration(domain=MathematicalDomain.REAL)},
+        ({"name": "a_positive", "relationship": "a > 0"},),
+    )[0]
+    assert nonzero.conditions == ("a != 0",)
+    assert {use.name for use in nonzero.assumptions_used} == {"a_positive"}
+    negative_nonzero = properties(
+        "x/a",
+        {**real_x, "a": VariableDeclaration(domain=MathematicalDomain.REAL)},
+        ({"name": "a_negative", "relationship": "a < 0"},),
+    )[0]
+    assert negative_nonzero.conditions == ("a != 0",)
+    assert {use.name for use in negative_nonzero.assumptions_used} == {"a_negative"}
+    unresolved = properties(
+        "x/a",
+        {**real_x, "a": VariableDeclaration(domain=MathematicalDomain.REAL)},
+    )[0]
+    assert unresolved.blockers == ("original denominator is not proved nonzero",)
+
+    roots = properties(
+        "1/((x-1)*(100000000000000000000*x-100000000000000000001))",
+        real_x,
+        checks=({"kind": "valid_domain", "variable": "x"},),
+    )[0]
+    assert roots.evidence.intervals == (
+        "x != 1",
+        "x != 100000000000000000001/100000000000000000000",
+    )
+
+    no_real_sign = (
+        analyze(
+            AnalysisRequest(
+                syntax=FormulaSyntax.SYMPY,
+                expression="x",
+                queries=({"name": "p", "kind": "properties", "checks": ({"kind": "sign"},)},),
+            )
+        )
+        .queries[0]
+        .answers[0]
+    )
+    assert no_real_sign.conclusion == "inapplicable"
+
+    limit = (
+        analyze(
+            AnalysisRequest(
+                syntax=FormulaSyntax.SYMPY,
+                expression="x**2",
+                variables=real_x,
+                assumptions=(
+                    {"name": "lower", "relationship": "x > 0"},
+                    {"name": "upper", "relationship": "x < 10"},
+                ),
+                queries=(
+                    {
+                        "name": "l",
+                        "kind": "limit",
+                        "variable": "x",
+                        "point": "2",
+                        "direction": "both",
+                    },
+                ),
+            )
+        )
+        .queries[0]
+        .answers[0]
+    )
+    assert limit.assumptions_used == ()
+
+    pole = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="a*b/(x-1)",
+            variables={
+                **real_x,
+                "a": VariableDeclaration(domain=MathematicalDomain.REAL),
+                "b": VariableDeclaration(domain=MathematicalDomain.REAL),
+            },
+            assumptions=(
+                {"name": "a_positive", "relationship": "a > 0"},
+                {"name": "b_negative", "relationship": "b < 0"},
+            ),
+            queries=(
+                {
+                    "name": "pole",
+                    "kind": "limit",
+                    "variable": "x",
+                    "point": "1",
+                    "direction": "right",
+                },
+            ),
+        )
+    ).queries[0]
+    assert pole.answers[0].evidence.value == "-oo"
+    assert {use.name for use in pole.answers[0].assumptions_used} == {"a_positive", "b_negative"}
+    summed_pole = (
+        analyze(
+            AnalysisRequest(
+                syntax=FormulaSyntax.SYMPY,
+                expression="(a+b)/(x-1)",
+                variables={
+                    **real_x,
+                    "a": VariableDeclaration(domain=MathematicalDomain.REAL),
+                    "b": VariableDeclaration(domain=MathematicalDomain.REAL),
+                },
+                assumptions=(
+                    {"name": "a_positive", "relationship": "a > 0"},
+                    {"name": "b_positive", "relationship": "b > 0"},
+                ),
+                queries=(
+                    {
+                        "name": "pole",
+                        "kind": "limit",
+                        "variable": "x",
+                        "point": "1",
+                        "direction": "right",
+                    },
+                ),
+            )
+        )
+        .queries[0]
+        .answers[0]
+    )
+    assert summed_pole.conclusion == "unresolved"
+    infinity = (
+        analyze(
+            AnalysisRequest(
+                syntax=FormulaSyntax.SYMPY,
+                expression="a*b*x",
+                variables={
+                    **real_x,
+                    "a": VariableDeclaration(domain=MathematicalDomain.REAL),
+                    "b": VariableDeclaration(domain=MathematicalDomain.REAL),
+                },
+                assumptions=(
+                    {"name": "a_positive", "relationship": "a > 0"},
+                    {"name": "b_negative", "relationship": "b < 0"},
+                ),
+                queries=({"name": "infinity", "kind": "limit", "variable": "x", "point": "oo"},),
+            )
+        )
+        .queries[0]
+        .answers[0]
+    )
+    assert infinity.evidence.value == "-oo"
+    assert {use.name for use in infinity.assumptions_used} == {"a_positive", "b_negative"}
 
 
 def test_property_resource_refusal_happens_before_backend_call(monkeypatch):

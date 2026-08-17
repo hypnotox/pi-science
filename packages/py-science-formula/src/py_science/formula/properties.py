@@ -31,9 +31,11 @@ from py_science.formula.models import (
 )
 from py_science.formula.reasoning import DomainFact, ReasoningContext, collect_denominators
 from py_science.formula.sympy_backend import (
+    property_affine_coefficients,
     property_cancel,
     property_derivative,
     property_difference,
+    property_factor_components,
     property_factor_roots,
     property_fraction,
     property_local_pole_coefficient,
@@ -54,6 +56,7 @@ class RationalShape:
     denominator: Any
     variable: Any
     original_denominators: tuple[Any, ...]
+    original_denominator_expressions: tuple[Expression, ...]
     uses: tuple[RelationshipUse, ...]
 
 
@@ -110,6 +113,16 @@ def property_answer(
     shape = _shape(expression, check.variable if check.kind != "sign" else None, reasoning)
     if shape is None:
         return _unresolved("query family is unsupported", check)
+    obligation = _parameter_denominator_obligations(shape, reasoning)
+    if obligation is None:
+        return _unresolved("original denominator is not proved nonzero", check)
+    obligation_conditions, obligation_uses = obligation
+    if check.kind == "sign" and reasoning.facts.get(str(shape.variable)) is None:
+        return QueryAnswer(
+            check=check,
+            conclusion="inapplicable",
+            blockers=("realness of the query variable is not proved",),
+        )
     if check.kind == "valid_domain":
         roots = _all_roots(shape.original_denominators, shape.variable)
         if roots is None:
@@ -122,14 +135,21 @@ def property_answer(
             check,
             "all real values" if not exclusions else "exclude " + ", ".join(exclusions),
             tuple(f"{check.variable} != {root}" for root in exclusions),
-            shape.uses,
+            _unique((*shape.uses, *obligation_uses)),
+            conditions=obligation_conditions,
         )
     if check.kind == "singularities":
         roots = _roots(shape.denominator, shape.variable)
         if roots is None:
             return _unresolved("denominator factors are unsupported", check)
         if not roots:
-            return _proved(check, "no singularities", (), shape.uses)
+            return _proved(
+                check,
+                "no singularities",
+                (),
+                _unique((*shape.uses, *obligation_uses)),
+                conditions=obligation_conditions,
+            )
         domain = reasoning.facts.get(check.variable)
         items: list[str] = []
         for root, order in roots:
@@ -141,11 +161,23 @@ def property_answer(
                 f"{check.variable} = {rendered}: pole of order {order}"
                 + ("; outside the active domain" if outside else "")
             )
-        return _proved(check, "; ".join(items), (), shape.uses)
+        return _proved(
+            check,
+            "; ".join(items),
+            (),
+            _unique((*shape.uses, *obligation_uses)),
+            conditions=obligation_conditions,
+        )
     if check.kind == "sign":
         chart = _sign_chart(shape, reasoning)
         return (
-            _proved(check, chart[0], chart[1], _unique((*shape.uses, *chart[2])))
+            _proved(
+                check,
+                chart[0],
+                chart[1],
+                _unique((*shape.uses, *chart[2], *obligation_uses)),
+                conditions=obligation_conditions,
+            )
             if chart
             else _unresolved("exact factor sign chart is unsupported", check)
         )
@@ -162,7 +194,13 @@ def property_answer(
         else property_derivative(shape.value, shape.variable)
     )
     derivative_shape = (
-        _shape_value(transformed, check.variable, shape.original_denominators, shape.uses)
+        _shape_value(
+            transformed,
+            check.variable,
+            shape.original_denominators,
+            shape.original_denominator_expressions,
+            shape.uses,
+        )
         if transformed is not None
         else None
     )
@@ -178,7 +216,11 @@ def property_answer(
     zeros = tuple(item for item in intervals if item.endswith("zero"))
     label = "integer forward difference" if fact.integer else "derivative"
     return _proved(
-        check, f"monotonicity by {label}", directional + zeros, _unique((*shape.uses, *uses))
+        check,
+        f"monotonicity by {label}",
+        directional + zeros,
+        _unique((*shape.uses, *uses, *obligation_uses)),
+        conditions=obligation_conditions,
     )
 
 
@@ -190,10 +232,15 @@ def limit_answer(
     shape = _shape(expression, query.variable, reasoning)
     if shape is None:
         return _unresolved("query family is unsupported")
+    obligation = _parameter_denominator_obligations(shape, reasoning)
+    if obligation is None:
+        return _unresolved("original denominator is not proved nonzero")
+    obligation_conditions, obligation_uses = obligation
     if str(query.point) in {"oo", "-oo"}:
-        return _infinite_limit(shape, str(query.point) == "oo", reasoning) or _unresolved(
-            "polynomial-degree limit is unsupported"
-        )
+        answer = _infinite_limit(shape, str(query.point) == "oo", reasoning)
+        if answer is None:
+            return _unresolved("polynomial-degree limit is unsupported")
+        return _with_denominator_obligations(answer, obligation_conditions, obligation_uses)
     exact = parse_exact_scalar(str(query.point))
     if exact is None:
         return _unresolved("limit point is invalid")
@@ -206,8 +253,12 @@ def limit_answer(
         rendered = _render_supported_value(value, reasoning)
         if rendered is None:
             return _unresolved("exact substitution is unsupported")
-        return _limit_proved(
-            shape, LimitEvidence(exists=True, value=rendered, left=rendered, right=rendered)
+        return _with_denominator_obligations(
+            _limit_proved(
+                shape, LimitEvidence(exists=True, value=rendered, left=rendered, right=rendered)
+            ),
+            obligation_conditions,
+            obligation_uses,
         )
     roots = _roots(shape.denominator, shape.variable)
     order = next((count for root, count in roots or () if root == point), None)
@@ -216,9 +267,10 @@ def limit_answer(
     coefficient = property_local_pole_coefficient(
         shape.numerator, shape.denominator, shape.variable, point, order
     )
-    sign = _known_sign(coefficient, reasoning)
-    if sign is None or sign == 0:
+    signed_coefficient = _known_sign_with_uses(coefficient, reasoning)
+    if signed_coefficient is None or signed_coefficient[0] == 0:
         return _unresolved("local pole coefficient is unsupported")
+    sign, sign_uses = signed_coefficient
     right_positive = sign > 0
     left_positive = right_positive if order % 2 == 0 else not right_positive
     left, right = ("oo" if left_positive else "-oo"), ("oo" if right_positive else "-oo")
@@ -232,7 +284,11 @@ def limit_answer(
         evidence = evidence.model_copy(update={"exists": True, "value": left})
     if query.direction == "right":
         evidence = evidence.model_copy(update={"exists": True, "value": right})
-    return _limit_proved(shape, evidence)
+    return _with_denominator_obligations(
+        _limit_proved(shape, evidence),
+        obligation_conditions,
+        _unique((*obligation_uses, *sign_uses)),
+    )
 
 
 def _shape(
@@ -250,6 +306,14 @@ def _shape(
         return None
     symbols = tuple(cancelled.free_symbols)
     if variable_name is None:
+        # A denominator that is independent of the chart axis is an obligation,
+        # not a competing axis (for example x/a).
+        denominator_symbols = {
+            symbol
+            for item in collect_denominators(applied)
+            if (value := property_value(item)) is not None and value.free_symbols
+            for symbol in value.free_symbols
+        }
         # A single symbol remains the chart axis even if its active domain gives
         # it a sign; otherwise only the one non-parameter symbol may be the axis.
         axes = (
@@ -258,7 +322,8 @@ def _shape(
             else [
                 symbol
                 for symbol in symbols
-                if not _fact_has_definite_sign(reasoning.facts.get(str(symbol)))
+                if symbol not in denominator_symbols
+                and not _fact_has_definite_sign(reasoning.facts.get(str(symbol)))
             ]
         )
         if len(axes) != 1:
@@ -266,27 +331,50 @@ def _shape(
         variable = axes[0]
     else:
         variable = sympy.Symbol(variable_name)
+    original_expressions = collect_denominators(applied)
     originals = tuple(
-        value
-        for item in collect_denominators(applied)
-        if (value := property_value(item)) is not None
+        value for item in original_expressions if (value := property_value(item)) is not None
     )
-    participating = tuple(str(symbol) for symbol in raw.free_symbols)
-    uses = _unique(
-        (
-            *reasoning.application_uses(participating),
-            *(
-                use
-                for symbol in participating
-                for use in reasoning.facts.get(symbol, DomainFact(symbol)).sources
-            ),
-        )
+    source_value = property_value(expression)
+    participating = (
+        tuple(str(symbol) for symbol in source_value.free_symbols)
+        if source_value is not None
+        else ()
     )
-    return _shape_value(cancelled, variable, originals, uses)
+    # Shape records only replacements. Domain and sign facts belong to the proof
+    # operation that consumes them, never to normalization.
+    uses = reasoning.application_uses(participating)
+    return _shape_value(cancelled, variable, originals, original_expressions, uses)
+
+
+def _parameter_denominator_obligations(
+    shape: RationalShape, reasoning: ReasoningContext
+) -> tuple[tuple[str, ...], tuple[RelationshipUse, ...]] | None:
+    conditions: list[str] = []
+    uses: tuple[RelationshipUse, ...] = ()
+    for expression in shape.original_denominator_expressions:
+        value = property_value(expression)
+        if value is None:
+            return None
+        if shape.variable in value.free_symbols or not value.free_symbols:
+            continue
+        rendered = _render(value)
+        proved, proof_uses = reasoning.prove_nonzero(expression)
+        if rendered is None or not proved:
+            return None
+        condition = f"{rendered} != 0"
+        if condition not in conditions:
+            conditions.append(condition)
+        uses = _unique((*uses, *proof_uses))
+    return tuple(conditions), uses
 
 
 def _shape_value(
-    value: Any | None, variable: Any, originals: tuple[Any, ...], uses: tuple[RelationshipUse, ...]
+    value: Any | None,
+    variable: Any,
+    originals: tuple[Any, ...],
+    original_expressions: tuple[Expression, ...],
+    uses: tuple[RelationshipUse, ...],
 ) -> RationalShape | None:
     if value is None:
         return None
@@ -300,6 +388,7 @@ def _shape_value(
         denominator,
         sympy.Symbol(variable) if isinstance(variable, str) else variable,
         originals,
+        original_expressions,
         uses,
     )
 
@@ -308,11 +397,7 @@ def _roots(value: Any, variable: Any) -> tuple[tuple[Any, int], ...] | None:
     roots = property_factor_roots(value, variable)
     if roots is None:
         return None
-    return tuple(
-        sorted(roots, key=lambda item: float(item[0]))
-        if all(root.is_Rational for root, _ in roots)
-        else roots
-    )
+    return _sort_roots(roots)
 
 
 def _all_roots(values: tuple[Any, ...], variable: Any) -> tuple[tuple[Any, int], ...] | None:
@@ -329,52 +414,33 @@ def _all_roots(values: tuple[Any, ...], variable: Any) -> tuple[tuple[Any, int],
             if identity not in identities:
                 identities.add(identity)
                 roots.append((root, order))
-    return tuple(roots)
+    return _sort_roots(tuple(roots))
+
+
+def _sort_roots(roots: tuple[tuple[Any, int], ...]) -> tuple[tuple[Any, int], ...]:
+    if not all(root.is_Rational for root, _ in roots):
+        return roots
+    return tuple(sorted(roots, key=lambda item: Fraction(int(item[0].p), int(item[0].q))))
 
 
 def _sign_chart(
     shape: RationalShape, reasoning: ReasoningContext
 ) -> tuple[str, tuple[str, ...], tuple[RelationshipUse, ...]] | None:
-    parameters = shape.value.free_symbols - {shape.variable}
-    # A sign witness may replace a coefficient factor, but never a parameter in
-    # a root: that would invent an ordering for a moving boundary.
-    original_fraction = property_fraction(shape.value)
-    if original_fraction is None:
-        return None
-    for part in original_fraction:
-        parameter_roots = _roots(part, shape.variable)
-        if parameter_roots is None or any(
-            root.free_symbols & parameters for root, _ in parameter_roots
-        ):
-            return None
-    witnesses: dict[Any, Any] = {}
-    uses: list[RelationshipUse] = []
-    for parameter in parameters:
-        fact = reasoning.facts.get(str(parameter))
-        witness = _strict_sign_witness(fact)
-        if witness is None or fact is None:
-            return None
-        witnesses[parameter] = witness
-        uses.extend(fact.sources)
-    value = (
-        property_substitute(shape.value, shape.variable, shape.variable)
-        if not witnesses
-        else _substitute_parameters(shape.value, witnesses)
+    roots_n, roots_d = (
+        _roots(shape.numerator, shape.variable),
+        _roots(shape.denominator, shape.variable),
     )
-    if value is None:
-        return None
-    fraction = property_fraction(value)
-    if fraction is None:
-        return None
-    numerator, denominator = fraction
-    roots_n, roots_d = _roots(numerator, shape.variable), _roots(denominator, shape.variable)
     if (
         roots_n is None
         or roots_d is None
         or not all(root.is_Rational for root, _ in (*roots_n, *roots_d))
     ):
         return None
-    roots = sorted({root for root, _ in (*roots_n, *roots_d)}, key=float)
+    roots = sorted(
+        {root for root, _ in (*roots_n, *roots_d)},
+        key=lambda root: Fraction(int(root.p), int(root.q)),
+    )
+    uses: list[RelationshipUse] = []
     fact = reasoning.facts.get(str(shape.variable))
     intervals: list[str] = []
     boundaries = (None, *roots, None)
@@ -382,10 +448,20 @@ def _sign_chart(
         point = _domain_interior_point(left, right, fact)
         if point is None:
             continue
-        evaluated = property_substitute(value, shape.variable, point)
-        sign = _known_rational_sign(evaluated)
-        if sign is None or sign == 0:
+        # The active domain selects each interior witness, so its retained
+        # bounds are proof provenance for the chart (not for shape creation).
+        if fact is not None:
+            uses.extend(fact.sources)
+        signed_numerator = _factor_sign_at(shape.numerator, shape.variable, point, reasoning)
+        signed_denominator = _factor_sign_at(shape.denominator, shape.variable, point, reasoning)
+        if signed_numerator is None or signed_denominator is None:
             return None
+        numerator_sign, numerator_uses = signed_numerator
+        denominator_sign, denominator_uses = signed_denominator
+        sign = numerator_sign * denominator_sign
+        if sign == 0:
+            return None
+        uses.extend((*numerator_uses, *denominator_uses))
         intervals.append(f"{_interval(index, roots)}: {'positive' if sign > 0 else 'negative'}")
     for root, _ in roots_n:
         if not any(root == pole for pole, _ in roots_d) and (fact is None or fact.accepts(root)):
@@ -393,13 +469,34 @@ def _sign_chart(
     return ("sign chart", tuple(intervals), _unique(tuple(uses))) if intervals else None
 
 
-def _substitute_parameters(value: Any, witnesses: dict[Any, Any]) -> Any | None:
-    result = value
-    for parameter, witness in witnesses.items():
-        result = property_substitute(result, parameter, witness)
-        if result is None:
+def _factor_sign_at(
+    value: Any, variable: Any, point: Any, reasoning: ReasoningContext
+) -> tuple[int, tuple[RelationshipUse, ...]] | None:
+    """Compose signs only from isolated parameter factors and univariate factors."""
+    factors = property_factor_components(value)
+    if factors is None:
+        return None
+    sign: int = 1
+    uses: tuple[RelationshipUse, ...] = ()
+    for factor, multiplicity in factors:
+        if variable in factor.free_symbols:
+            # A parameter in a variable-bearing factor moves a root and is never
+            # replaced by a same-sign witness.
+            if factor.free_symbols != {variable}:
+                return None
+            evaluated = property_substitute(factor, variable, point)
+            factor_sign = _known_rational_sign(evaluated)
+            factor_uses: tuple[RelationshipUse, ...] = ()
+        else:
+            proved = _known_sign_with_uses(factor, reasoning)
+            if proved is None:
+                return None
+            factor_sign, factor_uses = proved
+        if factor_sign is None or factor_sign == 0:
             return None
-    return result
+        sign *= factor_sign if multiplicity % 2 else 1
+        uses = _unique((*uses, *factor_uses))
+    return sign, uses
 
 
 def _domain_interior_point(
@@ -446,6 +543,7 @@ def _infinite_limit(
         return None
     numerator_degree, denominator_degree, leading = info
     degree = numerator_degree - denominator_degree
+    sign_uses: tuple[RelationshipUse, ...] = ()
     if degree < 0:
         value = "0"
     elif degree == 0:
@@ -453,18 +551,23 @@ def _infinite_limit(
         if value is None:
             return None
     else:
-        sign = _known_sign(leading, reasoning)
-        if sign is None or sign == 0:
+        signed_leading = _known_sign_with_uses(leading, reasoning)
+        if signed_leading is None or signed_leading[0] == 0:
             return None
+        sign, sign_uses = signed_leading
         value = "oo" if sign * (1 if positive or degree % 2 == 0 else -1) > 0 else "-oo"
-    return _limit_proved(
-        shape,
-        LimitEvidence(
-            exists=True,
-            value=value,
-            left=value if not positive else None,
-            right=value if positive else None,
+    return _with_denominator_obligations(
+        _limit_proved(
+            shape,
+            LimitEvidence(
+                exists=True,
+                value=value,
+                left=value if not positive else None,
+                right=value if positive else None,
+            ),
         ),
+        (),
+        sign_uses if degree > 0 else (),
     )
 
 
@@ -478,32 +581,40 @@ def _render_supported_value(value: Any | None, reasoning: ReasoningContext) -> s
     return property_render(value)
 
 
-def _known_sign(value: Any | None, reasoning: ReasoningContext) -> int | None:
+def _known_sign_with_uses(
+    value: Any | None, reasoning: ReasoningContext
+) -> tuple[int, tuple[RelationshipUse, ...]] | None:
     sign = _known_rational_sign(value)
     if sign is not None:
-        return sign
-    if value is None or len(value.free_symbols) != 1:
+        return sign, ()
+    if value is None:
         return None
-    fact = reasoning.facts.get(str(next(iter(value.free_symbols))))
-    return (
-        1 if _fact_is_strictly_positive(fact) else -1 if _fact_is_strictly_negative(fact) else None
-    )
+    factors = property_factor_components(value)
+    if factors is None:
+        return None
+    result, uses = 1, ()
+    for factor, multiplicity in factors:
+        rational = _known_rational_sign(factor)
+        if rational is not None:
+            factor_sign, factor_uses = rational, ()
+        else:
+            affine = property_affine_coefficients(factor)
+            if affine is None:
+                return None
+            symbol, coefficient, constant = affine
+            affine_sign, factor_uses = reasoning.affine_sign(symbol, coefficient, constant)
+            if affine_sign is None:
+                return None
+            factor_sign = affine_sign
+        result *= factor_sign if multiplicity % 2 else 1
+        uses = _unique((*uses, *factor_uses))
+    return result, uses
 
 
 def _known_rational_sign(value: Any | None) -> int | None:
     if value is None or not value.is_Rational:
         return None
     return 1 if value > 0 else -1 if value < 0 else 0
-
-
-def _strict_sign_witness(fact: DomainFact | None) -> Any | None:
-    if _fact_is_strictly_positive(fact):
-        assert fact is not None and fact.lower is not None
-        return sympy.Rational((fact.lower + 1).numerator, (fact.lower + 1).denominator)
-    if _fact_is_strictly_negative(fact):
-        assert fact is not None and fact.upper is not None
-        return sympy.Rational((fact.upper - 1).numerator, (fact.upper - 1).denominator)
-    return None
 
 
 def _fact_has_definite_sign(fact: DomainFact | None) -> bool:
@@ -603,6 +714,21 @@ def _interval(index: int, roots: list[Any]) -> str:
     return f"({left}, {right})"
 
 
+def _with_denominator_obligations(
+    answer: QueryAnswer,
+    conditions: tuple[str, ...],
+    uses: tuple[RelationshipUse, ...],
+) -> QueryAnswer:
+    all_uses = _unique((*answer.assumptions_used, *uses))
+    return answer.model_copy(
+        update={
+            "conclusion": "proved_under_assumptions" if all_uses else answer.conclusion,
+            "conditions": tuple(dict.fromkeys((*answer.conditions, *conditions))),
+            "assumptions_used": all_uses,
+        }
+    )
+
+
 def _limit_proved(shape: RationalShape, evidence: LimitEvidence) -> QueryAnswer:
     return QueryAnswer(
         conclusion="proved_under_assumptions" if shape.uses else "proved",
@@ -622,10 +748,13 @@ def _proved(
     value: str,
     intervals: tuple[str, ...] = (),
     uses: tuple[RelationshipUse, ...] = (),
+    *,
+    conditions: tuple[str, ...] = (),
 ) -> QueryAnswer:
     return QueryAnswer(
         check=check,
         conclusion="proved_under_assumptions" if uses else "proved",
+        conditions=conditions,
         assumptions_used=uses,
         evidence=PropertyEvidence(value=value, intervals=intervals),
     )

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from fractions import Fraction
 from typing import Any, Protocol, cast
 
 import sympy  # pyright: ignore[reportMissingTypeStubs]
@@ -115,6 +116,51 @@ def property_factor_roots(value: Any, variable: Any) -> tuple[tuple[Any, int], .
                 return None
             roots.append((root, int(multiplicity)))
         return tuple(roots)
+    except Exception:
+        return None
+
+
+def property_factor_components(value: Any) -> tuple[tuple[Any, int], ...] | None:
+    """Return bounded irreducible multiplicative factors for exact sign policy."""
+    if not _property_value_is_bounded(value):
+        return None
+    try:
+        result: Any = sympy.factor_list(value)
+        coefficient, factors = result
+        components: list[tuple[Any, int]] = []
+        if not _property_value_is_bounded(coefficient):
+            return None
+        if coefficient != 1:
+            components.append((coefficient, 1))
+        for factor, multiplicity in factors:
+            if not _property_value_is_bounded(factor) or multiplicity < 1:
+                return None
+            components.append((factor, int(multiplicity)))
+        return tuple(components)
+    except Exception:
+        return None
+
+
+def property_affine_coefficients(value: Any) -> tuple[str, Fraction, Fraction] | None:
+    """Expose one bounded rational affine factor without policy-side SymPy algebra."""
+    if not _property_value_is_bounded(value):
+        return None
+    try:
+        symbols = tuple(value.free_symbols)
+        if len(symbols) != 1:
+            return None
+        symbol = symbols[0]
+        poly = sympy.Poly(value, symbol)
+        if poly.degree() > 1 or any(not item.is_Rational for item in poly.all_coeffs()):
+            return None
+        coefficient, constant = poly.coeff_monomial(symbol), poly.coeff_monomial(1)
+        if not (_property_value_is_bounded(coefficient) and _property_value_is_bounded(constant)):
+            return None
+        return (
+            str(symbol),
+            Fraction(int(coefficient.p), int(coefficient.q)),
+            Fraction(int(constant.p), int(constant.q)),
+        )
     except Exception:
         return None
 
