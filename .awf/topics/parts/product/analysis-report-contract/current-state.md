@@ -8,4 +8,4 @@ Origin: ADR-0001
 
 ### `rule: provenance-preserving-system-work`
 Direct Python system reports preserve exact general symbolic work and identify every supported equality or directed definition used in a deterministic specialization. Bounded explicit scenarios report their substitutions, provenance, qualifications, and unresolved blockers; unsupported inference, ordering, multivariate dominance, monotonicity, and opaque costs remain explicit rather than becoming stronger claims. These reports analyze submitted mathematical structure and complexity, not physical correctness, implementation timing, or global optimality.
-Origin: ADR-adopt-compositional-indexed-equation-analysis
+Origin: ADR-0003

@@ -4,7 +4,7 @@ slug: adopt-compositional-indexed-equation-analysis
 status: Implementing
 date: 2026-08-17
 ---
-# ADR-adopt-compositional-indexed-equation-analysis: Adopt compositional indexed equation analysis
+# ADR-0003: Adopt compositional indexed equation analysis
 
 ## Context
 
