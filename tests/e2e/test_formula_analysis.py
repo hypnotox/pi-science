@@ -58,6 +58,21 @@ def test_general_query_results_do_not_change_submitted_expression_work() -> None
     assert queried.queries[1].answers[0].conclusion == "unresolved"
 
 
+def test_asymptotic_query_is_expression_semantics_not_scenario_work_growth() -> None:
+    baseline = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="1/(x - 1)"))
+    queried = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="1/(x - 1)",
+        queries=({"name": "local", "kind": "asymptotic", "variable": "x", "point": "1", "direction": "left", "order": 2},),
+    ))
+    assert isinstance(baseline, AnalysisSuccess) and isinstance(queried, AnalysisSuccess)
+    assert queried.operation_counts == baseline.operation_counts
+    assert queried.abstract_work == baseline.abstract_work
+    answer = queried.queries[0].answers[0]
+    assert answer.evidence is not None and answer.evidence.kind == "asymptotic"
+    assert answer.conditions == ("x -> 1 (left)", "x - 1 != 0")
+
+
 def test_property_and_directional_limit_queries_preserve_submitted_work() -> None:
     baseline = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="1/(x - 1)"))
     queried = analyze(AnalysisRequest(

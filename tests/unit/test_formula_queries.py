@@ -1,5 +1,6 @@
 # ruff: noqa: E501, E701
 # pyright: basic, reportArgumentType=false, reportOptionalMemberAccess=false
+import py_science.formula.asymptotics as formula_asymptotics
 import py_science.formula.query as formula_query
 import py_science.formula.series as formula_series
 import py_science.formula.sympy_backend as formula_sympy
@@ -402,11 +403,82 @@ def test_later_consumers_preserve_exact_answer_shape_and_check_order():
     assert [answer.check.kind for answer in outcome.queries[0].answers] == ["sign", "valid_domain"]
     assert isinstance(outcome.queries[0].answers[0].check, SignPropertyCheck)
     assert outcome.queries[1].answers[0].evidence is not None
-    assert outcome.queries[2].answers[0].evidence is None
+    assert outcome.queries[2].answers[0].evidence is not None
+    assert outcome.queries[2].answers[0].evidence.kind == "asymptotic"
     assert all(answer.derived_candidates == () for result in outcome.queries for answer in result.answers)
     dumped = outcome.model_dump(mode="json")
     assert dumped["queries"][1]["answers"][0]["check"] is None
     assert dumped["queries"][1]["answers"][0]["evidence"]["kind"] == "limit"
+
+
+def test_asymptotic_rational_local_parameters_orders_and_remainders():
+    cases = (
+        ("1/(x - 1)", "1", "both", 3, "x - 1", "(1)*t**-1", "O(t**3)"),
+        ("(x + 1)/(x - 1)", "oo", None, 3, "1/x", "1 + (2)*t", "O(t**3)"),
+        ("1/x**2", "-oo", None, 3, "-1/x", "(1)*t**2", "O(t**3)"),
+    )
+    for expression, point, direction, order, local, term, big_o in cases:
+        outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression, queries=({
+            "name": "a", "kind": "asymptotic", "variable": "x", "point": point,
+            "direction": direction, "order": order,
+        },)))
+        assert outcome.status == "success"
+        answer = outcome.queries[0].answers[0]
+        assert answer.conclusion == "proved"
+        assert answer.evidence is not None and answer.evidence.kind == "asymptotic"
+        assert term in answer.evidence.statement
+        assert answer.evidence.remainder is not None
+        assert answer.evidence.remainder.local_parameter == local
+        assert answer.evidence.remainder.normalized_big_o == big_o
+
+
+def test_asymptotic_exponential_linear_terms_are_degree_ordered_and_exactly_exhausted():
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="(x + 3)*2**x",
+        queries=({"name": "a", "kind": "asymptotic", "variable": "x", "point": "oo", "order": 2},),
+    ))
+    assert outcome.status == "success"
+    evidence = outcome.queries[0].answers[0].evidence
+    assert evidence is not None and evidence.kind == "asymptotic"
+    assert evidence.remainder is None
+    assert evidence.statement.index("(1)*x") < evidence.statement.index("(3)")
+
+
+def test_asymptotic_intermediate_and_result_rendering_refusals_are_terminal(monkeypatch):
+    request_value = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="(x + 1)/(x - 1)",
+        queries=({"name": "a", "kind": "asymptotic", "variable": "x", "point": "oo", "order": 2},),
+    )
+    monkeypatch.setattr(formula_asymptotics, "_truncated_divide", lambda *_args: None)
+    refused = analyze(request_value)
+    assert refused.status == "success"
+    assert refused.queries[0].answers[0].blockers == ("asymptotic intermediate exceeds its bound",)
+    monkeypatch.undo()
+    monkeypatch.setattr(formula_asymptotics, "_render_terms", lambda *_args: "x" * 4097)
+    oversized = analyze(request_value)
+    assert oversized.status == "success"
+    assert oversized.queries[0].answers[0].blockers == ("query result rendering exceeds its bound",)
+
+
+def test_asymptotic_closed_form_replacement_is_qualified_and_unsupported_is_terminal():
+    qualified = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="Sum(k*q**k, (k, 0, 2))",
+        assumptions=(Assumption(name="ratio_not_one", relationship="q < 1"),),
+        queries=({"name": "a", "kind": "asymptotic", "variable": "q", "point": "0", "direction": "right", "order": 2},),
+    ))
+    assert qualified.status == "success"
+    answer = qualified.queries[0].answers[0]
+    assert answer.conclusion == "proved_under_assumptions"
+    assert {use.name for use in answer.assumptions_used} == {"ratio_not_one"}
+
+    for expression, blocker in (("sin(x)", "query family is unsupported"), ("x**9", "query family is unsupported")):
+        outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression, queries=({"name": "a", "kind": "asymptotic", "variable": "x", "point": "oo", "order": 1},)))
+        assert outcome.status == "success"
+        assert outcome.queries[0].answers[0].conclusion == "unresolved"
+        assert outcome.queries[0].answers[0].blockers == (blocker,)
 
 
 def test_counterexample_model_rejects_noncanonical_values():

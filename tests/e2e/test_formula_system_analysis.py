@@ -59,6 +59,26 @@ def test_named_rhs_query_is_local_and_preserves_system_work() -> None:
     assert queried.queries[0].answers[0].conclusion == "proved"
 
 
+def test_named_rhs_asymptotic_query_is_local_and_preserves_system_work() -> None:
+    base = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(EquationRequest(name="value", expression="Eq(y, (x + 1)/(x - 1))"),),
+        variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
+    )
+    baseline = analyze(base)
+    queried = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=base.equations,
+        variables=base.variables,
+        queries=({"name": "tail", "kind": "asymptotic", "target": {"kind": "equation", "name": "value"}, "variable": "x", "point": "oo", "order": 2},),
+    ))
+    assert isinstance(baseline, AnalysisSuccess) and isinstance(queried, AnalysisSuccess)
+    assert baseline.system is not None and queried.system is not None
+    assert queried.system.total_work == baseline.system.total_work
+    evidence = queried.queries[0].answers[0].evidence
+    assert evidence is not None and evidence.kind == "asymptotic"
+
+
 def test_named_rhs_property_query_is_local_to_the_selected_equation() -> None:
     outcome = analyze(AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,

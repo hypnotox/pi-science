@@ -8,6 +8,7 @@ from itertools import product
 from typing import Any
 
 import sympy
+from py_science.formula.asymptotics import asymptotic_answer
 from py_science.formula.exact_values import ExactRational, render_exact
 from py_science.formula.expressions import (
     BinaryExpression,
@@ -39,7 +40,6 @@ from py_science.formula.models import (
     LimitResult,
     PropertiesQuery,
     PropertiesResult,
-    PropertyCheck,
     QueryAnswer,
     QueryRequest,
     QueryResult,
@@ -112,7 +112,9 @@ def evaluate_queries(
             answer = _with_closed_form_qualification(limit_answer(expression, query, reasoning), qualification)
             result = LimitResult(name=query.name, target=target.target, normalized_target=target.interpretation, summary="bounded exact directional limit", answers=(answer,))
         else:
-            result = AsymptoticResult(name=query.name, target=target.target, normalized_target=target.interpretation, summary=UNIMPLEMENTED, answers=(_unresolved(),))
+            expression, qualification = _property_expression(target.expression, reasoning)
+            answer = _with_closed_form_qualification(asymptotic_answer(expression, query, reasoning), qualification)
+            result = AsymptoticResult(name=query.name, target=target.target, normalized_target=target.interpretation, summary="qualified bounded asymptotic expansion", answers=(answer,))
         results.append(result)
     return tuple(results)
 
@@ -162,10 +164,6 @@ def _walk(value: Expression):  # pyright: ignore[reportUnknownParameterType]
     yield value
     for child in expression_children(value):
         yield from _walk(child)
-
-
-def _unresolved(check: PropertyCheck | None = None) -> QueryAnswer:
-    return QueryAnswer(check=check, conclusion="unresolved", blockers=(UNIMPLEMENTED,))
 
 
 def _failure(
