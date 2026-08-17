@@ -210,11 +210,14 @@ def _attach_queries(
 ) -> AnalysisOutcome:
     """Resolve whole-expression/equation RHS targets only after normal analysis succeeds."""
     results: list[QueryResult] = []
-    reasoning = ReasoningContext.build(
-        {name: declaration.domain for name, declaration in request.variables.items()},
-        knowledge.definitions,
-        knowledge.assumptions,
-    )
+    try:
+        reasoning = ReasoningContext.build(
+            {name: declaration.domain for name, declaration in request.variables.items()},
+            knowledge.definitions,
+            knowledge.assumptions,
+        )
+    except (ExpressionTooComplex, RuntimeError):
+        reasoning = None
     for position, query in enumerate(request.queries):
         if request.expression is not None:
             parsed = parse_expression(request.expression)

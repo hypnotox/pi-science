@@ -636,6 +636,20 @@ function validDerivedCandidate(value: unknown): boolean {
 function validNullableQueryText(value: unknown): boolean {
   return value === null || boundedQueryText(value);
 }
+function canonicalExactScalar(value: string): boolean {
+  const match = /^(-?)(0|[1-9][0-9]*)(?:\/([1-9][0-9]*))?$/.exec(value);
+  if (match === null || value.length > 2050 || value === "-0") return false;
+  try {
+    const numerator = BigInt(`${match[1]}${match[2]}`);
+    const denominator = BigInt(match[3] ?? "1");
+    let left = numerator < 0n ? -numerator : numerator;
+    let right = denominator;
+    while (right !== 0n) [left, right] = [right, left % right];
+    return left === 1n && (denominator !== 1n || !value.includes("/"));
+  } catch {
+    return false;
+  }
+}
 function validQueryEvidence(value: unknown): boolean {
   if (!isRecord(value) || typeof value.kind !== "string") return false;
   if (value.kind === "identity")
@@ -652,8 +666,12 @@ function validQueryEvidence(value: unknown): boolean {
         "comparison_value",
       ]) &&
       validStringMap(value.substitutions) &&
-      Object.values(value.substitutions as Record<string, string>).every(
-        (item) => /^-?(0|[1-9][0-9]*)(\/[1-9][0-9]*)?$/.test(item),
+      Object.entries(value.substitutions as Record<string, string>).every(
+        ([name, item]) =>
+          /^[A-Za-z][A-Za-z0-9_]*$/.test(name) &&
+          name.length <= 128 &&
+          name !== "oo" &&
+          canonicalExactScalar(item),
       ) &&
       boundedQueryText(value.target_value) &&
       boundedQueryText(value.comparison_value)

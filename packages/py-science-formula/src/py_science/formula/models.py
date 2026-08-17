@@ -314,6 +314,13 @@ class CounterexampleEvidence(StructuredModel):
 
     @model_validator(mode="after")
     def canonical_substitutions(self) -> "CounterexampleEvidence":
+        if any(
+            len(name) > MAX_NAME_LENGTH
+            or re.fullmatch(_NAME_PATTERN, name) is None
+            or name == "oo"
+            for name in self.substitutions
+        ):
+            raise ValueError("counterexample substitution names must be ordinary identifiers")
         parsed = (parse_exact_scalar(value) for value in self.substitutions.values())
         if any(item is None or render_exact(item) != value for item, value in zip(parsed, self.substitutions.values(), strict=True)):
             raise ValueError("counterexample substitutions must be canonical exact scalars")

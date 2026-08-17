@@ -70,7 +70,7 @@ class QueryTarget:
 def evaluate_queries(
     queries: tuple[QueryRequest, ...],
     target: QueryTarget,
-    reasoning: ReasoningContext,
+    reasoning: ReasoningContext | None,
 ) -> tuple[QueryResult, ...] | AnalysisFailure:
     results: list[QueryResult] = []
     for position, query in enumerate(queries):
@@ -148,7 +148,7 @@ def _failure(
 def _equivalence(
     query: EquivalenceQuery,
     expression: Expression,
-    reasoning: ReasoningContext,
+    reasoning: ReasoningContext | None,
     position: int,
 ) -> QueryAnswer | AnalysisFailure:
     parsed = parse_expression(query.comparison)
@@ -161,6 +161,8 @@ def _equivalence(
         )
     if isinstance(parsed, (Equation, Relationship)):
         return _failure("equivalence comparison must be an expression", f"queries[{position}].comparison", query.comparison)
+    if reasoning is None:
+        return _unresolved_with("query reasoning exceeds its bound")
     if not _allowed_rational(expression) or not _allowed_rational(parsed):
         return _unresolved_with("query family is unsupported")
     original_symbols = _symbol_names(expression) | _symbol_names(parsed)
@@ -203,7 +205,11 @@ def _equivalence(
             relevant_unsupported_assumptions=unsupported,
             evidence=IdentityEvidence(statement="normalized difference is zero"),
         )
-    if not normalized.symbols and normalized.numerator.is_number:
+    if (
+        not normalized.left.free_symbols
+        and not normalized.right.free_symbols
+        and normalized.numerator.is_number
+    ):
         target_rendered = str(normalized.left)
         comparison_rendered = str(normalized.right)
         if max(len(target_rendered), len(comparison_rendered)) > 4096:

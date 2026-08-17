@@ -26,7 +26,7 @@ from py_science.formula.expressions import (
     substitute,
 )
 from py_science.formula.models import MathematicalDomain, RelationshipUse
-from py_science.formula.sympy_backend import _to_sympy
+from py_science.formula.sympy_backend import _to_sympy, rational_ir_preflight
 
 MAX_REASONING_STEPS = 4096
 MAX_INTERMEDIATE_NODES = 4096
@@ -194,6 +194,16 @@ class ReasoningContext:
             fact = self.facts.get(str(symbol), _domain_fact(str(symbol), self.domains.get(str(symbol), MathematicalDomain.REAL)))
             if not fact.accepts(value):
                 return False
+        for name, domain in self.domains.items():
+            try:
+                resolved = _to_sympy(self.apply(Symbol(name))).subs(values)
+                if resolved.free_symbols or not resolved.is_Rational:
+                    return False
+                fact = self.facts.get(name, _domain_fact(name, domain))
+                if not fact.accepts(resolved):
+                    return False
+            except Exception:
+                return False
         for item in self.assumptions:
             try:
                 relationship = item.value
@@ -244,9 +254,25 @@ def _domain_fact(name: str, domain: MathematicalDomain) -> DomainFact:
 def _affine_fact(item: Any, replacements: dict[str, Expression], existing: Any) -> DomainFact | None:
     try:
         relationship: Relationship = item.value
-        left = _to_sympy(substitute(relationship.left, replacements, max_nodes=MAX_INTERMEDIATE_NODES))
-        right = _to_sympy(substitute(relationship.right, replacements, max_nodes=MAX_INTERMEDIATE_NODES))
+        left_expression = substitute(
+            relationship.left,
+            replacements,
+            max_nodes=MAX_INTERMEDIATE_NODES,
+        )
+        right_expression = substitute(
+            relationship.right,
+            replacements,
+            max_nodes=MAX_INTERMEDIATE_NODES,
+        )
+        if not rational_ir_preflight(left_expression, max_degree=1) or not rational_ir_preflight(
+            right_expression, max_degree=1
+        ):
+            return None
+        left = _to_sympy(left_expression)
+        right = _to_sympy(right_expression)
         difference = sympy.expand(left - right)
+        if sum(1 for _ in sympy.preorder_traversal(difference)) > MAX_INTERMEDIATE_NODES:
+            return None
         symbols = tuple(difference.free_symbols)
         if len(symbols) != 1:
             return None

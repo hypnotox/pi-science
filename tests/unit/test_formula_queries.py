@@ -80,6 +80,36 @@ def test_counterexamples_obey_domains_and_all_supported_assumptions():
     assert evidence.substitutions["x"] in {"1", "2", "1/2"}
 
 
+def test_equality_substitution_preserves_eliminated_symbol_domains():
+    outcome = analyze(request(
+        variables={
+            "x": VariableDeclaration(domain=MathematicalDomain.POSITIVE_REAL),
+            "y": VariableDeclaration(domain=MathematicalDomain.REAL),
+        },
+        assumptions=(Assumption(name="same", relationship="x == y"),),
+        queries=({"name":"q", "kind":"equivalence", "comparison":"1"},),
+    ))
+    assert outcome.status == "success"
+    evidence = outcome.queries[0].answers[0].evidence
+    assert isinstance(evidence, CounterexampleEvidence)
+    assert evidence.substitutions["y"] != "0"
+
+
+def test_symbolic_constant_differences_require_valid_assignments():
+    for expression, comparison in (("x", "x + 1"), ("1/x", "1/x + 1")):
+        outcome = analyze(AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression=expression,
+            queries=({"name":"q", "kind":"equivalence", "comparison":comparison},),
+        ))
+        assert outcome.status == "success"
+        evidence = outcome.queries[0].answers[0].evidence
+        assert isinstance(evidence, CounterexampleEvidence)
+        assert evidence.substitutions
+        if expression == "1/x":
+            assert evidence.substitutions["x"] != "0"
+
+
 def test_original_denominators_survive_normalization_and_use_domain_facts():
     conditional = analyze(AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,
@@ -152,11 +182,36 @@ def test_result_models_reject_wrong_evidence_and_answer_cardinality():
         QueryAnswer(conclusion="unresolved", blockers=("unsupported",), derived_candidates=({"interpretation": interpretation, "operation_counts": OperationCounts()},))
 
 
+def test_reasoning_expansion_failures_are_contained_as_unresolved():
+    assumptions = tuple(
+        Assumption(name=f"double{index}", relationship=f"x{index + 1} == x{index} + x{index}")
+        for index in range(14)
+    )
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="x0",
+        assumptions=assumptions,
+        queries=({"name":"q", "kind":"equivalence", "comparison":"x0"},),
+    ))
+    assert outcome.status == "success"
+    assert outcome.queries[0].answers[0].conclusion == "unresolved"
+    assert outcome.queries[0].answers[0].blockers == ("query reasoning exceeds its bound",)
+
+
 def test_equivalence_resource_refusals_are_localized_unresolved():
-    for comparison in ("x**33", f"{1 << 1024}*x"):
+    for comparison in ("x**9", "x**33", f"{1 << 1024}*x"):
         outcome = analyze(request(queries=({"name":"q", "kind":"equivalence", "comparison":comparison},)))
         assert outcome.status == "success"
         assert outcome.queries[0].answers[0].conclusion == "unresolved"
+
+    nonlinear = analyze(request(
+        assumptions=(Assumption(name="nonlinear", relationship="(x + 1)**8 > 0"),),
+        queries=({"name":"q", "kind":"equivalence", "comparison":"x"},),
+    ))
+    assert nonlinear.status == "success"
+    answer = nonlinear.queries[0].answers[0]
+    assert answer.conclusion == "proved"
+    assert answer.relevant_unsupported_assumptions == ("nonlinear",)
 
 
 def test_query_sources_participate_in_whole_request_byte_accounting():

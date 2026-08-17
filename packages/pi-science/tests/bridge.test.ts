@@ -518,6 +518,42 @@ describe("private formula bridge", () => {
         ],
       },
       {
+        ...counterexample,
+        answers: [
+          {
+            ...counterexample.answers[0],
+            evidence: {
+              ...counterexample.answers[0].evidence,
+              substitutions: { x: "-0" },
+            },
+          },
+        ],
+      },
+      {
+        ...counterexample,
+        answers: [
+          {
+            ...counterexample.answers[0],
+            evidence: {
+              ...counterexample.answers[0].evidence,
+              substitutions: { x: "2/4" },
+            },
+          },
+        ],
+      },
+      {
+        ...counterexample,
+        answers: [
+          {
+            ...counterexample.answers[0],
+            evidence: {
+              ...counterexample.answers[0].evidence,
+              substitutions: { "not-valid": "1" },
+            },
+          },
+        ],
+      },
+      {
         ...unresolved,
         answers: [
           {

@@ -18,6 +18,7 @@ from py_science.formula.expressions import (
     RationalLiteral,
     Sum,
     Symbol,
+    expression_node_count,
 )
 
 
@@ -61,6 +62,105 @@ class BoundedRationalDifference:
     symbols: tuple[Any, ...]
 
 
+def rational_ir_measure(
+    expression: Expression,
+    *,
+    max_nodes: int = 512,
+    max_degree: int = 8,
+    max_exponent: int = 32,
+    max_coefficient_bits: int = 1024,
+) -> tuple[int, int, int] | None:
+    """Bound numerator degree, denominator degree, and coefficient growth in IR."""
+    if expression_node_count(expression) > max_nodes:
+        return None
+
+    def measure(value: Expression) -> tuple[int, int, int] | None:
+        if isinstance(value, IntegerLiteral):
+            return 0, 0, max(1, abs(value.value).bit_length())
+        if isinstance(value, RationalLiteral):
+            return 0, 0, max(
+                1,
+                abs(value.numerator).bit_length(),
+                value.positive_denominator.bit_length(),
+            )
+        if isinstance(value, Symbol):
+            return 1, 0, 1
+        if not isinstance(value, BinaryExpression):
+            return None
+        left_measure = measure(value.left)
+        right_measure = measure(value.right)
+        if left_measure is None or right_measure is None:
+            return None
+        left_num, left_den, left_bits = left_measure
+        right_num, right_den, right_bits = right_measure
+        if value.operator in {BinaryOperator.ADD, BinaryOperator.SUBTRACT}:
+            result = (
+                max(left_num + right_den, right_num + left_den),
+                left_den + right_den,
+                max(left_bits, right_bits) + 1,
+            )
+        elif value.operator is BinaryOperator.MULTIPLY:
+            result = (
+                left_num + right_num,
+                left_den + right_den,
+                left_bits + right_bits + 1,
+            )
+        elif value.operator is BinaryOperator.DIVIDE:
+            result = (
+                left_num + right_den,
+                left_den + right_num,
+                left_bits + right_bits + 1,
+            )
+        else:
+            exponent = (
+                value.right.value
+                if isinstance(value.right, IntegerLiteral)
+                else value.right.numerator
+                if isinstance(value.right, RationalLiteral)
+                and value.right.positive_denominator == 1
+                else None
+            )
+            if exponent is None or abs(exponent) > max_exponent:
+                return None
+            if exponent >= 0:
+                result = (
+                    left_num * exponent,
+                    left_den * exponent,
+                    left_bits * exponent + 1,
+                )
+            else:
+                result = (
+                    left_den * -exponent,
+                    left_num * -exponent,
+                    left_bits * -exponent + 1,
+                )
+        if (
+            max(result[0], result[1]) > max_degree
+            or result[2] > max_coefficient_bits
+        ):
+            return None
+        return result
+
+    return measure(expression)
+
+
+def rational_ir_preflight(
+    expression: Expression,
+    *,
+    max_nodes: int = 512,
+    max_degree: int = 8,
+    max_exponent: int = 32,
+    max_coefficient_bits: int = 1024,
+) -> bool:
+    return rational_ir_measure(
+        expression,
+        max_nodes=max_nodes,
+        max_degree=max_degree,
+        max_exponent=max_exponent,
+        max_coefficient_bits=max_coefficient_bits,
+    ) is not None
+
+
 def bounded_rational_difference(
     left: Expression,
     right: Expression,
@@ -71,6 +171,28 @@ def bounded_rational_difference(
     max_coefficient_bits: int = 1024,
 ) -> BoundedRationalDifference | None:
     """Normalize one pre-allowlisted rational pair under explicit resource caps."""
+    left_measure = rational_ir_measure(
+        left,
+        max_degree=max_degree,
+        max_exponent=max_exponent,
+        max_coefficient_bits=max_coefficient_bits,
+    )
+    right_measure = rational_ir_measure(
+        right,
+        max_degree=max_degree,
+        max_exponent=max_exponent,
+        max_coefficient_bits=max_coefficient_bits,
+    )
+    if left_measure is None or right_measure is None:
+        return None
+    left_num, left_den, _ = left_measure
+    right_num, right_den, _ = right_measure
+    if max(
+        left_num + right_den,
+        right_num + left_den,
+        left_den + right_den,
+    ) > max_degree:
+        return None
     try:
         lhs: Any = _to_sympy(left)
         rhs: Any = _to_sympy(right)
@@ -82,7 +204,15 @@ def bounded_rational_difference(
         if sum(1 for _ in sympy.preorder_traversal(difference)) > max_intermediate_nodes:
             return None
         numerator, denominator = sympy.fraction(difference)
-        symbols = tuple(sorted(numerator.free_symbols | denominator.free_symbols, key=str))
+        symbols = tuple(
+            sorted(
+                lhs.free_symbols
+                | rhs.free_symbols
+                | numerator.free_symbols
+                | denominator.free_symbols,
+                key=str,
+            )
+        )
         for value in (numerator, denominator):
             polynomial = sympy.Poly(value, *symbols) if symbols else None
             if polynomial is not None:
