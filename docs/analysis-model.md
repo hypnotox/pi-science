@@ -2,317 +2,113 @@
 # Analysis Model
 
 <!-- awf:edit-in-place body: your edits below are preserved across syncs; awf owns the rest -->
-## Implemented formula-analysis slice
+## Implemented formula-analysis contract
 
-The independently importable `py-science-formula` distribution and readiness-gated Pi `analyze_formula` tool accept one ordinary restricted-SymPy expression or one nonempty list of uniquely named `Eq` equations over indexed scalar values, generic calls, and inclusive `Sum` forms. Requests may carry per-equation output domains, variable domains, function definitions, scalar primitive costs, named assumptions, directed definitions, scenarios, and optional bounded general-context queries. Pi injects `syntax: sympy`; strict request validation rejects surplus fields and invalid expression/system unions before analysis.
+The independently importable `py-science-formula` distribution and readiness-gated Pi `analyze_formula` tool accept exactly one restricted-SymPy expression or one nonempty list of uniquely named `Eq` equations. Pi injects `syntax: sympy`; direct Python callers supply `FormulaSyntax.SYMPY`. Requests may attach equation output domains, variable domains, function definitions, scalar primitive costs, named assumptions, directed definitions, scenarios, and optional bounded general-context queries. Strict request validation rejects surplus fields and invalid expression/system unions.
 
-The public Python boundary bounds request populations, aggregate source bytes and nodes, expression depth, integers, generated scenario results, rendering, and reports. The private protocol adds an exact versioned envelope, a whole-envelope UTF-8 byte bound, bounded serialized output, and exact rich-result validation before Pi consumes the report. Submitted formula, assumption, and definition text is converted from restricted Python AST data only: it is never evaluated or passed to a SymPy string parser. Mathematical policy remains in Python rather than the adapter or TypeScript bridge.
+Python owns request validation, restricted-expression parsing, and mathematical policy. A deterministic generator derives Pi's checked-in provider-compatible structural schema from `AnalysisRequest`, and the gate rejects drift. TypeScript imports that artifact, injects syntax, and carries the bounded protocol without recreating semantic validators. Python request errors cross the bridge only through the exact bounded current-version request-error envelope; malformed, incompatible, wrong-status, surplus, or unbounded subprocess output fails closed.
 
-Each named equation is charged once per local output-domain point; downstream references are accesses to that result, while unnamed repetition remains submitted work. Inclusive sums use nonnegative cardinality `max(upper - lower + 1, 0)`, with declared integer and sign domains discharging supported exact cardinalities. Reports preserve normalized equations, symbolic per-equation and total work, dependencies and ideal reuse, primitive invocations, relationship provenance, explicit unknown costs, and unresolved conclusions.
+The public Python boundary bounds request populations, aggregate source bytes and nodes, expression depth, integers, generated scenario results, rendering, and reports. Submitted formula, assumption, definition, query, and cost text is converted from restricted Python AST data only: it is never evaluated or passed to a SymPy string parser.
 
-Named equality or inequality assumptions and acyclic directed definitions support exact normalized-subexpression replacement and bounded deterministic factoring with recorded provenance. Separate fixed, finite-choice, derived, asymptotic, or interval scenarios leave the general symbolic report unchanged and report exact substitutions, conservative supported intervals, qualified univariate polynomial classifications, provenance, and unresolved blockers. Real-adapter and registered-tool AFMM-like acceptance proves these system and scenario surfaces survive the Pi boundary.
+## Restricted expression dialect
 
-Restricted LaTeX input, scenario-context queries, complex values, dimensions, vector shorthand, differentiation, numerical approximation, unrestricted theorem proving or solving, source inference, physical validation, empirical timing, hardware modelling, recurrences, and code generation are not implemented. The remaining sections define the broader product contract and MVP direction where they exceed this shipped Python and Pi slice.
+The parser accepts integer and exact decimal literals, ordinary symbols, `oo` and `-oo`, arithmetic `+`, `-`, `*`, `/`, and `**`, indexed scalar values, and ordinary named calls with positional arguments. It accepts one-limit inclusive sums spelled `Sum(body, (index, lower, upper))`, equations spelled `Eq(lhs, rhs)` with a scalar or indexed result on the left, and one unchained `==`, `<`, `<=`, `>`, or `>=` relationship.
 
-## Bounded mathematical query contract
+The submitted language is not unrestricted Python or SymPy. It rejects attributes, keyword and starred call arguments, chained relationships, implicit vector operations, products, submitted aggregate `Max`, and multiple limits in one sum. An ordinary spelling such as `sqrt(x)`, `exp(x)`, or `f(x)` is a generic call unless the request supplies a function body or primitive cost; parser acceptance does not imply evaluator semantics. Parser acceptance, validity in the containing request field, and bounded query applicability are separate Python-owned checks.
 
-A `queries` collection is optional and remains separate from submitted work and scenarios. `equivalence`, `closed_form`, `properties`, `limit`, and `asymptotic` queries explicitly name their request; they target the whole expression or one named equation RHS and use global assumptions only. Finite points use exact scalars and require direction, while signed infinity forbids it. Each answer reports a conservative conclusion, conditions, assumption provenance, unsupported relevant facts, blockers, evidence, and informational derived candidates. Valid unsupported questions are localized `unresolved` or `inapplicable` answers. The shipped evaluators cover bounded rational equivalence, geometric-linear closed forms, supported rational properties and limits, and bounded rational or linear-exponential asymptotics. Scenarios do not execute queries, and derived candidates never alter submitted direct work.
+## Expression and equation-system requests
 
-## Request envelope
-
-A complete request contains either one `expression` or a list of named `equations`. Only fields relevant to the analysis are required.
+Use `expression` for one self-contained formula:
 
 ```json
 {
-  "syntax": "latex | sympy",
-  "expression": "...",
-  "equations": [],
-  "domains": {},
-  "variables": {},
-  "assumptions": [],
-  "scenarios": {},
-  "primitive_costs": {},
-  "stages": []
-}
-```
-
-The planned analyzer safely parses both frontends into one internal mathematical model. It returns normalized SymPy and LaTeX renderings before any analysis result so the caller can verify the interpretation.
-
-## Mathematical frontends
-
-### LaTeX
-
-LaTeX serves short expressions, readable reasoning, derivations adapted from papers, and quick requests.
-
-```json
-{
-  "syntax": "latex",
-  "expression": "\\sum_{i=0}^{N-1}(x_i-y_i)^2",
+  "expression": "Sum((x[i] - center)**2, (i, 0, N - 1))",
   "variables": {
-    "N": { "domain": "positive_integer" }
+    "N": {"domain": "positive_integer"},
+    "x": {"domain": "real"},
+    "center": {"domain": "real"}
   }
 }
 ```
 
-Ambiguous or unsupported notation produces a clear warning or error rather than a guessed interpretation.
-
-### Restricted SymPy
-
-Restricted SymPy serves nested sums and products, indexed equations, named intermediates, multi-equation systems, repeated analysis, and candidate comparison.
-
-```json
-{
-  "syntax": "sympy",
-  "expression": "Sum((x[i] - y[i])**2, (i, 0, N - 1))",
-  "variables": {
-    "N": { "domain": "positive_integer" }
-  }
-}
-```
-
-The planned subset follows actual SymPy conventions and is parsed as data, never evaluated as arbitrary Python. Initial constructs include `Eq`, `Sum`, `Product`, `Piecewise`, `Min`, `Max`, `Abs`, `log`, `exp`, `sqrt`, indexed values, ordinary arithmetic, symbolic function calls, and integer or symbolic bounds.
-
-## Equation systems and domains
-
-Use `expression` for one self-contained formula. Use named `equations` for multi-stage algorithms and reusable intermediate quantities.
+Use named `equations` for reusable results with local output domains:
 
 ```json
 {
   "equations": [
     {
-      "name": "leaf_multipoles",
-      "expression": "Eq(M[b, a], Sum(q[i] * basis(a, x[i] - center[b]), (i, 0, n[b] - 1)))"
+      "name": "samples",
+      "expression": "Eq(S[i], x[i] - center)",
+      "domains": {"i": {"lower": "0", "upper": "N - 1"}}
     },
     {
-      "name": "far_field_translation",
-      "expression": "Eq(L[b, a], Sum(Sum(T(a, k, b, c) * M[c, k], (k, 0, K(p) - 1)), (c, 0, interaction_count[b] - 1)))"
-    }
-  ]
-}
-```
-
-A named intermediate is computed once per element in its declared domain and may be referenced by later equations. `domains` supplies ranges for free output indices and iterators not already bound by `Sum` or `Product`.
-
-```json
-{
-  "domains": {
-    "b": { "lower": 0, "upper": "B_leaf - 1" },
-    "a": { "lower": 0, "upper": "K(p) - 1" }
-  }
-}
-```
-
-## Variables, assumptions, and primitive costs
-
-Variable declarations state mathematical domains and optional definitions without deciding how every scenario treats the variable.
-
-```json
-{
-  "variables": {
-    "N": { "domain": "positive_integer" },
-    "p": { "domain": "positive_integer" },
-    "L": {
-      "domain": "nonnegative_integer",
-      "definition": "ceiling(log(N / s, 8))"
-    }
-  }
-}
-```
-
-Assumptions express relationships needed for simplification or bounds. Dependent relationships are preferable to unrelated ranges because they exclude impossible combinations.
-
-```json
-{
-  "assumptions": [
-    "Sum(n[b], (b, 0, B_leaf - 1)) == N",
-    "0 <= n[b]",
-    "n[b] <= s",
-    "0 <= interaction_count[b]",
-    "interaction_count[b] <= I_max"
-  ]
-}
-```
-
-Opaque functions remain symbolic unless their definition or cost is supplied.
-
-```json
-{
-  "primitive_costs": {
-    "basis(a, r)": { "work": "6 * a + 4" },
-    "M2L(p)": {
-      "work": "K(p)**2",
-      "temporary_memory": "K(p)"
-    }
-  }
-}
-```
-
-The MVP analyzes abstract work. Target-specific cycles and hardware timing are outside its cost model.
-
-## Stages
-
-Optional `stages` group equations and declare coarse dependencies.
-
-```json
-{
-  "stages": [
-    {
-      "name": "upward_pass",
-      "equations": ["leaf_multipoles", "parent_multipoles"],
-      "depends_on": []
-    },
-    {
-      "name": "interaction_pass",
-      "equations": ["far_field_translation"],
-      "depends_on": ["upward_pass"]
-    }
-  ]
-}
-```
-
-The MVP may preserve and validate this metadata without detailed schedule, depth, or peak-memory analysis.
-
-## Scenarios
-
-A scenario changes how variables are treated without rewriting the mathematical model.
-
-| Treatment | Meaning |
-|---|---|
-| `fixed` | Substitute a concrete value. |
-| `bounds` | Assume the variable lies in an interval. |
-| `choices` | Evaluate a finite set of candidates. |
-| `asymptotic` | Retain the variable as a scaling dimension. |
-| `definition` | Derive the variable from other variables. |
-
-```json
-{
-  "syntax": "sympy",
-  "expression": "N**2 * p**3 + N * p**2",
-  "variables": {
-    "N": { "domain": "positive_integer" },
-    "p": { "domain": "positive_integer" }
-  },
-  "scenarios": {
-    "fully_symbolic": { "asymptotic": ["N", "p"] },
-    "production": {
-      "fixed": { "N": 1000000, "p": 12 }
-    },
-    "vary_particle_count": {
-      "asymptotic": ["N"],
-      "fixed": { "p": 12 },
-      "bounds": { "N": [100000, 10000000] }
-    },
-    "parameter_search": {
-      "fixed": { "N": 1000000 },
-      "choices": { "p": [6, 8, 10, 12, 14] }
-    }
-  }
-}
-```
-
-A scenario can produce a symbolic specialization, a concrete cost, an interval result, a finite comparison, dominant terms, or a piecewise result when dominance changes across the parameter space. Every bound states whether it is exact, assumption-dependent, conservative, or unresolved.
-
-## Analysis semantics
-
-### Symbolic operation and work counts
-
-The analyzer derives symbolic counts for additions, subtractions, multiplications, divisions, powers, square roots, function calls, terms, and declared primitives. It aggregates work across sums, products, free-index domains, and named equation systems while preserving symbolic dimensions until a scenario fixes them.
-
-For the leaf equation above, with `a` ranging over `K(p)` terms and `Sum(n[b], (b, 0, B_leaf - 1)) == N`, the number of basis evaluations is:
-
-\[
-\sum_{b=0}^{B_{\mathrm{leaf}}-1} K(p)n_b = N K(p).
-\]
-
-If `basis` is opaque, its contribution remains:
-
-\[
-N K(p) C_{\operatorname{basis}}(p).
-\]
-
-Supplying a definition or primitive cost permits further expansion.
-
-### Complexity and dominant terms
-
-The analyzer simplifies exact work under stated assumptions and reports `O`, `Theta`, or a conservative upper bound only when justified. Expansion order, dimension, occupancy, interaction count, and similar parameters remain symbolic unless explicitly fixed. Each simplification names its assumptions.
-
-Dominant-term analysis is scenario-specific. It explains when fixing a parameter changes asymptotic behavior, identifies the variables contributing most strongly to growth, and retains lower-order terms when concrete ranges make them relevant.
-
-### Dependencies and reuse
-
-Named equations form a dependency graph. The analyzer identifies repeated subexpressions, expressions whose free-index set is smaller than their surrounding domain, and named intermediates reused downstream. It may suggest common-subexpression extraction or moving invariant work outside repeated sums or domains, with an estimated symbolic saving.
-
-### Candidate comparison
-
-Candidates share metadata and scenarios. A comparison may report symbolic cost differences, concrete winners, crossover equations or inequalities, parameter regions favoring each candidate, and trade-offs caused by unknown primitive costs.
-
-### Mathematical rewrites
-
-The MVP may suggest local common-subexpression elimination, algebraic factoring, reciprocal or norm reuse, repeated-call reduction, invariant extraction, and assumption-driven simplification. Every suggestion states its assumptions, whether it is exact under ordinary real arithmetic, and its estimated symbolic effect. The analyzer does not silently replace the agent's algorithm with a different high-level method.
-
-## Result contract
-
-Each result distinguishes:
-
-- exact symbolic derivation;
-- derivation under named assumptions;
-- conservative lower or upper bound;
-- conditional optimization;
-- unresolved quantity.
-
-A response contains information equivalent to:
-
-```json
-{
-  "interpretation": {
-    "normalized_sympy": "...",
-    "normalized_latex": "...",
-    "warnings": []
-  },
-  "general": {
-    "work_expression": "...",
-    "asymptotic": "Theta(...) | O(...) | unresolved",
-    "operation_counts": {},
-    "assumptions_used": [],
-    "unknown_costs": []
-  },
-  "scenarios": {
-    "production": {
-      "substituted_expression": "...",
-      "operation_counts": {},
-      "dominant_terms": [],
-      "bounds": null
-    }
-  },
-  "dependencies": {
-    "equations": [],
-    "edges": []
-  },
-  "suggestions": [
-    {
-      "kind": "common_subexpression | invariant_hoist | algebraic_rewrite",
-      "description": "...",
-      "condition": "...",
-      "estimated_effect": "..."
+      "name": "summary",
+      "expression": "Eq(T[k], Sum(basis(S[i], k), (i, 0, N - 1)))",
+      "domains": {"k": {"lower": "0", "upper": "p - 1"}}
     }
   ],
-  "unresolved": []
+  "variables": {
+    "N": {"domain": "positive_integer"},
+    "p": {"domain": "positive_integer"},
+    "x": {"domain": "real"},
+    "center": {"domain": "real"}
+  },
+  "primitive_costs": [
+    {"name": "basis", "parameters": ["value", "k"], "work": "k + 1"}
+  ]
 }
 ```
 
-The transport schema may evolve, but normalized interpretation, qualifications, assumptions used, unknowns, and unresolved results remain explicit.
+A free equation-output index needs a local domain. A `Sum` iterator is local to its body. Every external symbol needs an intrinsic variable domain. A named equation is charged once per local output-domain point; downstream references are accesses to that result, while unnamed repetition remains submitted work. Inclusive sums use nonnegative cardinality `max(upper - lower + 1, 0)` when declared integer and sign facts make that reasoning valid.
 
-## Agent formulation guidance
+Use a function definition when a call's mathematical body is known, a primitive cost when its body is intentionally opaque but scalar work is known, or neither to retain an explicit unknown cost. Assumptions state named relationships. Directed definitions are acyclic substitutions. These inputs are explicit mathematical knowledge, not facts inferred by the analyzer.
 
-The companion agent skill teaches agents to:
+## Scenarios and work reports
 
-1. use LaTeX for short readable formulas and SymPy for complex or final machine submissions;
-2. use `Eq(lhs, rhs)` for computed quantities and give every free output index a domain;
-3. express repeated work with explicit `Sum` or `Product` constructs;
-4. split reused calculations into named equations;
-5. declare variable domains, relationships, scenarios, and known primitive costs;
-6. leave unknown functions symbolic rather than inventing costs;
-7. inspect the normalized interpretation before relying on a result;
-8. state assumptions required by a proposed rewrite;
-9. submit competing formulations together when asking which is preferable.
+A scenario specializes the general report through fixed exact values, finite choices, finite bounds, directed definitions, or selected asymptotic variables. Exact values are JavaScript-safe JSON integers or exact strings such as `1/2` and `1.20`. Scenarios leave the general symbolic report unchanged and return substitutions, conservative supported intervals, bounded classifications, provenance, qualifications, and blockers.
+
+Reports preserve normalized SymPy and LaTeX interpretations, symbolic operation and work counts, per-equation and total work, dependency edges and ideal reuse, primitive invocations, relationship provenance, explicit unknown costs, and unresolved conclusions. Inspect normalized interpretations before using a result. Then distinguish exact claims, claims under named assumptions, conservative bounds, conditional results, and unresolved quantities. A specialized scenario does not replace exact general work.
+
+## Bounded mathematical queries
+
+An optional `queries` collection remains separate from submitted work and scenarios. Each query has a unique name and one strict shape:
+
+- `equivalence` supplies `comparison`;
+- `closed_form` supplies no additional operand;
+- `properties` supplies a nonempty unique list of `sign`, `valid_domain`, `singularities`, or `monotonicity` checks, with a variable where required;
+- `limit` supplies a variable and exact point;
+- `asymptotic` supplies the same point fields and an order from 1 through 8.
+
+Finite points require `left`, `right`, or `both`; `oo` and `-oo` forbid direction. An expression query omits `target`. A system query selects one named equation RHS with `{ "kind": "equation", "name": "..." }`. Queries use global assumptions only and do not execute in scenario contexts.
+
+Accepted query shape is broader than bounded evaluator applicability. The shipped evaluators cover conservative rational equivalence; geometric-linear finite or convergent infinite closed forms; supported rational sign, valid-domain, singularity, and monotonicity properties; supported rational limits; and bounded rational or linear-exponential asymptotics. Valid questions outside these families return localized `unresolved` or `inapplicable` answers rather than invented mathematics.
+
+For example, this request asks for a closed form of a convergent geometric-linear tail under explicit assumptions:
+
+```json
+{
+  "expression": "Sum((k + 1) * q**k, (k, p, oo))",
+  "variables": {
+    "p": {"domain": "nonnegative_integer"},
+    "q": {"domain": "real"}
+  },
+  "assumptions": [
+    {"name": "q_nonnegative", "relationship": "0 <= q"},
+    {"name": "tail_ratio", "relationship": "q < 1"}
+  ],
+  "queries": [{"name": "tail", "kind": "closed_form"}]
+}
+```
+
+Each answer reports `proved`, `proved_under_assumptions`, `disproved`, `unresolved`, or `inapplicable`, plus conditions, assumptions used, unsupported relevant assumptions, blockers, evidence, and informational derived candidates. Derived candidates never replace submitted operation counts or work. An infinite mathematical expression may have a qualified query answer while retaining no finite direct-work count.
+
+## Diagnostics and non-goals
+
+Request diagnostics identify a field path and, for parsed source, a span and supported alternative. Correct the localized request from those details rather than broadening the dialect. Query blockers and proof qualifications remain part of the answer, not warnings to discard.
+
+The implemented analyzer does not accept LaTeX input, infer formulas from source, evaluate represented values numerically, validate physics, profile implementations, predict runtime or hardware behavior, model dimensions or implicit vectors, differentiate, approximate numerically, prove arbitrary theorems, solve general systems, generate recurrences, or generate code.
+
+## Broader product direction (not implemented)
+
+Potential future work includes additional safe mathematical frontends, richer expression constructs, scenario-context questions, dimensions, recurrence analysis, candidate comparison, local rewrite suggestions, and formula-to-code workflows. This direction is not accepted input or current agent guidance. New capabilities require explicit contracts, bounded semantics, qualification rules, tests, and documentation before callers may rely on them.
 <!-- awf:edit-in-place body -->

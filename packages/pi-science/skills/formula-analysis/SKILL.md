@@ -1,15 +1,42 @@
 ---
 name: pi-science-formula-analysis
-description: Analyze one restricted SymPy expression or named equation system for normalized interpretation, symbolic work, reuse, provenance, scenarios, and unresolved costs. Use for formula structure and qualified abstract work, not numeric evaluation, benchmarking, physical validation, or implementation generation.
+description: Analyze one restricted SymPy expression or named equation system for normalized interpretation, symbolic work, reuse, provenance, scenarios, bounded mathematical queries, and unresolved costs. Use for formula structure and qualified abstract work, not numeric evaluation, benchmarking, physical validation, or implementation generation.
 ---
 
 # Formula analysis
 
-Use the `analyze_formula` Pi tool for one bounded restricted-SymPy expression or one nonempty list of uniquely named equations. Choose an expression for an isolated calculation. Choose equations when named results have distinct output domains or downstream formulas reuse them.
+Use `analyze_formula` for one bounded restricted-SymPy expression or one nonempty list of uniquely named equations. Choose `expression` for an isolated calculation. Choose `equations` when results have local output domains or later equations reuse named results. Pi supplies `syntax: sympy`; do not include `syntax` in a tool call.
 
-Formulate systems as indexed scalar algebra. Represent a vector component as `x[i, d]`, not as an implicit vector object. Give every free output index a local `domains` entry and every external symbol an intrinsic `variables` domain. A bound `Sum` iterator is local to its body. Use a mathematical `functions` body when its formula is known, a scalar `primitive_costs` expression when only its work is known, or neither when its cost must remain unresolved. Add only explicit `assumptions`, directed `definitions`, and scenario treatments; never ask the tool to guess them.
+## Restricted expression dialect
 
-Pi supplies `syntax: sympy`; LaTeX input is not supported. A compact system request is:
+The parser accepts:
+
+- integer and exact decimal literals, ordinary symbols, and signed infinity `oo` or `-oo`;
+- arithmetic `+`, `-`, `*`, `/`, and `**`, including unary signs on numeric literals;
+- indexed scalars such as `x[i]` and `A[i, j]`;
+- ordinary named calls with positional arguments, such as `basis(k, x[i])`;
+- one-limit inclusive sums spelled exactly `Sum(body, (index, lower, upper))`;
+- equations spelled `Eq(lhs, rhs)`, with a scalar or indexed scalar on the left;
+- one unchained relationship using `==`, `<`, `<=`, `>`, or `>=` where that request field permits a relationship.
+
+This is a restricted spelling, not unrestricted SymPy or Python. `Product`, `Piecewise`, attributes, keyword or starred call arguments, chained relationships, implicit vector operations, and multiple limits in one `Sum` are rejected. `Max` is reserved for analyzer output and is not a submitted call. Other ordinary names such as `sqrt(x)`, `exp(x)`, or `f(x)` parse as generic calls; parsing alone does not give them evaluator semantics or a known work cost. `Eq` belongs in an equation request, while relationships belong in assumptions and other relationship-bearing fields. Parser acceptance, request-context validity, and support by a bounded query evaluator are separate checks owned by Python.
+
+A minimal expression call is:
+
+```json
+{
+  "expression": "Sum((x[i] - center)**2, (i, 0, N - 1))",
+  "variables": {
+    "N": { "domain": "positive_integer" },
+    "x": { "domain": "real" },
+    "center": { "domain": "real" }
+  }
+}
+```
+
+## Model an equation system
+
+Represent vectors and tensors as indexed scalar algebra, for example `x[i, d]`. Give every free output index a local equation `domains` entry and every external symbol an intrinsic `variables` domain. A `Sum` iterator is local to its body, and its bounds are inclusive. Use a mathematical `functions` body when a call's formula is known, a scalar `primitive_costs` expression when only its work is known, or neither when its cost must remain unresolved. A function cannot have both. Add only explicit named `assumptions`, acyclic directed `definitions`, and scenario treatments; never ask the tool to infer them.
 
 ```json
 {
@@ -40,31 +67,11 @@ Pi supplies `syntax: sympy`; LaTeX input is not supported. A compact system requ
 }
 ```
 
-Inspect every normalized SymPy and LaTeX equation before accepting the interpretation. Then inspect submitted and aggregate work, dependency reuse, relationship provenance, scenario qualifications, unknown costs, and unresolved items before relying on a complexity conclusion. Exact general work remains authoritative when a scenario cannot support a stronger result.
+Scenarios may select fixed exact values, finite choices, finite bounds, directed definitions, or asymptotic variables without changing the general report. Exact scalars use JavaScript-safe JSON integers or strings such as `1/2` and `1.20`.
 
-The tool accepts formulas and directly attached mathematical schema only. It does not infer formulas from source, evaluate represented values, validate physics, profile an implementation, predict runtime or hardware behavior, or generate code.
+## Ask bounded mathematical queries
 
-For a persistent project dependency, declare the Python package independently of Pi's managed environment. Replace `<release-ref>` with the same compatible full commit SHA (preferred) or readable release tag used for the project Pi package:
-
-```toml
-[project]
-requires-python = ">=3.13,<3.14"
-dependencies = [
-  "py-science-formula @ git+https://github.com/hypnotox/pi-science.git@<release-ref>#subdirectory=packages/py-science-formula",
-]
-```
-
-Compose the public API directly for a complex probe, importing it from `py_science.formula`. The [`py-science-formula` README](../../../py-science-formula/README.md) contains a matching equation-system request.
-
-For a one-off PEP 723 probe, put that dependency in the script metadata and run `uv run probe.py`; do not import from Pi's isolated backend or its managed checkout.
-
-## Bounded mathematical queries
-
-Add optional general-context `queries` only when asking one explicit mathematical question. Each query has a unique `name` and one of these strict shapes: `equivalence` has `comparison`; `closed_form` has no extra operand; `properties` has a nonempty unique `checks` list of `sign` or `valid_domain`, `singularities`, or `monotonicity` with `variable`; `limit` has `variable`, an exact finite `point` plus `left`, `right`, or `both` `direction`, or `oo`/`-oo` without direction; `asymptotic` has the same point rule and `order` 1 through 8. An expression query omits `target`; a system query supplies `{ "kind": "equation", "name": "..." }` for one named RHS. Query strings remain restricted SymPy data, and finite scalars use safe JSON integers or exact strings such as `1/2` and `1.20`.
-
-Inspect every answer's `conclusion` (`proved`, `proved_under_assumptions`, `disproved`, `unresolved`, or `inapplicable`), conditions, assumptions used, unsupported relevant assumptions, blockers, and evidence. Read diagnostics with their source path/span and supported alternative. Derived candidates are mathematical information only: they never replace submitted operation counts or work. Infinite mathematics may have a qualified answer but has no finite direct-work count. Scenarios do not run queries, and valid unsupported questions return localized qualified answers rather than an invented result.
-
-For example, this AFMM tail asks for a verified closed form under explicit global assumptions:
+Optional `queries` ask explicit general-context questions. Each has a unique `name`. `equivalence` adds `comparison`; `closed_form` adds no operand; `properties` has a nonempty unique list of `sign`, `valid_domain`, `singularities`, or `monotonicity` checks; `limit` has a variable and point; `asymptotic` also has `order` from 1 through 8. A finite point requires `left`, `right`, or `both`; `oo` and `-oo` forbid direction. Expression queries omit `target`; system queries select one named RHS with `{"kind":"equation","name":"..."}`.
 
 ```json
 {
@@ -77,8 +84,18 @@ For example, this AFMM tail asks for a verified closed form under explicit globa
     { "name": "q_nonnegative", "relationship": "0 <= q" },
     { "name": "tail_ratio", "relationship": "q < 1" }
   ],
-  "queries": [{ "name": "afmm_tail", "kind": "closed_form" }]
+  "queries": [{ "name": "tail", "kind": "closed_form" }]
 }
 ```
 
-The initial families are bounded rational equivalence, geometric-linear finite or convergent infinite closed forms, supported rational properties and limits, and bounded rational or linear-exponential asymptotics. Scenario-context queries, LaTeX input, complex values, dimensions, vector shorthand, differentiation, numerical approximation, and general theorem proving are non-goals.
+Accepted query shape does not promise a proved answer. The shipped evaluators are bounded to rational equivalence; geometric-linear finite or convergent infinite closed forms; supported rational sign, valid-domain, singularity, and monotonicity properties; supported rational limits; and bounded rational or linear-exponential asymptotics. Valid questions outside those families return localized `unresolved` or `inapplicable` answers. Scenarios do not run queries, and derived candidates never replace submitted work.
+
+## Correct and interpret results
+
+First inspect every normalized SymPy and LaTeX interpretation. Then inspect submitted and aggregate work, dependency reuse, relationship provenance, scenario qualifications, unknown costs, unresolved items, and query proof qualifications before drawing a conclusion. A scenario specialization does not replace exact general work.
+
+When a request fails, use the returned field path and source span to locate it, then follow the diagnostic's supported alternative rather than guessing a broader spelling. For query answers, read `conclusion`, conditions, assumptions used, relevant unsupported assumptions, blockers, evidence, and any informational derived candidates. Treat `proved_under_assumptions`, conservative bounds, `unresolved`, and `inapplicable` as distinct outcomes.
+
+The tool analyzes formulas and directly attached mathematical schema only. It does not accept LaTeX input, infer formulas from source, evaluate represented values numerically, validate physics, profile an implementation, predict runtime or hardware behavior, prove arbitrary theorems, or generate code.
+
+For persistent or one-off direct Python use, depend on `py-science-formula` independently of Pi's isolated backend and import `py_science.formula`. The [`py-science-formula` README](../../../py-science-formula/README.md) contains the matching typed request and PEP 723 guidance.

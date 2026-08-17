@@ -456,14 +456,14 @@
       "templateId": "docs/local.md.tmpl",
       "templateHash": "sha256:f09ab3b6e84fa2d6a10c6f2ac2a6e1552ad8cada8855c9e378f432a96b7c733d",
       "configHash": "sha256:576779d655d5fdd2c1b6d77a84fc15a9ea9000c1fb229501b15a6401c1d5d3e9",
-      "outputHash": "sha256:f87be0a44429522364869e804a0903c02e6943e8a12b33354f32f781d904a797",
+      "outputHash": "sha256:9da534271b430a4f6bcc9183c5586ea60786f77456131d483c964cc221ecef93",
       "regenChecked": true
     },
     "docs/architecture.md": {
       "templateId": "docs/architecture.md.tmpl",
       "templateHash": "sha256:a1d5d26b03573cc86862912fdc8f46ecf0d4b27455d18cc558b3621a76d0e1c9",
-      "configHash": "sha256:380257073fdfbb19d52c16fbdef94976b4ddba147934e7291fbf415261338017",
-      "outputHash": "sha256:1bde2c45d3548b6ff0cb880b20ed5072e373734e0f16a63c3404cc6ab8a0212c"
+      "configHash": "sha256:987e42fb926aa1d9ad60a14a5afd3cd3071c5a3893365657046350b2f38f1384",
+      "outputHash": "sha256:3254e439d6db62496d091277673825e1276a02c723e7a128025989cb07f085f5"
     },
     "docs/config-reference.md": {
       "templateId": "",

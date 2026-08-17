@@ -1,7 +1,8 @@
 - `packages/py-science-formula/src/py_science/formula/`: independently importable typed formula and equation-system analysis API.
 - `packages/pi-science/bridge/formula_adapter.py`: private, versioned, whole-request and output-bounded JSON adapter.
 - `packages/pi-science/src/provision.ts`: eager isolated-uv readiness gate.
+- `scripts/generate-pi-formula-schema.py` and `packages/pi-science/src/formula-schema.json`: deterministic Python-model-to-provider-schema generation and its checked-in Pi artifact.
 - `packages/pi-science/src/bridge.ts`: exact request/result translation, bounded subprocess client, and diagnostic translation.
-- `packages/pi-science/src/index.ts`: strict expression-or-system Pi schema, tool registration, and always-available doctor.
-- `packages/pi-science/tests/`: bridge, AFMM round-trip, package, and readiness-gate regression evidence.
-- `packages/pi-science/skills/formula-analysis/`: caller guidance for explicit bounded general-context queries and qualified reports.
+- `packages/pi-science/src/index.ts`: generated-schema tool registration, routing metadata, and always-available doctor.
+- `packages/pi-science/tests/`: schema, bridge, AFMM round-trip, package, routing, and readiness-gate regression evidence.
+- `packages/pi-science/skills/formula-analysis/`: restricted-dialect, modeling, bounded-query, diagnostic-recovery, and qualified-result guidance.

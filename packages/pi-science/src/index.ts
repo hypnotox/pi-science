@@ -99,6 +99,12 @@ export async function start(
     label: "Analyze formula",
     description:
       "Analyze one restricted SymPy expression or named equation system without evaluating it",
+    promptSnippet:
+      "Analyze restricted-SymPy formulas for normalized interpretation and qualified symbolic work",
+    promptGuidelines: [
+      "Before first using analyze_formula, read the available pi-science-formula-analysis skill for the accepted dialect, request modeling, and result interpretation.",
+      "When analyze_formula rejects a request, use its Python-owned diagnostic path, span, and supported alternatives to correct the request.",
+    ],
     parameters: formulaSchema,
     async execute(_id, params: FormulaParameters, signal) {
       const result = await invokeAdapter(

@@ -18,6 +18,8 @@ result = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 1")
 
 Choose one expression for an isolated calculation. Choose named equations when results have local output domains or downstream formulas reuse them. Every free output index needs an `IndexDomain`; every external symbol needs an intrinsic `VariableDeclaration`. Represent vectors through indexed scalar components such as `x[i, d]`.
 
+The restricted parser accepts exact integer and decimal literals, ordinary symbols, arithmetic `+`, `-`, `*`, `/`, and `**`, indexed scalars, ordinary positional calls, one-limit inclusive `Sum(body, (index, lower, upper))`, `Eq(lhs, rhs)`, single relationships, and signed infinity `oo` or `-oo`. It rejects unrestricted Python or SymPy, including `Product`, submitted `Max`, attributes, keyword calls, chained relationships, and sums with more than one limit. A generic call can parse while still having no definition, cost, or bounded query semantics; parsing, request-context validation, and evaluator applicability are separate Python-owned checks.
+
 This compact request analyzes a reusable indexed result under a fixed-order scenario:
 
 ```python

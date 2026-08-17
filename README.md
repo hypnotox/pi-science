@@ -42,7 +42,13 @@ Pi eagerly provisions its isolated backend on first startup. Install `uv`, Git, 
 
 ## Formulate an analysis
 
-Use one expression for an isolated calculation. Use named equations when results have separate output domains or downstream formulas reuse them. Express vector and tensor components through indexed scalar algebra, declare every free output index and external variable domain, and attach only explicit mathematical knowledge:
+Use one expression for an isolated calculation. Use named equations when results have separate output domains or downstream formulas reuse them. Pi supplies restricted-SymPy syntax, so tool calls omit `syntax`:
+
+```json
+{"expression":"Sum(x[i]**2, (i, 0, N - 1))","variables":{"N":{"domain":"positive_integer"},"x":{"domain":"real"}}}
+```
+
+The shipped dialect accepts exact literals, ordinary symbols and positional calls, indexed scalars, arithmetic, one-limit inclusive `Sum`, `Eq`, single relationships, and `oo` or `-oo`. The product skill owns the full accepted and rejected spelling guide. Express vector and tensor components through indexed scalar algebra, declare every free output index and external variable domain, and attach only explicit mathematical knowledge:
 
 - a function body when the mathematical definition is known;
 - scalar primitive work when the body is opaque but its work is known;

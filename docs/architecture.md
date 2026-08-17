@@ -13,10 +13,11 @@ At extension startup Pi provisions an isolated, immutable-revision uv environmen
 - `packages/py-science-formula/src/py_science/formula/`: independently importable typed formula and equation-system analysis API.
 - `packages/pi-science/bridge/formula_adapter.py`: private, versioned, whole-request and output-bounded JSON adapter.
 - `packages/pi-science/src/provision.ts`: eager isolated-uv readiness gate.
+- `scripts/generate-pi-formula-schema.py` and `packages/pi-science/src/formula-schema.json`: deterministic Python-model-to-provider-schema generation and its checked-in Pi artifact.
 - `packages/pi-science/src/bridge.ts`: exact request/result translation, bounded subprocess client, and diagnostic translation.
-- `packages/pi-science/src/index.ts`: strict expression-or-system Pi schema, tool registration, and always-available doctor.
-- `packages/pi-science/tests/`: bridge, AFMM round-trip, package, and readiness-gate regression evidence.
-- `packages/pi-science/skills/formula-analysis/`: caller guidance for explicit bounded general-context queries and qualified reports.
+- `packages/pi-science/src/index.ts`: generated-schema tool registration, routing metadata, and always-available doctor.
+- `packages/pi-science/tests/`: schema, bridge, AFMM round-trip, package, routing, and readiness-gate regression evidence.
+- `packages/pi-science/skills/formula-analysis/`: restricted-dialect, modeling, bounded-query, diagnostic-recovery, and qualified-result guidance.
 
 
 <!-- awf:edit data-flow: from .awf/docs/parts/architecture/data-flow.md -->
@@ -27,7 +28,9 @@ The formula-analysis flow is:
 strict Pi expression/system request -> readiness gate -> bounded versioned JSON adapter -> py_science.formula -> validated qualified report
 ```
 
-Pi injects restricted-SymPy syntax and translates the public formula contract without owning mathematical policy. The adapter owns whole-envelope and serialized-output bounds; the TypeScript bridge owns process, timeout, cancellation, cleanup, malformed-message, response-shape, and protocol diagnostics. The Python API remains transport-free and owns mathematical validation and analysis. Startup uses `uv run --isolated --no-project` with the immutable repository revision and a user cache, so mutable environments never enter the managed Pi checkout. Failed provisioning withholds the tool and product skill together rather than advertising a later-failing capability.
+Python publishes the request model from which the repository generates Pi's checked-in provider-compatible structural schema. The gate rejects schema drift. Pi imports that artifact, injects restricted-SymPy syntax, and translates the public formula contract without owning mathematical policy. Active-tool routing metadata points agents to the packaged operational skill rather than duplicating its grammar.
+
+The adapter owns whole-envelope and serialized-output bounds. The TypeScript bridge owns process, timeout, cancellation, cleanup, malformed-message, response-shape, and protocol diagnostics. On the intentional request-error exit it preserves only an exact bounded current-version Python error envelope; malformed, incompatible, surplus, wrong-status, or unbounded output still fails closed. The Python API remains transport-free and owns request validation, parsing, mathematical applicability, and analysis. Startup uses `uv run --isolated --no-project` with the immutable repository revision and a user cache, so mutable environments never enter the managed Pi checkout. Failed provisioning withholds the tool and product skill together rather than advertising a later-failing capability.
 
 Optional general-context query requests and their exact discriminated qualified results cross the same protocol-v6 boundary. TypeScript and the adapter enforce only strict shape and bounds; target resolution, assumption use, mathematical applicability, and proof policy remain Python-owned. Scenarios specialize submitted work only and do not execute queries.
 

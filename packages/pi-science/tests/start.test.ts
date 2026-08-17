@@ -27,6 +27,9 @@ type Command = {
   handler(args: string, context: unknown): Promise<void>;
 };
 type Tool = {
+  description: string;
+  promptSnippet?: string;
+  promptGuidelines?: string[];
   parameters: TSchema;
   execute(
     id: string,
@@ -117,6 +120,18 @@ describe("readiness gate", () => {
     );
     expect(current.commands.has("pi-science-doctor")).toBe(true);
     expect(current.tools).toHaveLength(1);
+    expect(current.tools[0]).toMatchObject({
+      description: expect.stringContaining("restricted SymPy"),
+      promptSnippet: expect.stringContaining("qualified symbolic work"),
+      promptGuidelines: [
+        expect.stringMatching(
+          /Before first using analyze_formula.*pi-science-formula-analysis skill/,
+        ),
+        expect.stringMatching(
+          /analyze_formula rejects.*Python-owned diagnostic/,
+        ),
+      ],
+    });
     const parameters = current.tools[0]!.parameters;
     expect(Value.Check(parameters, { expression: "x" })).toBe(true);
     expect(
