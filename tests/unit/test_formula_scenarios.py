@@ -906,6 +906,17 @@ def test_exact_scenario_intervals_intersect_domains_and_global_affine_facts() ->
             ),
         )
     )
+    equality_domain_conflict = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="x",
+            variables={"x": declared(MathematicalDomain.NONNEGATIVE_REAL)},
+            assumptions=(Assumption(name="negative", relationship="x == -1"),),
+            scenarios=(
+                Scenario(name="conflicts_domain", bounds={"x": IntervalBound(lower=-1, upper=1)}),
+            ),
+        )
+    )
     affine_outside = analyze(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
@@ -922,6 +933,8 @@ def test_exact_scenario_intervals_intersect_domains_and_global_affine_facts() ->
     assert integer.status == "success"
     assert equality_outside.status == "failure"
     assert "global assumptions" in equality_outside.error.message
+    assert equality_domain_conflict.status == "failure"
+    assert "global assumptions" in equality_domain_conflict.error.message
     assert affine_outside.status == "failure"
     assert "global assumptions" in affine_outside.error.message
 

@@ -1995,9 +1995,14 @@ def _interval_intersects_assumptions(
     if replacement is not None:
         fixed = _constant_value(reasoning.apply(replacement))
         if fixed is not None:
-            return (lower < fixed < upper) or (
-                fixed == lower and lower_closed
-            ) or (fixed == upper and upper_closed)
+            if not (
+                (lower < fixed < upper)
+                or (fixed == lower and lower_closed)
+                or (fixed == upper and upper_closed)
+            ):
+                return False
+            lower = upper = fixed
+            lower_closed = upper_closed = True
     fact = reasoning.facts.get(name)
     if fact is None:
         return True
