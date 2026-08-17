@@ -8,6 +8,7 @@ from itertools import product
 from math import ceil, floor
 
 from py_science.formula.analyzer import OperationTally, count_operations
+from py_science.formula.exact_values import parse_exact_scalar
 from py_science.formula.expressions import (
     BinaryExpression,
     BinaryOperator,
@@ -35,12 +36,14 @@ from py_science.formula.models import (
     AnalysisOutcome,
     AnalysisRequest,
     AnalysisSuccess,
+    Assumption,
     AsymptoticQuery,
     EquationReport,
     EquationRequest,
     EquivalenceQuery,
     ExpressionTarget,
     Interpretation,
+    IntervalBound,
     IntervalResult,
     LimitQuery,
     MathematicalDomain,
@@ -328,6 +331,20 @@ def _parse_knowledge(
     return Knowledge(tuple(assumptions), tuple(by_name[name] for name in order))
 
 
+def _scenario_literal(value: str | int) -> Expression:
+    exact = parse_exact_scalar(str(value))
+    assert exact is not None
+    if exact.denominator == 1:
+        return IntegerLiteral(exact.numerator)
+    return RationalLiteral(exact.numerator, exact.denominator)
+
+
+def _exact_fraction(value: str | int) -> Fraction:
+    exact = parse_exact_scalar(str(value))
+    assert exact is not None
+    return Fraction(exact.numerator, exact.denominator)
+
+
 def _constant_value(expression: Expression) -> Fraction | None:
     if isinstance(expression, IntegerLiteral):
         return Fraction(expression.value)
@@ -434,6 +451,8 @@ def _definition_domain_result(
         and is_positive_expression(expression, context),
         MathematicalDomain.REAL: _is_real_expression(expression, context),
         MathematicalDomain.POSITIVE_REAL: is_positive_expression(expression, context),
+        MathematicalDomain.NONNEGATIVE_REAL: _is_real_expression(expression, context)
+        and is_nonnegative_expression(expression, context),
     }[declaration.domain]
     if proven:
         return None
@@ -457,12 +476,12 @@ def _scenario_definition_qualifications(
         return _invalid("definitions contain a cycle")
 
     for name, value in scenario.fixed.items():
-        result = _definition_domain_result(name, IntegerLiteral(value), request, context)
+        result = _definition_domain_result(name, _scenario_literal(value), request, context)
         if isinstance(result, AnalysisFailure):
             return result
     for name, values in scenario.choices.items():
         for value in values:
-            result = _definition_domain_result(name, IntegerLiteral(value), request, context)
+            result = _definition_domain_result(name, _scenario_literal(value), request, context)
             if isinstance(result, AnalysisFailure):
                 return result
 
@@ -471,11 +490,11 @@ def _scenario_definition_qualifications(
     choice_values = [scenario.choices[name] for name in choice_names]
     for selected_values in product(*choice_values):
         scenario_values: dict[str, Expression] = {
-            name: IntegerLiteral(value) for name, value in scenario.fixed.items()
+            name: _scenario_literal(value) for name, value in scenario.fixed.items()
         }
         scenario_values.update(
             {
-                name: IntegerLiteral(value)
+                name: _scenario_literal(value)
                 for name, value in zip(choice_names, selected_values, strict=True)
             }
         )
@@ -1568,7 +1587,7 @@ def _scenario_results(
                 "scenario treats undeclared variables: " + ", ".join(sorted(unknown_treatments))
             )
         scenario_fixed: dict[str, Expression] = {
-            name: IntegerLiteral(value)
+            name: _scenario_literal(value)
             for name, value in scenario.fixed.items()
             if name not in indexed_values
         }
@@ -1651,7 +1670,7 @@ def _scenario_results(
                 value = simplify_constants(
                     substitute(
                         expression,
-                        {name: IntegerLiteral(item) for name, item in selected.items()},
+                        {name: _scenario_literal(item) for name, item in selected.items()},
                         max_nodes=MAX_WORK_NODES,
                     )
                 )
@@ -1716,30 +1735,44 @@ def _scenario_results(
                         "untreated symbols block interval reasoning: "
                         + ", ".join(sorted(untreated))
                     )
-                elif bound.lower < 0 or not is_nondecreasing_polynomial(expression, variable):
+                elif not is_nondecreasing_polynomial(expression, variable):
                     unresolved.add(f"monotonic interval relationship for {variable} is unproved")
                 else:
                     lower = simplify_constants(
                         substitute(
                             expression,
-                            {variable: IntegerLiteral(bound.lower)},
+                            {variable: _scenario_literal(bound.lower)},
                             max_nodes=MAX_WORK_NODES,
                         )
                     )
                     upper = simplify_constants(
                         substitute(
                             expression,
-                            {variable: IntegerLiteral(bound.upper)},
+                            {variable: _scenario_literal(bound.upper)},
                             max_nodes=MAX_WORK_NODES,
                         )
                     )
+                    lower_work = render_work(lower, budget)
+                    upper_work = render_work(upper, budget)
                     interval = IntervalResult(
-                        lower_work=render_work(lower, budget), upper_work=render_work(upper, budget)
+                        lower=str(bound.lower),
+                        upper=str(bound.upper),
+                        lower_inclusive=bound.lower_inclusive,
+                        upper_inclusive=bound.upper_inclusive,
+                        lower_work=lower_work,
+                        upper_work=upper_work,
+                        infimum=lower_work,
+                        supremum=upper_work,
+                        infimum_attained=bound.lower_inclusive,
+                        supremum_attained=bound.upper_inclusive,
                     )
                     relationships.append(
                         RelationshipUse(
                             name=f"bound:{variable}",
-                            relationship=f"{bound.lower} <= {variable} <= {bound.upper}",
+                            relationship=(
+                                f"{bound.lower} {'<=' if bound.lower_inclusive else '<'} {variable} "
+                                f"{'<=' if bound.upper_inclusive else '<'} {bound.upper}"
+                            ),
                         )
                     )
                     qualifications.append(
@@ -1842,12 +1875,13 @@ def _topological(edges: dict[str, set[str]]) -> list[str] | None:
 
 
 def _scenario_domain_failure(request: AnalysisRequest) -> AnalysisFailure | None:
-    def valid(value: int, domain: MathematicalDomain) -> bool:
+    def valid(value: str | int, domain: MathematicalDomain) -> bool:
+        exact = _exact_fraction(value)
         if domain in {MathematicalDomain.POSITIVE_INTEGER, MathematicalDomain.POSITIVE_REAL}:
-            return value > 0
-        if domain is MathematicalDomain.NONNEGATIVE_INTEGER:
-            return value >= 0
-        return True
+            return exact > 0 and (not domain.is_integer or exact.denominator == 1)
+        if domain in {MathematicalDomain.NONNEGATIVE_INTEGER, MathematicalDomain.NONNEGATIVE_REAL}:
+            return exact >= 0 and (not domain.is_integer or exact.denominator == 1)
+        return not domain.is_integer or exact.denominator == 1
 
     for scenario in request.scenarios:
         treatment_names = (
@@ -1876,7 +1910,110 @@ def _scenario_domain_failure(request: AnalysisRequest) -> AnalysisFailure | None
                 return _invalid(
                     f"scenario {scenario.name} treatment contradicts declared domain for {name}"
                 )
+        for name, bound in scenario.bounds.items():
+            declaration = request.variables[name]
+            lower, upper = _exact_fraction(bound.lower), _exact_fraction(bound.upper)
+            if declaration.domain is MathematicalDomain.POSITIVE_REAL and upper <= 0:
+                return _invalid(f"scenario {scenario.name} interval misses declared domain for {name}")
+            if declaration.domain in {MathematicalDomain.NONNEGATIVE_REAL, MathematicalDomain.NONNEGATIVE_INTEGER} and (
+                upper < 0 or (upper == 0 and not bound.upper_inclusive)
+            ):
+                return _invalid(f"scenario {scenario.name} interval misses declared domain for {name}")
+            if declaration.domain in {MathematicalDomain.POSITIVE_INTEGER, MathematicalDomain.NONNEGATIVE_INTEGER}:
+                least = ceil(lower) if bound.lower_inclusive else floor(lower) + 1
+                greatest = floor(upper) if bound.upper_inclusive else ceil(upper) - 1
+                if declaration.domain is MathematicalDomain.POSITIVE_INTEGER:
+                    least = max(least, 1)
+                else:
+                    least = max(least, 0)
+                if least > greatest:
+                    return _invalid(f"scenario {scenario.name} interval misses declared domain for {name}")
+        choice_names = sorted(scenario.choices)
+        for choice_values in product(*(scenario.choices[name] for name in choice_names)):
+            replacements = {
+                **{name: _scenario_literal(value) for name, value in scenario.fixed.items()},
+                **{
+                    name: _scenario_literal(value)
+                    for name, value in zip(choice_names, choice_values, strict=True)
+                },
+            }
+            parsed_definitions: dict[str, Expression] = {}
+            for definition in scenario.definitions:
+                parsed = parse_expression(definition.expression)
+                if not isinstance(parsed, (ParseFailure, Equation, Relationship)):
+                    parsed_definitions[definition.variable] = parsed
+            definition_order = _topological(
+                {
+                    name: _symbol_names(value) & set(parsed_definitions)
+                    for name, value in parsed_definitions.items()
+                }
+            ) or ()
+            for name in definition_order:
+                replacements[name] = substitute(
+                    parsed_definitions[name], replacements, max_nodes=MAX_WORK_NODES
+                )
+            for assumption in request.assumptions:
+                parsed = parse_expression(assumption.relationship)
+                if isinstance(parsed, Relationship):
+                    truth = _literal_relationship_truth(
+                        Relationship(
+                            parsed.operator,
+                            substitute(parsed.left, replacements, max_nodes=MAX_WORK_NODES),
+                            substitute(parsed.right, replacements, max_nodes=MAX_WORK_NODES),
+                        )
+                    )
+                    if truth is False:
+                        return _invalid(
+                            f"scenario {scenario.name} treatment contradicts assumption {assumption.name}"
+                        )
+        for name, bound in scenario.bounds.items():
+            if not _interval_intersects_assumptions(name, bound, request.assumptions):
+                return _invalid(
+                    f"scenario {scenario.name} interval misses global assumptions for {name}"
+                )
     return None
+
+
+def _interval_intersects_assumptions(
+    name: str, interval: object, assumptions: tuple[Assumption, ...]
+) -> bool:
+    """Intersect a scalar scenario interval with direct affine constant assumptions."""
+    assert isinstance(interval, IntervalBound)
+    lower, upper = _exact_fraction(interval.lower), _exact_fraction(interval.upper)
+    lower_closed, upper_closed = interval.lower_inclusive, interval.upper_inclusive
+    reverse = {
+        RelationshipOperator.LESS: RelationshipOperator.GREATER,
+        RelationshipOperator.LESS_EQUAL: RelationshipOperator.GREATER_EQUAL,
+        RelationshipOperator.GREATER: RelationshipOperator.LESS,
+        RelationshipOperator.GREATER_EQUAL: RelationshipOperator.LESS_EQUAL,
+        RelationshipOperator.EQUAL: RelationshipOperator.EQUAL,
+    }
+    for assumption in assumptions:
+        parsed = parse_expression(assumption.relationship)
+        if not isinstance(parsed, Relationship):
+            continue
+        constant = _constant_value(parsed.right)
+        symbol, operator = parsed.left, parsed.operator
+        if constant is None:
+            constant = _constant_value(parsed.left)
+            symbol, operator = parsed.right, reverse[operator]
+        if not isinstance(symbol, Symbol) or symbol.name != name or constant is None:
+            continue
+        if operator is RelationshipOperator.EQUAL:
+            lower, upper, lower_closed, upper_closed = constant, constant, True, True
+        elif operator in {RelationshipOperator.GREATER, RelationshipOperator.GREATER_EQUAL}:
+            closed = operator is RelationshipOperator.GREATER_EQUAL
+            if constant > lower:
+                lower, lower_closed = constant, closed
+            elif constant == lower:
+                lower_closed = lower_closed and closed
+        else:
+            closed = operator is RelationshipOperator.LESS_EQUAL
+            if constant < upper:
+                upper, upper_closed = constant, closed
+            elif constant == upper:
+                upper_closed = upper_closed and closed
+    return lower < upper or (lower == upper and lower_closed and upper_closed)
 
 
 def _request_size_failure(request: AnalysisRequest) -> AnalysisFailure | None:

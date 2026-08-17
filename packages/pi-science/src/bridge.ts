@@ -1,7 +1,7 @@
 import { TextDecoder } from "node:util";
 import { spawnIsolated, terminateTree } from "./process.js";
 
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 export const MAX_FORMULA_BYTES = 65_536;
 export const MAX_ENVELOPE_BYTES = 2_097_152;
 export const MAX_RESPONSE_BYTES = 262_400;
@@ -32,11 +32,17 @@ export type PrimitiveCost = {
 };
 export type Assumption = { name: string; relationship: string };
 export type DirectedDefinition = { variable: string; expression: string };
-export type IntervalBound = { lower: number; upper: number };
+export type ExactScenarioScalar = string | number;
+export type IntervalBound = {
+  lower: ExactScenarioScalar;
+  upper: ExactScenarioScalar;
+  lower_inclusive?: boolean;
+  upper_inclusive?: boolean;
+};
 export type Scenario = {
   name: string;
-  fixed?: Record<string, number>;
-  choices?: Record<string, number[]>;
+  fixed?: Record<string, ExactScenarioScalar>;
+  choices?: Record<string, ExactScenarioScalar[]>;
   definitions?: DirectedDefinition[];
   asymptotic?: string[];
   bounds?: Record<string, IntervalBound>;
@@ -107,7 +113,19 @@ export type ScenarioResult = {
   substituted_work: string;
   choice_work: Record<string, string>;
   asymptotic?: string;
-  interval?: { lower_work: string; upper_work: string; conservative: boolean };
+  interval?: {
+    lower: string;
+    upper: string;
+    lower_inclusive: boolean;
+    upper_inclusive: boolean;
+    lower_work: string;
+    upper_work: string;
+    infimum: string;
+    supremum: string;
+    infimum_attained: boolean;
+    supremum_attained: boolean;
+    conservative: boolean;
+  };
   substitutions: Record<string, string>;
   relationships_used: RelationshipUse[];
   qualifications: string[];
@@ -450,10 +468,33 @@ function validEquationReport(value: unknown): boolean {
 function validIntervalResult(value: unknown): boolean {
   return (
     isRecord(value) &&
-    exactKeys(value, ["lower_work", "upper_work", "conservative"]) &&
-    typeof value.lower_work === "string" &&
-    typeof value.upper_work === "string" &&
-    typeof value.conservative === "boolean"
+    exactKeys(value, [
+      "lower",
+      "upper",
+      "lower_inclusive",
+      "upper_inclusive",
+      "lower_work",
+      "upper_work",
+      "infimum",
+      "supremum",
+      "infimum_attained",
+      "supremum_attained",
+      "conservative",
+    ]) &&
+    typeof value.lower === "string" &&
+    typeof value.upper === "string" &&
+    canonicalExactScalar(value.lower) &&
+    canonicalExactScalar(value.upper) &&
+    [value.lower_work, value.upper_work, value.infimum, value.supremum].every(
+      (item) => typeof item === "string",
+    ) &&
+    [
+      value.lower_inclusive,
+      value.upper_inclusive,
+      value.infimum_attained,
+      value.supremum_attained,
+      value.conservative,
+    ].every((item) => typeof item === "boolean")
   );
 }
 function validScenarioResult(value: unknown): boolean {

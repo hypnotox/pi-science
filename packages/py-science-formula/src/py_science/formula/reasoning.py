@@ -533,6 +533,8 @@ def _domain_fact(name: str, domain: MathematicalDomain) -> DomainFact:
         return DomainFact(name, integer=True)
     if domain is MathematicalDomain.POSITIVE_REAL:
         return DomainFact(name, Fraction(0), True)
+    if domain is MathematicalDomain.NONNEGATIVE_REAL:
+        return DomainFact(name, Fraction(0))
     return DomainFact(name)
 
 

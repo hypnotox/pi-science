@@ -689,8 +689,16 @@ def test_scenarios_preserve_general_and_report_fixed_choices_asymptotic_and_boun
     assert by_name["bounded"].interval is not None
     assert [item.name for item in by_name["bounded"].relationships_used] == ["bound:N"]
     assert by_name["bounded"].interval.model_dump() == {
+        "lower": "10",
+        "upper": "20",
+        "lower_inclusive": True,
+        "upper_inclusive": True,
         "lower_work": "49",
         "upper_work": "99",
+        "infimum": "49",
+        "supremum": "99",
+        "infimum_attained": True,
+        "supremum_attained": True,
         "conservative": True,
     }
 
@@ -791,7 +799,7 @@ def test_definition_text_shares_the_request_wide_byte_budget() -> None:
 def test_models_are_strict_frozen_and_population_bounded() -> None:
     with pytest.raises(ValidationError):
         Scenario(name="bad", fixed={"p": 1.5})  # type: ignore[dict-item]
-    with pytest.raises(ValidationError, match="integer exceeds"):
+    with pytest.raises(ValidationError, match="JavaScript-safe"):
         Scenario(name="huge", fixed={"p": 1 << 4_000})
     with pytest.raises(ValidationError, match="generated scenario-result"):
         AnalysisRequest(
@@ -821,3 +829,68 @@ def test_models_are_strict_frozen_and_population_bounded() -> None:
     scenario = Scenario(name="frozen")
     with pytest.raises(ValidationError):
         scenario.name = "changed"  # type: ignore[misc]
+
+
+@pytest.mark.parametrize(
+    ("source", "canonical"),
+    ((0, "0"), ("-0", "0"), ("1/2", "1/2"), ("-3/4", "-3/4"), ("1.20", "6/5")),
+)
+def test_scenario_scalars_are_exact_and_canonical(source: str | int, canonical: str) -> None:
+    assert Scenario(name="exact", fixed={"x": source}).fixed == {"x": canonical}
+
+
+@pytest.mark.parametrize("source", (" 1", "+1", "01", ".5", "1.", "1e-3", "1/-2", "1/0"))
+def test_scenario_scalars_reject_noncanonical_grammar(source: str) -> None:
+    with pytest.raises(ValidationError):
+        Scenario(name="invalid", fixed={"x": source})
+
+
+def test_scenarios_reject_duplicate_canonical_choices_and_honor_open_real_intervals() -> None:
+    with pytest.raises(ValidationError, match="unique"):
+        Scenario(name="duplicate", choices={"x": ("1/2", "0.5")})
+    result = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="primitive(x)",
+            variables={"x": declared(MathematicalDomain.NONNEGATIVE_REAL)},
+            primitive_costs=(PrimitiveCost(name="primitive", parameters=("z",), work="z + 1"),),
+            scenarios=(
+                Scenario(
+                    name="open",
+                    bounds={"x": IntervalBound(lower="-0", upper="1.20", lower_inclusive=False)},
+                ),
+            ),
+        )
+    )
+    assert result.status == "success"
+    interval = result.scenarios[0].interval
+    assert interval is not None
+    assert interval.lower == "0"
+    assert interval.upper == "6/5"
+    assert not interval.infimum_attained
+    assert interval.supremum_attained
+
+
+def test_scenario_values_and_intervals_must_intersect_assumptions() -> None:
+    fixed = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="x",
+            variables={"x": declared(MathematicalDomain.REAL)},
+            assumptions=(Assumption(name="positive", relationship="x > 0"),),
+            scenarios=(Scenario(name="bad", fixed={"x": "-1/2"}),),
+        )
+    )
+    interval = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="x",
+            variables={"x": declared(MathematicalDomain.REAL)},
+            assumptions=(Assumption(name="positive", relationship="x > 0"),),
+            scenarios=(Scenario(name="bad", bounds={"x": IntervalBound(lower="-2", upper="0")}),),
+        )
+    )
+    assert fixed.status == "failure"
+    assert "assumption positive" in fixed.error.message
+    assert interval.status == "failure"
+    assert "global assumptions" in interval.error.message

@@ -19,6 +19,13 @@ const safeInteger = Type.Integer({
   minimum: Number.MIN_SAFE_INTEGER,
   maximum: Number.MAX_SAFE_INTEGER,
 });
+const exactScenarioScalar = Type.Union([
+  safeInteger,
+  Type.String({
+    pattern: "^-?(0|[1-9][0-9]*)(/[1-9][0-9]*|\\.[0-9]+)?$",
+    maxLength: 2050,
+  }),
+]);
 const domain = Type.Union([
   Type.Literal("integer"),
   Type.Literal("nonnegative_integer"),
@@ -84,12 +91,12 @@ const metadata = {
         {
           name: identifier,
           fixed: Type.Optional(
-            Type.Record(identifier, safeInteger, { maxProperties: 64 }),
+            Type.Record(identifier, exactScenarioScalar, { maxProperties: 64 }),
           ),
           choices: Type.Optional(
             Type.Record(
               identifier,
-              Type.Array(safeInteger, { minItems: 1, maxItems: 32 }),
+              Type.Array(exactScenarioScalar, { minItems: 1, maxItems: 32 }),
               { maxProperties: 64 },
             ),
           ),
@@ -103,7 +110,12 @@ const metadata = {
             Type.Record(
               identifier,
               Type.Object(
-                { lower: safeInteger, upper: safeInteger },
+                {
+                  lower: exactScenarioScalar,
+                  upper: exactScenarioScalar,
+                  lower_inclusive: Type.Optional(Type.Boolean()),
+                  upper_inclusive: Type.Optional(Type.Boolean()),
+                },
                 { additionalProperties: false },
               ),
               { maxProperties: 64 },

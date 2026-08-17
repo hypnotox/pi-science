@@ -158,8 +158,16 @@ const richSuccess = {
       choice_work: { "p=2": "N + 1" },
       asymptotic: "Theta(N)",
       interval: {
+        lower: "1",
+        upper: "10",
+        lower_inclusive: true,
+        upper_inclusive: true,
         lower_work: "2",
         upper_work: "11",
+        infimum: "2",
+        supremum: "11",
+        infimum_attained: true,
+        supremum_attained: true,
         conservative: true,
       },
       substitutions: { p: "2" },
@@ -355,7 +363,7 @@ describe("private formula bridge", () => {
       await kind(invokeAdapter(node, responder(value), request()), "protocol");
   });
 
-  it("strictly validates populated protocol-v4 query result unions", async () => {
+  it("strictly validates populated protocol-v5 query result unions", async () => {
     const identityAnswer = {
       check: null,
       conclusion: "proved",

@@ -259,6 +259,7 @@ def is_nonnegative_expression(expression: Expression, context: WorkContext) -> b
         declaration = context.variable_domains.get(expression.name)
         return declaration in {
             MathematicalDomain.NONNEGATIVE_INTEGER,
+            MathematicalDomain.NONNEGATIVE_REAL,
             MathematicalDomain.POSITIVE_INTEGER,
             MathematicalDomain.POSITIVE_REAL,
         }

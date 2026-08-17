@@ -2,7 +2,7 @@
 import re
 from collections.abc import Iterable
 from enum import StrEnum
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal, cast
 
 from py_science.formula.exact_values import parse_exact_scalar, render_exact
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -20,6 +20,7 @@ MAX_TREATMENTS_PER_SCENARIO = 64
 MAX_CHOICES_PER_VARIABLE = 32
 MAX_GENERATED_SCENARIO_RESULTS = 256
 MAX_SCENARIO_INTEGER_BITS = 3_402
+type ExactScenarioScalar = str | int
 MAX_DOMAINS_PER_EQUATION = 32
 MAX_PARAMETERS = 32
 _NAME_PATTERN = r"^[A-Za-z][A-Za-z0-9_]*$"
@@ -39,6 +40,7 @@ class MathematicalDomain(StrEnum):
     POSITIVE_INTEGER = "positive_integer"
     REAL = "real"
     POSITIVE_REAL = "positive_real"
+    NONNEGATIVE_REAL = "nonnegative_real"
 
     @property
     def is_integer(self) -> bool:
@@ -83,26 +85,67 @@ class DirectedDefinition(StructuredModel):
         return variable
 
 
+def _exact_scenario_scalar(value: object) -> str:
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        raise ValueError("scenario scalar must be an exact scalar string or JavaScript-safe integer")
+    if isinstance(value, int) and abs(value) > 9_007_199_254_740_991:
+        raise ValueError("numeric scenario scalar must be a JavaScript-safe integer")
+    parsed = parse_exact_scalar(str(value))
+    if parsed is None:
+        raise ValueError("scenario scalar must use the exact scalar grammar")
+    return render_exact(parsed)
+
+
 class IntervalBound(StructuredModel):
-    lower: int
-    upper: int
+    lower: ExactScenarioScalar
+    upper: ExactScenarioScalar
+    lower_inclusive: bool = True
+    upper_inclusive: bool = True
+
+    @field_validator("lower", "upper", mode="before")
+    @classmethod
+    def canonical_scalar(cls, value: object) -> str:
+        return _exact_scenario_scalar(value)
 
     @model_validator(mode="after")
     def validate_order(self) -> "IntervalBound":
-        if self.lower > self.upper:
-            raise ValueError("interval lower bound must not exceed its upper bound")
-        if max(self.lower.bit_length(), self.upper.bit_length()) > MAX_SCENARIO_INTEGER_BITS:
-            raise ValueError("interval integer exceeds its size bound")
+        lower = parse_exact_scalar(str(self.lower))
+        upper = parse_exact_scalar(str(self.upper))
+        assert lower is not None and upper is not None
+        if (lower.numerator * upper.denominator > upper.numerator * lower.denominator) or (
+            lower.numerator * upper.denominator == upper.numerator * lower.denominator
+            and not (self.lower_inclusive and self.upper_inclusive)
+        ):
+            raise ValueError("interval bounds must define a nonempty interval")
         return self
 
 
 class Scenario(StructuredModel):
     name: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
-    fixed: dict[str, int] = Field(default_factory=dict)
-    choices: dict[str, tuple[int, ...]] = Field(default_factory=dict)
+    fixed: dict[str, ExactScenarioScalar] = Field(default_factory=dict)
+    choices: dict[str, tuple[ExactScenarioScalar, ...]] = Field(default_factory=dict)
     definitions: tuple[DirectedDefinition, ...] = Field(default=(), max_length=MAX_DEFINITIONS)
     asymptotic: tuple[str, ...] = ()
     bounds: dict[str, IntervalBound] = Field(default_factory=dict)
+
+    @field_validator("fixed", mode="before")
+    @classmethod
+    def canonical_fixed(cls, values: object) -> object:
+        if not isinstance(values, dict):
+            return values
+        raw = cast(dict[str, Any], values)
+        return {name: _exact_scenario_scalar(value) for name, value in raw.items()}
+
+    @field_validator("choices", mode="before")
+    @classmethod
+    def canonical_choices(cls, values: object) -> object:
+        if not isinstance(values, dict):
+            return values
+        raw = cast(dict[str, Any], values)
+        return {
+            name: tuple(_exact_scenario_scalar(value) for value in choices)
+            for name, choices in raw.items()
+        }
 
     @model_validator(mode="after")
     def validate_treatments(self) -> "Scenario":
@@ -137,12 +180,6 @@ class Scenario(StructuredModel):
             raise ValueError("finite choices must be nonempty and within their bound")
         if any(len(values) != len(set(values)) for values in self.choices.values()):
             raise ValueError("finite choices must be unique")
-        integers = [
-            *self.fixed.values(),
-            *(value for values in self.choices.values() for value in values),
-        ]
-        if any(value.bit_length() > MAX_SCENARIO_INTEGER_BITS for value in integers):
-            raise ValueError("scenario integer exceeds its size bound")
         generated = 1
         for values in self.choices.values():
             generated *= len(values)
@@ -691,8 +728,16 @@ class RelationshipUse(StructuredModel):
 
 
 class IntervalResult(StructuredModel):
+    lower: str
+    upper: str
+    lower_inclusive: bool
+    upper_inclusive: bool
     lower_work: str
     upper_work: str
+    infimum: str
+    supremum: str
+    infimum_attained: bool
+    supremum_attained: bool
     conservative: bool = True
 
 
