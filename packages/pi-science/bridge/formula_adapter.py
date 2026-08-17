@@ -91,6 +91,31 @@ def main() -> int:
         )
         outcome = analyze(request)
         result = outcome.model_dump(mode="json", exclude_none=True)
+        if outcome.status == "success":
+            result["abstract_work"] = outcome.abstract_work
+            if outcome.system is not None:
+                system_result = result["system"]
+                system_result.update({
+                    "aggregate_operation_counts": (
+                        outcome.system.aggregate_operation_counts.model_dump(mode="json")
+                        if outcome.system.aggregate_operation_counts is not None
+                        else None
+                    ),
+                    "total_work": outcome.system.total_work,
+                    "primitive_invocations": outcome.system.primitive_invocations,
+                })
+                for equation_result, equation in zip(
+                    system_result["equations"], outcome.system.equations, strict=True
+                ):
+                    equation_result.update({
+                        "aggregate_operation_counts": (
+                            equation.aggregate_operation_counts.model_dump(mode="json")
+                            if equation.aggregate_operation_counts is not None
+                            else None
+                        ),
+                        "aggregate_work": equation.aggregate_work,
+                        "primitive_invocations": equation.primitive_invocations,
+                    })
         if outcome.status == "failure":
             error = result["error"]
             error.update({

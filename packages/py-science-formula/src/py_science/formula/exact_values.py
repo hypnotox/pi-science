@@ -45,7 +45,7 @@ def rational(numerator: int, denominator: int = 1) -> ExactRational | None:
 
 
 def parse_exact_scalar(source: str) -> ExactRational | None:
-    if len(source) > MAX_EXACT_DIGITS * 2 or _SCALAR.fullmatch(source) is None:
+    if len(source) > MAX_EXACT_DIGITS * 2 + 2 or _SCALAR.fullmatch(source) is None:
         return None
     sign = -1 if source.startswith("-") else 1
     body = source[1:] if sign < 0 else source

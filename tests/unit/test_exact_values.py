@@ -14,6 +14,7 @@ from py_science.formula import (
 from py_science.formula.exact_values import ExactRational, parse_exact_scalar, render_exact
 from py_science.formula.expressions import BinaryExpression, InfinityLiteral, RationalLiteral
 from py_science.formula.parser import ParseFailure, parse_expression
+from pydantic import ValidationError
 
 
 def test_exact_scalars_reduce_render_and_bound() -> None:
@@ -24,6 +25,9 @@ def test_exact_scalars_reduce_render_and_bound() -> None:
     assert reduced is not None and render_exact(reduced) == "-3/4"
     assert zero is not None and render_exact(zero) == "0"
     assert parse_exact_scalar("1" * 1025) is None
+    maximum_fraction = f"{'9' * 1024}/{'8' * 1024}"
+    assert parse_exact_scalar(maximum_fraction) is not None
+    assert parse_exact_scalar(f"-{maximum_fraction}") is not None
 
 
 def test_formula_decimals_and_infinities_are_exact_values() -> None:
@@ -41,6 +45,30 @@ def test_formula_decimals_and_infinities_are_exact_values() -> None:
 @pytest.mark.parametrize("source", ("1e3", "1.", ".5", "1e-3"))
 def test_formula_decimal_tokens_reject_noncanonical_spellings(source: str) -> None:
     assert isinstance(parse_expression(source), ParseFailure)
+
+
+@pytest.mark.parametrize(
+    "source", ("oo(x)", "oo[i]", "Sum(x[i], (oo, 0, n))")
+)
+def test_infinity_spelling_is_reserved_in_identifier_positions(source: str) -> None:
+    assert isinstance(parse_expression(source), ParseFailure)
+
+
+def test_infinity_spelling_is_reserved_in_request_declarations() -> None:
+    with pytest.raises(ValidationError):
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="x",
+            variables={
+                "oo": VariableDeclaration(domain=MathematicalDomain.REAL)
+            },
+        )
+    with pytest.raises(ValidationError):
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="x",
+            definitions=(DirectedDefinition(variable="oo", expression="1"),),
+        )
 
 
 def test_formula_decimal_tokens_enforce_pre_reduction_digit_bounds() -> None:

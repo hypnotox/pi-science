@@ -214,6 +214,25 @@ describe("private formula bridge", () => {
         dependency_edges: [],
       },
     });
+    await expect(
+      invokeAdapter("uv", args, request("oo")),
+    ).resolves.toMatchObject({
+      status: "success",
+      abstract_work: null,
+      direct_work_applicability: "not_finite",
+      system: {
+        aggregate_operation_counts: null,
+        total_work: null,
+        primitive_invocations: null,
+        equations: [
+          {
+            aggregate_operation_counts: null,
+            aggregate_work: null,
+            primitive_invocations: null,
+          },
+        ],
+      },
+    });
     const system = await invokeAdapter("uv", args, afmmRequest);
     expect(system).toMatchObject({
       status: "success",

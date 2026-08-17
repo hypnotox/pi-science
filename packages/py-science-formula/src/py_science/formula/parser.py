@@ -252,6 +252,12 @@ def _convert(node: ast.expr, numeric_lexemes: dict[tuple[int, int], str]) -> Par
 
 
 def _symbol(node: ast.Name) -> Symbol | ParseFailure:
+    if node.id == "oo":
+        return _failure(
+            ParseFailureKind.UNSUPPORTED,
+            "oo is reserved for mathematical infinity",
+            node,
+        )
     if node.id.startswith("__"):
         return _failure(
             ParseFailureKind.UNSUPPORTED,

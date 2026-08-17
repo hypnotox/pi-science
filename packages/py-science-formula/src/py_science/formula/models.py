@@ -3,7 +3,7 @@ from collections.abc import Iterable
 from enum import StrEnum
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 MAX_NAME_LENGTH = 128
 MAX_FORMULA_BYTES = 65_536
@@ -73,6 +73,13 @@ class DirectedDefinition(StructuredModel):
     variable: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
     expression: str
 
+    @field_validator("variable")
+    @classmethod
+    def validate_variable(cls, variable: str) -> str:
+        if variable == "oo":
+            raise ValueError("oo is reserved for mathematical infinity")
+        return variable
+
 
 class IntervalBound(StructuredModel):
     lower: int
@@ -114,7 +121,9 @@ class Scenario(StructuredModel):
             *self.bounds,
         ]
         if any(
-            len(name) > MAX_NAME_LENGTH or re.fullmatch(_NAME_PATTERN, name) is None
+            name == "oo"
+            or len(name) > MAX_NAME_LENGTH
+            or re.fullmatch(_NAME_PATTERN, name) is None
             for name in names
         ):
             raise ValueError("scenario variable names must be ordinary identifiers")
@@ -150,7 +159,9 @@ class EquationRequest(StructuredModel):
         if len(self.domains) > MAX_DOMAINS_PER_EQUATION:
             raise ValueError("equation domain collection exceeds its bound")
         if any(
-            len(name) > MAX_NAME_LENGTH or re.fullmatch(_NAME_PATTERN, name) is None
+            name == "oo"
+            or len(name) > MAX_NAME_LENGTH
+            or re.fullmatch(_NAME_PATTERN, name) is None
             for name in self.domains
         ):
             raise ValueError("equation domain names must be ordinary identifiers")
@@ -164,6 +175,8 @@ class FunctionDefinition(StructuredModel):
 
     @model_validator(mode="after")
     def validate_parameters(self) -> "FunctionDefinition":
+        if self.name == "oo":
+            raise ValueError("oo is reserved for mathematical infinity")
         _validate_parameters(self.parameters)
         return self
 
@@ -175,6 +188,8 @@ class PrimitiveCost(StructuredModel):
 
     @model_validator(mode="after")
     def validate_parameters(self) -> "PrimitiveCost":
+        if self.name == "oo":
+            raise ValueError("oo is reserved for mathematical infinity")
         _validate_parameters(self.parameters)
         return self
 
@@ -183,7 +198,9 @@ def _validate_parameters(parameters: tuple[str, ...]) -> None:
     if len(set(parameters)) != len(parameters):
         raise ValueError("function parameters must be unique")
     if any(
-        len(parameter) > MAX_NAME_LENGTH or re.fullmatch(_NAME_PATTERN, parameter) is None
+        parameter == "oo"
+        or len(parameter) > MAX_NAME_LENGTH
+        or re.fullmatch(_NAME_PATTERN, parameter) is None
         for parameter in parameters
     ):
         raise ValueError("function parameters must be ordinary identifiers")
@@ -207,7 +224,9 @@ class AnalysisRequest(StructuredModel):
         if len(self.variables) > MAX_VARIABLES:
             raise ValueError("variable collection exceeds its bound")
         if any(
-            len(name) > MAX_NAME_LENGTH or re.fullmatch(_NAME_PATTERN, name) is None
+            name == "oo"
+            or len(name) > MAX_NAME_LENGTH
+            or re.fullmatch(_NAME_PATTERN, name) is None
             for name in self.variables
         ):
             raise ValueError("variable names must be ordinary identifiers")
@@ -219,7 +238,7 @@ class AnalysisRequest(StructuredModel):
         if definition_names & cost_names:
             raise ValueError("a function cannot have both a definition and primitive work")
         callable_names = definition_names | cost_names
-        if {"Eq", "Sum", "Max", "cardinality"} & callable_names or any(
+        if {"Eq", "Sum", "Max", "cardinality", "oo"} & callable_names or any(
             name.startswith("C_") for name in callable_names
         ):
             raise ValueError(
