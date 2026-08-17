@@ -365,6 +365,39 @@ describe("private formula bridge", () => {
           primitive_invocations: null,
         },
       },
+      {
+        ...richSuccess,
+        abstract_work: null,
+        direct_work_applicability: "not_finite",
+        direct_work_blockers: ["blocked"],
+      },
+      {
+        ...richSuccess,
+        system: {
+          ...richSuccess.system,
+          aggregate_operation_counts: null,
+          total_work: null,
+          direct_work_applicability: "not_finite",
+          direct_work_blockers: ["blocked"],
+          primitive_invocations: null,
+        },
+      },
+      {
+        ...richSuccess,
+        system: {
+          ...richSuccess.system,
+          equations: [
+            {
+              ...richSuccess.system.equations[0],
+              aggregate_operation_counts: null,
+              aggregate_work: null,
+              direct_work_applicability: "not_finite",
+              direct_work_blockers: ["blocked"],
+              primitive_invocations: null,
+            },
+          ],
+        },
+      },
     ];
     for (const value of invalid)
       await kind(invokeAdapter(node, responder(value), request()), "protocol");

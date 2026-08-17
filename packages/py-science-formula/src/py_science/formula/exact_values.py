@@ -15,6 +15,19 @@ class ExactRational:
     numerator: int
     denominator: int
 
+    def __post_init__(self) -> None:
+        if self.denominator <= 0:
+            raise ValueError("exact rational denominator must be positive")
+        divisor = math.gcd(self.numerator, self.denominator)
+        numerator = self.numerator // divisor
+        denominator = self.denominator // divisor
+        if numerator == 0:
+            denominator = 1
+        if max(abs(numerator).bit_length(), denominator.bit_length()) > MAX_EXACT_BITS:
+            raise ValueError("exact rational exceeds its bit bound")
+        object.__setattr__(self, "numerator", numerator)
+        object.__setattr__(self, "denominator", denominator)
+
 
 def rational(numerator: int, denominator: int = 1) -> ExactRational | None:
     if denominator <= 0 or max(abs(numerator).bit_length(), denominator.bit_length()) > MAX_EXACT_BITS:  # noqa: E501

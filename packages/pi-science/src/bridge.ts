@@ -487,6 +487,12 @@ function validSystemReport(value: unknown): boolean {
   return (
     Array.isArray(value.equations) &&
     value.equations.every(validEquationReport) &&
+    (value.direct_work_applicability === "not_finite") ===
+      value.equations.some(
+        (equation) =>
+          isRecord(equation) &&
+          equation.direct_work_applicability === "not_finite",
+      ) &&
     (value.aggregate_operation_counts === null ||
       validSymbolicCounts(value.aggregate_operation_counts)) &&
     (value.total_work === null || typeof value.total_work === "string") &&
@@ -580,7 +586,11 @@ function validResult(value: unknown): value is BridgeResult {
         value.direct_work_blockers,
         [value.abstract_work],
       ) &&
-      (!("system" in value) || validSystemReport(value.system)) &&
+      (!("system" in value) ||
+        (validSystemReport(value.system) &&
+          isRecord(value.system) &&
+          value.system.direct_work_applicability ===
+            value.direct_work_applicability)) &&
       Array.isArray(value.scenarios) &&
       value.scenarios.every(validScenarioResult)
     );

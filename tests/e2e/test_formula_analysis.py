@@ -93,6 +93,38 @@ def test_direct_work_models_reject_contradictory_variants() -> None:
             direct_work_blockers=(),
             primitive_invocations=None,
         )
+    nonfinite_equation = EquationReport(
+        name="expression",
+        interpretation=interpretation,
+        operation_counts=counts,
+        aggregate_operation_counts=None,
+        aggregate_work=None,
+        direct_work_applicability="not_finite",
+        direct_work_blockers=("blocked",),
+        primitive_invocations=None,
+    )
+    with pytest.raises(ValidationError):
+        SystemReport(
+            equations=(nonfinite_equation,),
+            aggregate_operation_counts=symbolic,
+            total_work="0",
+            primitive_invocations={},
+        )
+    nonfinite_system = SystemReport(
+        equations=(nonfinite_equation,),
+        aggregate_operation_counts=None,
+        total_work=None,
+        direct_work_applicability="not_finite",
+        direct_work_blockers=("equation expression: blocked",),
+        primitive_invocations=None,
+    )
+    with pytest.raises(ValidationError):
+        AnalysisSuccess(
+            interpretation=interpretation,
+            operation_counts=counts,
+            abstract_work=0,
+            system=nonfinite_system,
+        )
 
 
 def test_analyze_returns_normalized_interpretation() -> None:

@@ -403,6 +403,12 @@ class SystemReport(StructuredModel):
             self.direct_work_blockers,
             (self.aggregate_operation_counts, self.total_work, self.primitive_invocations),
         )
+        has_nonfinite_equation = any(
+            equation.direct_work_applicability == "not_finite"
+            for equation in self.equations
+        )
+        if has_nonfinite_equation != (self.direct_work_applicability == "not_finite"):
+            raise ValueError("system direct work must agree with its equation reports")
         return self
 
 
@@ -423,6 +429,11 @@ class AnalysisSuccess(StructuredModel):
             self.direct_work_blockers,
             (self.abstract_work,),
         )
+        if (
+            self.system is not None
+            and self.system.direct_work_applicability != self.direct_work_applicability
+        ):
+            raise ValueError("analysis direct work must agree with its system report")
         return self
 
 

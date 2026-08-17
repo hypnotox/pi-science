@@ -1,7 +1,7 @@
 import pytest
 from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
-from py_science.formula.exact_values import parse_exact_scalar, render_exact
-from py_science.formula.expressions import InfinityLiteral, RationalLiteral
+from py_science.formula.exact_values import ExactRational, parse_exact_scalar, render_exact
+from py_science.formula.expressions import BinaryExpression, InfinityLiteral, RationalLiteral
 from py_science.formula.parser import ParseFailure, parse_expression
 
 
@@ -20,6 +20,9 @@ def test_formula_decimals_and_infinities_are_exact_values() -> None:
     assert parse_expression("0.12345678901234567890123456789") == RationalLiteral(
         12345678901234567890123456789, 10**29
     )
+    unicode_decimal = parse_expression("α + 1.50")  # noqa: RUF001
+    assert isinstance(unicode_decimal, BinaryExpression)
+    assert unicode_decimal.right == RationalLiteral(3, 2)
     assert parse_expression("oo") == InfinityLiteral(1)
     assert parse_expression("-oo") == InfinityLiteral(-1)
 
@@ -34,6 +37,10 @@ def test_formula_decimal_tokens_enforce_pre_reduction_digit_bounds() -> None:
 
 
 def test_exact_ir_constructors_enforce_canonical_invariants() -> None:
+    assert ExactRational(6, 8) == ExactRational(3, 4)
+    assert ExactRational(0, 9) == ExactRational(0, 1)
+    with pytest.raises(ValueError):
+        ExactRational(1, 0)
     assert RationalLiteral(6, 8) == RationalLiteral(3, 4)
     assert RationalLiteral(0, 9) == RationalLiteral(0, 1)
     with pytest.raises(ValueError):

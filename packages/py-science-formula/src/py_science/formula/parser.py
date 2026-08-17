@@ -102,12 +102,15 @@ def _validate_numeric_tokens(
     source: str,
 ) -> tuple[ParseFailure | None, dict[tuple[int, int], str]]:
     lexemes: dict[tuple[int, int], str] = {}
+    source_lines = source.splitlines()
     try:
         tokens = tokenize.generate_tokens(io.StringIO(source).readline)
         for token in tokens:
             if token.type != tokenize.NUMBER:
                 continue
-            lexemes[token.start] = token.string
+            line, character_column = token.start
+            byte_column = len(source_lines[line - 1][:character_column].encode("utf-8"))
+            lexemes[(line, byte_column)] = token.string
             digits = sum(character.isdigit() for character in token.string)
             if digits > MAX_DECIMAL_INTEGER_DIGITS:
                 return (

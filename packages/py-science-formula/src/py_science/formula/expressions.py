@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from enum import StrEnum
 
-from py_science.formula.exact_values import MAX_EXACT_BITS
+from py_science.formula.exact_values import ExactRational
 
 
 class RelationshipOperator(StrEnum):
@@ -34,17 +33,9 @@ class RationalLiteral:
     positive_denominator: int
 
     def __post_init__(self) -> None:
-        if self.positive_denominator <= 0:
-            raise ValueError("exact rational denominator must be positive")
-        divisor = math.gcd(self.numerator, self.positive_denominator)
-        numerator = self.numerator // divisor
-        denominator = self.positive_denominator // divisor
-        if numerator == 0:
-            denominator = 1
-        if max(abs(numerator).bit_length(), denominator.bit_length()) > MAX_EXACT_BITS:
-            raise ValueError("exact rational exceeds its bit bound")
-        object.__setattr__(self, "numerator", numerator)
-        object.__setattr__(self, "positive_denominator", denominator)
+        canonical = ExactRational(self.numerator, self.positive_denominator)
+        object.__setattr__(self, "numerator", canonical.numerator)
+        object.__setattr__(self, "positive_denominator", canonical.denominator)
 
 
 @dataclass(frozen=True, slots=True)
