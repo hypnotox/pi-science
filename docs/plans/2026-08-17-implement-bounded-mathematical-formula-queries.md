@@ -3,7 +3,7 @@ format: plan-v2
 date: 2026-08-17
 adrs:
   - adopt-explicit-bounded-mathematical-queries
-status: Proposed
+status: Implemented
 ---
 # Plan: Implement bounded mathematical formula queries
 
