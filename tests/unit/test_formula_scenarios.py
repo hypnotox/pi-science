@@ -55,6 +55,94 @@ def test_assumption_replaces_factored_normalized_sum_with_provenance() -> None:
     assert result.system.unused_assumptions == ()
 
 
+@pytest.mark.parametrize(
+    "relationship",
+    ("1 == 2", "1 + 1 == 3", "1 < 1", "2 <= 1", "1 > 2", "1 >= 2"),
+)
+def test_false_literal_relationships_fail_before_report_construction(
+    relationship: str,
+) -> None:
+    failed = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="primitive(N)",
+            variables={"N": declared()},
+            primitive_costs=(PrimitiveCost(name="primitive", parameters=("z",), work="z"),),
+            assumptions=(Assumption(name="false_literal", relationship=relationship),),
+        )
+    )
+    unaffected = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="primitive(N)",
+            variables={"N": declared()},
+            primitive_costs=(PrimitiveCost(name="primitive", parameters=("z",), work="z"),),
+        )
+    )
+
+    assert failed.status == "failure"
+    assert failed.error.code.value == "invalid_system"
+    assert "false literal relationship" in failed.error.message
+    assert unaffected.status == "success"
+    assert unaffected.system is not None
+    assert unaffected.system.primitive_invocations == {"primitive": "1"}
+    assert unaffected.system.total_work == "N"
+
+
+def test_directly_empty_integer_assumption_interval_is_rejected() -> None:
+    result = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="N",
+            variables={"N": declared(MathematicalDomain.INTEGER)},
+            assumptions=(
+                Assumption(name="lower", relationship="N > 1"),
+                Assumption(name="upper", relationship="N < 2"),
+            ),
+        )
+    )
+
+    assert result.status == "failure"
+    assert "empty integer interval" in result.error.message
+
+
+def test_equality_replacement_is_canonical_and_never_replaces_literals() -> None:
+    def outcome(relationship: str):  # type: ignore[no-untyped-def]
+        return analyze(
+            AnalysisRequest(
+                syntax=FormulaSyntax.SYMPY,
+                expression="primitive(N)",
+                variables={"N": declared(), "p": declared()},
+                primitive_costs=(
+                    PrimitiveCost(name="primitive", parameters=("z",), work="z"),
+                ),
+                assumptions=(Assumption(name="value", relationship=relationship),),
+            )
+        )
+
+    forward = outcome("N == 1")
+    reverse = outcome("1 == N")
+    ambiguous = outcome("N == p")
+    true_literal = outcome("1 == 1")
+
+    for result in (forward, reverse):
+        assert result.status == "success"
+        assert result.system is not None
+        assert result.system.total_work == "1"
+        assert [item.name for item in result.system.relationships_used] == ["value"]
+    assert ambiguous.status == "success"
+    assert ambiguous.system is not None
+    assert ambiguous.system.total_work == "N"
+    assert ambiguous.system.relationships_used == ()
+    assert ambiguous.system.unused_assumptions == ("value",)
+    assert "ambiguous equality" in " ".join(ambiguous.system.unresolved)
+    assert true_literal.status == "success"
+    assert true_literal.system is not None
+    assert true_literal.system.total_work == "N"
+    assert true_literal.system.relationships_used == ()
+    assert true_literal.system.unresolved == ()
+
+
 def test_relationships_share_parser_budget_and_reject_direct_contradictions() -> None:
     contradiction = analyze(
         AnalysisRequest(
@@ -159,6 +247,91 @@ def test_directed_definitions_reject_cycles() -> None:
     assert "definitions contain a cycle" in scenario.error.message
 
 
+def test_definitions_validate_declared_domains_globally_and_per_scenario() -> None:
+    global_contradiction = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="primitive(p)",
+            variables={"p": declared(MathematicalDomain.POSITIVE_INTEGER)},
+            primitive_costs=(PrimitiveCost(name="primitive", parameters=("z",), work="z"),),
+            definitions=(DirectedDefinition(variable="p", expression="-1"),),
+        )
+    )
+    nonintegral_contradiction = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="p",
+            variables={"p": declared(MathematicalDomain.INTEGER)},
+            definitions=(DirectedDefinition(variable="p", expression="1 / 2"),),
+        )
+    )
+    scenario_contradiction = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="primitive(p)",
+            variables={"p": declared(MathematicalDomain.POSITIVE_INTEGER)},
+            primitive_costs=(PrimitiveCost(name="primitive", parameters=("z",), work="z"),),
+            scenarios=(
+                Scenario(
+                    name="invalid",
+                    definitions=(DirectedDefinition(variable="p", expression="-1"),),
+                ),
+            ),
+        )
+    )
+    undeclared_reference = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="p",
+            variables={"p": declared()},
+            definitions=(DirectedDefinition(variable="p", expression="q + 1"),),
+        )
+    )
+    global_unproved = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="primitive(p)",
+            variables={
+                "p": declared(MathematicalDomain.POSITIVE_INTEGER),
+                "x": declared(MathematicalDomain.REAL),
+            },
+            primitive_costs=(PrimitiveCost(name="primitive", parameters=("z",), work="z"),),
+            definitions=(DirectedDefinition(variable="p", expression="x"),),
+        )
+    )
+    scenario_unproved = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="primitive(p)",
+            variables={
+                "p": declared(MathematicalDomain.POSITIVE_INTEGER),
+                "x": declared(MathematicalDomain.REAL),
+            },
+            primitive_costs=(PrimitiveCost(name="primitive", parameters=("z",), work="z"),),
+            scenarios=(
+                Scenario(
+                    name="unproved",
+                    definitions=(DirectedDefinition(variable="p", expression="x"),),
+                ),
+            ),
+        )
+    )
+
+    assert global_contradiction.status == "failure"
+    assert "contradicts declared domain for p" in global_contradiction.error.message
+    assert nonintegral_contradiction.status == "failure"
+    assert "contradicts declared domain for p" in nonintegral_contradiction.error.message
+    assert scenario_contradiction.status == "failure"
+    assert "contradicts declared domain for p" in scenario_contradiction.error.message
+    assert undeclared_reference.status == "failure"
+    assert "undeclared variables: q" in undeclared_reference.error.message
+    assert global_unproved.status == "success"
+    assert global_unproved.system is not None
+    assert "domain preservation is unproved" in " ".join(global_unproved.system.unresolved)
+    assert scenario_unproved.status == "success"
+    assert "domain preservation is unproved" in " ".join(scenario_unproved.scenarios[0].unresolved)
+
+
 def test_directed_definitions_apply_in_dependency_order_with_provenance() -> None:
     result = analyze(
         AnalysisRequest(
@@ -215,13 +388,17 @@ def test_scenarios_preserve_general_and_report_fixed_choices_asymptotic_and_boun
     assert result.system.total_work == "N + N*p**2 - 1"
     by_name = {scenario.name: scenario for scenario in result.scenarios}
     assert by_name["fixed_p"].substituted_work == "17*N - 1"
+    assert by_name["fixed_p"].choice_work == {}
     assert by_name["fixed_p"].asymptotic == "Theta(N)"
     assert [item.name for item in by_name["fixed_p"].relationships_used] == ["domain:N"]
     assert "declared domain" in " ".join(by_name["fixed_p"].qualifications)
     assert by_name["joint"].asymptotic is None
     assert "multivariate" in " ".join(by_name["joint"].unresolved)
     assert by_name["choices"].choice_work == {"p=2": "49", "p=3": "99"}
+    assert by_name["joint"].choice_work == {}
+    assert by_name["derived"].choice_work == {}
     assert by_name["derived"].relationships_used[0].name.startswith("derived:")
+    assert by_name["bounded"].choice_work == {}
     assert by_name["bounded"].interval is not None
     assert [item.name for item in by_name["bounded"].relationships_used] == ["bound:N"]
     assert by_name["bounded"].interval.model_dump() == {
@@ -229,6 +406,65 @@ def test_scenarios_preserve_general_and_report_fixed_choices_asymptotic_and_boun
         "upper_work": "99",
         "conservative": True,
     }
+
+
+def test_non_choice_scenario_forms_have_no_synthetic_choice_entry() -> None:
+    result = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="primitive(p)",
+            variables={
+                "p": declared(MathematicalDomain.POSITIVE_INTEGER),
+                "N": declared(MathematicalDomain.POSITIVE_INTEGER),
+            },
+            primitive_costs=(PrimitiveCost(name="primitive", parameters=("z",), work="z"),),
+            scenarios=(
+                Scenario(name="fixed", fixed={"p": 2}),
+                Scenario(
+                    name="derived",
+                    definitions=(DirectedDefinition(variable="p", expression="N + 1"),),
+                ),
+                Scenario(name="asymptotic", asymptotic=("p",)),
+                Scenario(name="interval", bounds={"p": IntervalBound(lower=1, upper=3)}),
+            ),
+        )
+    )
+
+    assert result.status == "success"
+    assert {scenario.name: scenario.choice_work for scenario in result.scenarios} == {
+        "fixed": {},
+        "derived": {},
+        "asymptotic": {},
+        "interval": {},
+    }
+
+
+def test_scenario_definition_provenance_only_claims_changed_work() -> None:
+    result = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="primitive(p)",
+            variables={"p": declared(), "q": declared(), "N": declared()},
+            primitive_costs=(PrimitiveCost(name="primitive", parameters=("z",), work="z"),),
+            scenarios=(
+                Scenario(
+                    name="used",
+                    definitions=(DirectedDefinition(variable="p", expression="N + 1"),),
+                ),
+                Scenario(
+                    name="unused",
+                    definitions=(DirectedDefinition(variable="q", expression="N + 1"),),
+                ),
+            ),
+        )
+    )
+
+    assert result.status == "success"
+    used, unused = result.scenarios
+    assert [item.name for item in used.relationships_used] == ["derived:p"]
+    assert used.substitutions["p"] == "N + 1"
+    assert unused.relationships_used == ()
+    assert unused.substitutions["q"] == "N + 1"
 
 
 def test_interval_without_supported_monotonic_region_remains_unresolved() -> None:
