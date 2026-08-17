@@ -401,16 +401,20 @@ def _scenario_definition_qualifications(
     choice_names = sorted(scenario.choices)
     choice_values = [scenario.choices[name] for name in choice_names]
     for selected_values in product(*choice_values):
-        replacements: dict[str, Expression] = dict(base_replacements or {})
-        replacements.update(
-            {name: IntegerLiteral(value) for name, value in scenario.fixed.items()}
-        )
-        replacements.update(
+        scenario_values: dict[str, Expression] = {
+            name: IntegerLiteral(value) for name, value in scenario.fixed.items()
+        }
+        scenario_values.update(
             {
                 name: IntegerLiteral(value)
                 for name, value in zip(choice_names, selected_values, strict=True)
             }
         )
+        replacements = _compose_replacements(base_replacements or {}, scenario_values)
+        for name in base_replacements or {}:
+            result = _definition_domain_result(name, replacements[name], request, context)
+            if isinstance(result, AnalysisFailure):
+                return result
         for name in order:
             resolved = substitute(
                 expressions[name], replacements, max_nodes=MAX_WORK_NODES
@@ -1355,6 +1359,16 @@ def _resolved_knowledge_definitions(knowledge: Knowledge) -> dict[str, Expressio
     return replacements
 
 
+def _compose_replacements(
+    base: dict[str, Expression],
+    overrides: dict[str, Expression],
+) -> dict[str, Expression]:
+    composed = dict(overrides)
+    for name, expression in base.items():
+        composed[name] = substitute(expression, composed, max_nodes=MAX_WORK_NODES)
+    return composed
+
+
 def _scenario_results(
     request: AnalysisRequest,
     general: WorkAnalysis,
@@ -1391,14 +1405,12 @@ def _scenario_results(
             unresolved.add(
                 "scenario treats undeclared variables: " + ", ".join(sorted(unknown_treatments))
             )
-        replacements: dict[str, Expression] = dict(global_replacements)
-        replacements.update(
-            {
-                name: IntegerLiteral(value)
-                for name, value in scenario.fixed.items()
-                if name not in indexed_values
-            }
-        )
+        scenario_fixed: dict[str, Expression] = {
+            name: IntegerLiteral(value)
+            for name, value in scenario.fixed.items()
+            if name not in indexed_values
+        }
+        replacements = _compose_replacements(global_replacements, scenario_fixed)
         relationships: list[RelationshipUse] = []
         parsed_definitions: dict[str, tuple[str, Expression]] = {}
         for definition in scenario.definitions:

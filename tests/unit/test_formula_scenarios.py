@@ -469,6 +469,48 @@ def test_scenarios_compose_with_global_definitions_and_reject_overlapping_treatm
     assert "treatments conflict with global definitions: p" in conflict.error.message
 
 
+def test_scenario_values_close_symbolic_global_definitions_before_use() -> None:
+    composed = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="primitive(r)",
+            variables={
+                "p": declared(MathematicalDomain.POSITIVE_INTEGER),
+                "q": declared(MathematicalDomain.INTEGER),
+                "r": declared(MathematicalDomain.POSITIVE_INTEGER),
+            },
+            primitive_costs=(PrimitiveCost(name="primitive", parameters=("z",), work="z"),),
+            definitions=(DirectedDefinition(variable="p", expression="q + 1"),),
+            scenarios=(
+                Scenario(
+                    name="closed",
+                    fixed={"q": 2},
+                    definitions=(DirectedDefinition(variable="r", expression="p + 1"),),
+                ),
+            ),
+        )
+    )
+    contradiction = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="primitive(p)",
+            variables={
+                "p": declared(MathematicalDomain.POSITIVE_INTEGER),
+                "q": declared(MathematicalDomain.INTEGER),
+            },
+            primitive_costs=(PrimitiveCost(name="primitive", parameters=("z",), work="z"),),
+            definitions=(DirectedDefinition(variable="p", expression="q + 1"),),
+            scenarios=(Scenario(name="invalid", fixed={"q": -2}),),
+        )
+    )
+
+    assert composed.status == "success"
+    assert composed.scenarios[0].substituted_work == "4"
+    assert composed.scenarios[0].substitutions == {"q": "2", "r": "4"}
+    assert contradiction.status == "failure"
+    assert "contradicts declared domain for p" in contradiction.error.message
+
+
 def test_directed_definitions_apply_in_dependency_order_with_provenance() -> None:
     result = analyze(
         AnalysisRequest(
