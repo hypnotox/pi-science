@@ -41,12 +41,25 @@ def test_exact_ir_constructors_enforce_canonical_invariants() -> None:
     assert ExactRational(0, 9) == ExactRational(0, 1)
     with pytest.raises(ValueError):
         ExactRational(1, 0)
+    with pytest.raises(ValueError):
+        ExactRational(2**3402, 2**3402)
     assert RationalLiteral(6, 8) == RationalLiteral(3, 4)
     assert RationalLiteral(0, 9) == RationalLiteral(0, 1)
     with pytest.raises(ValueError):
         RationalLiteral(1, 0)
     with pytest.raises(ValueError):
         InfinityLiteral(0)
+
+
+@pytest.mark.parametrize("expression", ("oo", "oo + 1", "1 / oo"))
+def test_infinity_never_reports_finite_direct_work(expression: str) -> None:
+    outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression))
+    assert outcome.status == "success"
+    assert outcome.abstract_work is None
+    assert outcome.direct_work_applicability == "not_finite"
+    assert outcome.direct_work_blockers == (
+        "mathematical infinity has no finite direct-evaluation work",
+    )
 
 
 def test_infinite_sum_is_structural_but_has_no_finite_direct_work() -> None:

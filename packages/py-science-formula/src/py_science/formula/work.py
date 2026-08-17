@@ -15,6 +15,7 @@ from py_science.formula.expressions import (
     RationalLiteral,
     Sum,
     Symbol,
+    expression_children,
     expression_node_count,
     substitute,
 )
@@ -27,6 +28,7 @@ _ONE = IntegerLiteral(1)
 # rendered and reported repeatedly, so it needs its own pre-SymPy bound.
 MAX_WORK_NODES = 4_096
 MAX_WORK_RENDER_BYTES = 196_608
+_INFINITY_WORK_BLOCKER = "mathematical infinity has no finite direct-evaluation work"
 
 
 @dataclass(slots=True)
@@ -174,6 +176,8 @@ class WorkAnalysis:
 
 
 def analyze_work(expression: Expression, context: WorkContext) -> WorkAnalysis:
+    if isinstance(expression, InfinityLiteral):
+        return WorkAnalysis(direct_work_blockers={_INFINITY_WORK_BLOCKER})
     if isinstance(expression, BinaryExpression):
         children = analyze_work(expression.left, context).combine(
             analyze_work(expression.right, context)
@@ -191,8 +195,14 @@ def analyze_work(expression: Expression, context: WorkContext) -> WorkAnalysis:
     if isinstance(expression, Sum):
         return _analyze_sum(expression, context)
     if isinstance(expression, IndexedValue):
-        # Indexing and index-expression evaluation are outside mathematical work.
-        return WorkAnalysis()
+        # Indexing and index-expression evaluation are outside mathematical work,
+        # but infinity in an index still prevents finite direct evaluation.
+        blockers = {
+            blocker
+            for index in expression.indices
+            for blocker in analyze_work(index, context).direct_work_blockers
+        }
+        return WorkAnalysis(direct_work_blockers=blockers)
     return WorkAnalysis()
 
 
@@ -202,7 +212,7 @@ def cardinality(
     context: WorkContext,
     label: str,
 ) -> tuple[Expression, str | None]:
-    if isinstance(lower, InfinityLiteral) or isinstance(upper, InfinityLiteral):
+    if _contains_infinity(lower) or _contains_infinity(upper):
         return IntegerLiteral(0), "infinite iterator has no finite direct-evaluation work"
     if isinstance(lower, IntegerLiteral) and isinstance(upper, IntegerLiteral):
         return IntegerLiteral(max(upper.value - lower.value + 1, 0)), None
@@ -215,6 +225,12 @@ def cardinality(
     return (
         Call("cardinality", (lower, upper)),
         f"{label} cardinality requires integral bounds",
+    )
+
+
+def _contains_infinity(expression: Expression) -> bool:
+    return isinstance(expression, InfinityLiteral) or any(
+        _contains_infinity(child) for child in expression_children(expression)
     )
 
 

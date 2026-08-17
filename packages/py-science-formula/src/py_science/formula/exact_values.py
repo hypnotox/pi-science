@@ -18,6 +18,8 @@ class ExactRational:
     def __post_init__(self) -> None:
         if self.denominator <= 0:
             raise ValueError("exact rational denominator must be positive")
+        if max(abs(self.numerator).bit_length(), self.denominator.bit_length()) > MAX_EXACT_BITS:
+            raise ValueError("exact rational exceeds its pre-reduction bit bound")
         divisor = math.gcd(self.numerator, self.denominator)
         numerator = self.numerator // divisor
         denominator = self.denominator // divisor

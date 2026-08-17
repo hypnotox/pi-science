@@ -1248,7 +1248,7 @@ def _indexed_value_names(expression: Expression) -> set[str]:
 
 
 def _contains_advanced(expression: Expression) -> bool:
-    if isinstance(expression, (IndexedValue, Call, Sum)):
+    if isinstance(expression, (IndexedValue, Call, Sum, InfinityLiteral)):
         return True
     return any(_contains_advanced(child) for child in expression_children(expression))
 
