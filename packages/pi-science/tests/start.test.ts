@@ -189,6 +189,16 @@ describe("readiness gate", () => {
       { equations: [{ name: "a", expression: "Eq(a, x)", extra: true }] },
       {
         expression: "x",
+        queries: [{ name: "missing_kind", comparison: "x" }],
+      },
+      {
+        expression: "x",
+        queries: [
+          { name: "missing_check_kind", kind: "properties", checks: [{}] },
+        ],
+      },
+      {
+        expression: "x",
         queries: [
           {
             name: "bad",

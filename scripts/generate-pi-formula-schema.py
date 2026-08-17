@@ -15,13 +15,24 @@ from py_science.formula.models import MAX_FORMULA_BYTES
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT = ROOT / "packages" / "pi-science" / "src" / "formula-schema.json"
-QUERY_DEFINITIONS = (
-    "EquivalenceQuery",
-    "ClosedFormQuery",
-    "PropertiesQuery",
-    "LimitQuery",
-    "AsymptoticQuery",
-)
+ALLOWED_SCHEMA_KEYS = {
+    "additionalProperties",
+    "anyOf",
+    "description",
+    "enum",
+    "items",
+    "maxItems",
+    "maxLength",
+    "maximum",
+    "minItems",
+    "minLength",
+    "minimum",
+    "pattern",
+    "properties",
+    "required",
+    "type",
+    "uniqueItems",
+}
 
 JsonObject = dict[str, Any]
 
@@ -61,16 +72,58 @@ def _normalize(value: Any, definitions: dict[str, JsonObject]) -> Any:
         if len(options) == 1 and set(normalized) == {"anyOf"}:
             return options[0]
         normalized["anyOf"] = options
+    if normalized.get("type") == "object" and isinstance(source.get("properties"), dict):
+        required = list(normalized.get("required", []))
+        for name, property_schema in source["properties"].items():
+            if (
+                isinstance(property_schema, dict)
+                and "const" in property_schema
+                and name not in required
+            ):
+                required.append(name)
+        if required:
+            normalized["required"] = required
     return normalized
 
 
+def _query_references(query_schema: JsonObject) -> list[str]:
+    items = query_schema.get("items")
+    if not isinstance(items, dict) or not isinstance(items.get("oneOf"), list):
+        raise ValueError("AnalysisRequest query union is not a discriminated oneOf")
+    references: list[str] = []
+    for option in items["oneOf"]:
+        if not isinstance(option, dict) or set(option) != {"$ref"}:
+            raise ValueError("AnalysisRequest query union contains a non-reference variant")
+        references.append(option["$ref"])
+    if not references:
+        raise ValueError("AnalysisRequest query union is empty")
+    return references
+
+
+def _query_target(
+    references: list[str], definitions: dict[str, JsonObject]
+) -> JsonObject:
+    target_references: set[str] = set()
+    for reference in references:
+        definition = _resolve_reference(reference, definitions)
+        target_schema = definition.get("properties", {}).get("target", {})
+        for option in target_schema.get("anyOf", []):
+            if isinstance(option, dict) and "$ref" in option:
+                target_references.add(option["$ref"])
+    if len(target_references) != 1:
+        raise ValueError("AnalysisRequest query variants do not share one equation target")
+    target_reference = target_references.pop()
+    return _normalize(_resolve_reference(target_reference, definitions), definitions)
+
+
 def _query_variants(
-    definitions: dict[str, JsonObject], *, system: bool
+    definitions: dict[str, JsonObject], query_schema: JsonObject, *, system: bool
 ) -> list[JsonObject]:
-    target = _normalize(_resolve_reference("#/$defs/EquationTarget", definitions), definitions)
+    references = _query_references(query_schema)
+    target = _query_target(references, definitions)
     variants: list[JsonObject] = []
-    for name in QUERY_DEFINITIONS:
-        variant = _normalize(copy.deepcopy(definitions[name]), definitions)
+    for reference in references:
+        variant = _normalize(_resolve_reference(reference, definitions), definitions)
         properties = variant["properties"]
         required = list(variant.get("required", []))
         if system:
@@ -85,6 +138,35 @@ def _query_variants(
     return variants
 
 
+def validate_schema(schema: JsonObject, path: str = "$") -> None:
+    unsupported = set(schema) - ALLOWED_SCHEMA_KEYS
+    if unsupported:
+        names = ", ".join(sorted(unsupported))
+        raise ValueError(f"unsupported Pi schema keyword(s) at {path}: {names}")
+    properties = schema.get("properties", {})
+    if not isinstance(properties, dict):
+        raise ValueError(f"Pi schema properties must be an object at {path}")
+    for name, child in properties.items():
+        if not isinstance(child, dict):
+            raise ValueError(f"Pi schema property must be an object at {path}.{name}")
+        validate_schema(child, f"{path}.properties.{name}")
+    items = schema.get("items")
+    if items is not None:
+        if not isinstance(items, dict):
+            raise ValueError(f"Pi schema items must be an object at {path}")
+        validate_schema(items, f"{path}.items")
+    additional = schema.get("additionalProperties")
+    if isinstance(additional, dict):
+        validate_schema(additional, f"{path}.additionalProperties")
+    alternatives = schema.get("anyOf", [])
+    if not isinstance(alternatives, list):
+        raise ValueError(f"Pi schema anyOf must be an array at {path}")
+    for index, child in enumerate(alternatives):
+        if not isinstance(child, dict):
+            raise ValueError(f"Pi schema anyOf member must be an object at {path}[{index}]")
+        validate_schema(child, f"{path}.anyOf[{index}]")
+
+
 def generate_schema() -> JsonObject:
     raw = AnalysisRequest.model_json_schema()
     definitions = raw.get("$defs")
@@ -97,14 +179,15 @@ def generate_schema() -> JsonObject:
         for name, schema in properties.items()
         if name not in {"syntax", "expression", "equations", "queries"}
     }
+    query_schema = properties["queries"]
     expression_queries = {
-        "items": {"anyOf": _query_variants(definitions, system=False)},
-        "maxItems": properties["queries"]["maxItems"],
+        "items": {"anyOf": _query_variants(definitions, query_schema, system=False)},
+        "maxItems": query_schema["maxItems"],
         "type": "array",
     }
     system_queries = {
-        "items": {"anyOf": _query_variants(definitions, system=True)},
-        "maxItems": properties["queries"]["maxItems"],
+        "items": {"anyOf": _query_variants(definitions, query_schema, system=True)},
+        "maxItems": query_schema["maxItems"],
         "type": "array",
     }
     expression = {
@@ -133,7 +216,9 @@ def generate_schema() -> JsonObject:
         "required": ["equations"],
         "type": "object",
     }
-    return {"anyOf": [expression, system]}
+    schema = {"anyOf": [expression, system]}
+    validate_schema(schema)
+    return schema
 
 
 def _encoded_schema() -> bytes:

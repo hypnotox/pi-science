@@ -58,6 +58,27 @@ describe("npm package boundary", () => {
         ["install", "--omit=dev", "--ignore-scripts", tarball],
         { cwd: installed, stdio: "pipe" },
       );
+      const probe = execFileSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "--eval",
+          `
+            import { discoverAndLoadExtensions } from "@earendil-works/pi-coding-agent";
+            import { resolve } from "node:path";
+            const extensionPath = resolve("node_modules/pi-science/packages/pi-science/src/index.ts");
+            const loaded = await discoverAndLoadExtensions([extensionPath], process.cwd());
+            if (loaded.errors.length !== 0) throw new Error(JSON.stringify(loaded.errors));
+            if (loaded.extensions.length !== 1) throw new Error("formula extension was not loaded");
+            if (!loaded.extensions[0].commands.has("pi-science-doctor")) {
+              throw new Error("formula extension did not register its diagnostic command");
+            }
+            process.stdout.write("installed-extension-loaded");
+          `,
+        ],
+        { cwd: installed, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+      );
+      expect(probe).toBe("installed-extension-loaded");
     } finally {
       await rm(directory, { recursive: true, force: true });
       if (installed !== undefined)

@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from types import ModuleType
 from typing import Any, cast
+
+import pytest
 
 ROOT = Path(__file__).parents[1]
 GENERATOR = ROOT / "scripts" / "generate-pi-formula-schema.py"
@@ -51,6 +56,18 @@ def test_generated_pi_schema_is_deterministic_and_current(tmp_path: Path) -> Non
     )
     assert check.returncode == 0, check.stderr
 
+    first.write_bytes(first.read_bytes() + b" ")
+    stale = subprocess.run(
+        [sys.executable, str(GENERATOR), "--check", "--output", str(first)],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert stale.returncode == 1
+    assert "generated Pi formula schema is stale" in stale.stderr
+    assert f"--output {first}" in stale.stderr
+
 
 def test_generated_pi_schema_uses_the_pinned_provider_safe_subset() -> None:
     schema = json.loads(ARTIFACT.read_text())
@@ -69,6 +86,15 @@ def test_generated_pi_schema_uses_the_pinned_provider_safe_subset() -> None:
         )
         for node in nodes
     )
+
+    spec = importlib.util.spec_from_file_location("pi_formula_schema_generator", GENERATOR)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    assert isinstance(module, ModuleType)
+    spec.loader.exec_module(module)
+    validate_schema = cast(Callable[[dict[str, Any]], None], module.validate_schema)
+    with pytest.raises(ValueError, match=r"unsupported Pi schema keyword.*format"):
+        validate_schema({"type": "string", "format": "uuid"})
 
 
 def test_generated_pi_schema_has_public_expression_and_system_branches() -> None:
@@ -110,3 +136,11 @@ def test_generated_pi_schema_preserves_query_and_population_bounds() -> None:
     }
     assert all("target" not in variant["properties"] for variant in expression_queries)
     assert all("target" in variant["required"] for variant in system_queries)
+    assert all("kind" in variant["required"] for variant in expression_queries)
+    property_query = next(
+        variant
+        for variant in expression_queries
+        if variant["properties"]["kind"]["enum"] == ["properties"]
+    )
+    property_checks = property_query["properties"]["checks"]["items"]["anyOf"]
+    assert all("kind" in check["required"] for check in property_checks)
