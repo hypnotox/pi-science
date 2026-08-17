@@ -77,6 +77,7 @@ describe("readiness gate", () => {
       direct_work_applicability: "finite",
       direct_work_blockers: [],
       scenarios: [],
+      queries: [],
     };
     await start(
       current.api,
@@ -86,7 +87,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 3, result: response }),
+            JSON.stringify({ version: 4, result: response }),
           )}))`,
         ],
       }),

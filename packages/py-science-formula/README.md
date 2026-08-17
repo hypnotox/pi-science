@@ -55,3 +55,7 @@ Use `FunctionDefinition` when a function's mathematical body is known. Use `Prim
 Inspect each normalized SymPy and LaTeX interpretation before using submitted counts, aggregate work, dependency reuse, relationship provenance, scenario qualifications, unknown costs, or unresolved conclusions. The API analyzes formulas and attached mathematical schema only. It does not read source code, validate physical correctness, profile an implementation, predict runtime or hardware behavior, or generate code.
 
 For a one-off PEP 723 probe, put the same Git-subdirectory dependency in script metadata and invoke `uv run probe.py`. Never import from Pi's isolated backend or from `pi_science`.
+
+## Bounded queries
+
+General-context `queries` can compare an expression (or a named equation RHS) with one exact rational-expression candidate. Equivalence answers are conservative: identities retain denominator/domain conditions and use declared equalities; a nonidentity is returned only with an exact counterexample. `closed_form`, `properties`, `limit`, and `asymptotic` retain their strict result envelopes but currently return a localized `unresolved` answer. Queries do not run for scenarios and do not alter submitted operation counts or work.

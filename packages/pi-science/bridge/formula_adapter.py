@@ -10,7 +10,7 @@ from typing import Any, cast
 from py_science.formula import AnalysisRequest, analyze
 from pydantic import ValidationError
 
-PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 4
 # The public request permits 262,144 UTF-8 source bytes. This whole-envelope
 # limit also covers JSON escaping and every bounded collection/name field.
 MAX_ENVELOPE_BYTES = 2_097_152

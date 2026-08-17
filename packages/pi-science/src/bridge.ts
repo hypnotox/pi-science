@@ -1,7 +1,7 @@
 import { TextDecoder } from "node:util";
 import { spawnIsolated, terminateTree } from "./process.js";
 
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 export const MAX_FORMULA_BYTES = 65_536;
 export const MAX_ENVELOPE_BYTES = 2_097_152;
 export const MAX_RESPONSE_BYTES = 262_400;
@@ -137,6 +137,15 @@ export type AnalysisSuccess = {
   direct_work_blockers: string[];
   system?: SystemReport;
   scenarios: ScenarioResult[];
+  queries: QueryResult[];
+};
+export type QueryResult = {
+  name: string;
+  kind: string;
+  target: { kind: string };
+  normalized_target: Interpretation;
+  summary: string;
+  answers: unknown[];
 };
 export type AnalysisFailure = {
   status: "failure";
@@ -562,6 +571,33 @@ function validDiagnosticLocationRelation(
   if (source.span === null) return true;
   return isRecord(source.span) && sameLocation(location, source.span.start);
 }
+function validQueryResult(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    exactKeys(value, [
+      "name",
+      "kind",
+      "target",
+      "normalized_target",
+      "summary",
+      "answers",
+    ]) &&
+    typeof value.name === "string" &&
+    [
+      "equivalence",
+      "closed_form",
+      "properties",
+      "limit",
+      "asymptotic",
+    ].includes(String(value.kind)) &&
+    isRecord(value.target) &&
+    typeof value.target.kind === "string" &&
+    validInterpretation(value.normalized_target) &&
+    typeof value.summary === "string" &&
+    Array.isArray(value.answers)
+  );
+}
+
 function validResult(value: unknown): value is BridgeResult {
   if (!isRecord(value) || typeof value.status !== "string") return false;
   if (value.status === "success") {
@@ -573,6 +609,7 @@ function validResult(value: unknown): value is BridgeResult {
       "direct_work_applicability",
       "direct_work_blockers",
       "scenarios",
+      "queries",
     ];
     if ("system" in value) keys.push("system");
     return (
@@ -592,7 +629,9 @@ function validResult(value: unknown): value is BridgeResult {
           value.system.direct_work_applicability ===
             value.direct_work_applicability)) &&
       Array.isArray(value.scenarios) &&
-      value.scenarios.every(validScenarioResult)
+      value.scenarios.every(validScenarioResult) &&
+      Array.isArray(value.queries) &&
+      value.queries.every(validQueryResult)
     );
   }
   if (value.status === "failure") {

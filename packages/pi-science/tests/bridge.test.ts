@@ -93,6 +93,7 @@ const success = {
   direct_work_applicability: "finite",
   direct_work_blockers: [],
   scenarios: [],
+  queries: [],
 };
 const richSuccess = {
   ...success,

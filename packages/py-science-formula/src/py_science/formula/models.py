@@ -1,8 +1,10 @@
+# ruff: noqa: E501
 import re
 from collections.abc import Iterable
 from enum import StrEnum
 from typing import Annotated, Literal
 
+from py_science.formula.exact_values import parse_exact_scalar
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 MAX_NAME_LENGTH = 128
@@ -206,6 +208,111 @@ def _validate_parameters(parameters: tuple[str, ...]) -> None:
         raise ValueError("function parameters must be ordinary identifiers")
 
 
+
+class EquationTarget(StructuredModel):
+    kind: Literal["equation"] = "equation"
+    name: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
+
+
+class ExpressionTarget(StructuredModel):
+    kind: Literal["expression"] = "expression"
+
+
+class PropertyCheck(StructuredModel):
+    kind: Literal["valid_domain", "singularities", "sign", "monotonicity"]
+    variable: str | None = Field(default=None, min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
+
+    @model_validator(mode="after")
+    def variable_shape(self) -> "PropertyCheck":
+        if (self.kind in {"valid_domain", "singularities", "monotonicity"}) != (self.variable is not None):
+            raise ValueError("property check variable is required only for variable checks")
+        return self
+
+
+class QueryBase(StructuredModel):
+    name: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
+    target: EquationTarget | None = None
+
+
+class EquivalenceQuery(QueryBase):
+    kind: Literal["equivalence"] = "equivalence"
+    comparison: str = Field(min_length=1, max_length=MAX_FORMULA_BYTES)
+
+
+class ClosedFormQuery(QueryBase):
+    kind: Literal["closed_form"] = "closed_form"
+
+
+class PropertiesQuery(QueryBase):
+    kind: Literal["properties"] = "properties"
+    checks: tuple[PropertyCheck, ...] = Field(min_length=1, max_length=32)
+
+    @model_validator(mode="after")
+    def unique_checks(self) -> "PropertiesQuery":
+        if len({item.model_dump_json() for item in self.checks}) != len(self.checks):
+            raise ValueError("property checks must be unique")
+        return self
+
+
+class LimitQuery(QueryBase):
+    kind: Literal["limit"] = "limit"
+    variable: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
+    point: str | int
+    direction: Literal["left", "right", "both"] | None = None
+
+
+    @model_validator(mode="after")
+    def valid_point(self) -> "LimitQuery":
+        if str(self.point) not in {"oo", "-oo"} and parse_exact_scalar(str(self.point)) is None:
+            raise ValueError("point must be an exact scalar or infinity")
+        return self
+
+
+class AsymptoticQuery(QueryBase):
+    kind: Literal["asymptotic"] = "asymptotic"
+    variable: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
+    point: str | int
+    direction: Literal["left", "right", "both"] | None = None
+    order: int = Field(ge=1, le=8)
+
+    @model_validator(mode="after")
+    def valid_point(self) -> "AsymptoticQuery":
+        if str(self.point) not in {"oo", "-oo"} and parse_exact_scalar(str(self.point)) is None:
+            raise ValueError("point must be an exact scalar or infinity")
+        if (str(self.point) in {"oo", "-oo"}) == (self.direction is not None):
+            raise ValueError("finite points require direction and infinity forbids it")
+        return self
+
+
+QueryRequest = Annotated[EquivalenceQuery | ClosedFormQuery | PropertiesQuery | LimitQuery | AsymptoticQuery, Field(discriminator="kind")]
+
+
+class DerivedCandidate(StructuredModel):
+    interpretation: "Interpretation"
+    operation_counts: "OperationCounts"
+
+
+class QueryAnswer(StructuredModel):
+    check: PropertyCheck | None = None
+    conclusion: Literal["proved", "proved_under_assumptions", "disproved", "unresolved", "inapplicable"]
+    conditions: tuple[str, ...] = ()
+    assumptions_used: tuple["RelationshipUse", ...] = ()
+    relevant_unsupported_assumptions: tuple[str, ...] = ()
+    blockers: tuple[str, ...] = ()
+    evidence: dict[str, object] | None = None
+    derived_candidates: tuple[DerivedCandidate, ...] = ()
+
+
+class QueryResultBase(StructuredModel):
+    name: str
+    kind: Literal["equivalence", "closed_form", "properties", "limit", "asymptotic"]
+    target: ExpressionTarget | EquationTarget
+    normalized_target: "Interpretation"
+    summary: str
+    answers: tuple[QueryAnswer, ...]
+
+
+
 class AnalysisRequest(StructuredModel):
     syntax: FormulaSyntax
     expression: str | None = None
@@ -216,6 +323,7 @@ class AnalysisRequest(StructuredModel):
     assumptions: tuple[Assumption, ...] = Field(default=(), max_length=MAX_ASSUMPTIONS)
     definitions: tuple[DirectedDefinition, ...] = Field(default=(), max_length=MAX_DEFINITIONS)
     scenarios: tuple[Scenario, ...] = Field(default=(), max_length=MAX_SCENARIOS)
+    queries: tuple[QueryRequest, ...] = Field(default=(), max_length=32)
 
     @model_validator(mode="after")
     def validate_request(self) -> "AnalysisRequest":
@@ -249,6 +357,18 @@ class AnalysisRequest(StructuredModel):
             (item.variable for item in self.definitions), "directed definition variables"
         )
         _require_unique((item.name for item in self.scenarios), "scenario names")
+        _require_unique((item.name for item in self.queries), "query names")
+        if sum(len(item.comparison.encode("utf-8")) if isinstance(item, EquivalenceQuery) else 0 for item in self.queries) > MAX_FORMULA_BYTES:
+            raise ValueError("query source exceeds its aggregate bound")
+        if self.expression is not None and any(item.target is not None for item in self.queries):
+            raise ValueError("single-expression queries must omit target")
+        if self.equations and any(item.target is None for item in self.queries):
+            raise ValueError("system queries require a named equation target")
+        for item in self.queries:
+            if isinstance(item, (LimitQuery, AsymptoticQuery)):
+                infinity = str(item.point) in {"oo", "-oo"}
+                if infinity == (item.direction is not None):
+                    raise ValueError("finite points require direction and infinity forbids it")
         generated_results = 0
         for scenario in self.scenarios:
             population = 1
@@ -440,6 +560,7 @@ class AnalysisSuccess(StructuredModel):
     direct_work_blockers: tuple[str, ...] = ()
     system: SystemReport | None = None
     scenarios: tuple[ScenarioResult, ...] = ()
+    queries: tuple[QueryResultBase, ...] = ()
 
     @model_validator(mode="after")
     def validate_direct_work(self) -> "AnalysisSuccess":

@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 from __future__ import annotations
 
 from collections import Counter, defaultdict
@@ -36,10 +37,12 @@ from py_science.formula.models import (
     AnalysisSuccess,
     EquationReport,
     EquationRequest,
+    ExpressionTarget,
     Interpretation,
     IntervalResult,
     MathematicalDomain,
     OperationCounts,
+    QueryResultBase,
     RelationshipUse,
     ReuseReport,
     Scenario,
@@ -50,6 +53,7 @@ from py_science.formula.models import (
     SystemReport,
 )
 from py_science.formula.parser import ParseFailure, ParseFailureKind, parse_expression
+from py_science.formula.query import QueryTarget, evaluate_queries
 from py_science.formula.sympy_backend import (
     NormalizationError,
     NormalizedRendering,
@@ -190,7 +194,34 @@ def analyze(request: AnalysisRequest) -> AnalysisOutcome:
             outcome = _analyze_system(request, loader, context, request_unknown_arities, knowledge)
     except ExpressionTooComplex as error:
         return _complexity_failure(str(error))
+    if isinstance(outcome, AnalysisSuccess) and request.queries:
+        outcome = _attach_queries(request, outcome, knowledge)
     return _bound_result(outcome)
+
+
+def _attach_queries(
+    request: AnalysisRequest, outcome: AnalysisSuccess, knowledge: Knowledge
+) -> AnalysisOutcome:
+    """Resolve whole-expression/equation RHS targets only after normal analysis succeeds."""
+    results: list[QueryResultBase] = []
+    for position, query in enumerate(request.queries):
+        if request.expression is not None:
+            parsed = parse_expression(request.expression)
+            target = QueryTarget(ExpressionTarget(), parsed) if not isinstance(parsed, (ParseFailure, Equation, Relationship)) else None
+        else:
+            assert query.target is not None
+            selected = next((item for item in request.equations if item.name == query.target.name), None)
+            if selected is None:
+                return _invalid("query target is unknown", source=SourceReference(path=f"queries[{position}].target"))
+            parsed = parse_expression(selected.expression)
+            target = QueryTarget(query.target, parsed.right) if isinstance(parsed, Equation) else None
+        if target is None:
+            return _invalid("query target could not be resolved", source=SourceReference(path=f"queries[{position}].target"))
+        evaluated = evaluate_queries((query,), target, knowledge.assumptions)
+        if isinstance(evaluated, AnalysisFailure):
+            return evaluated
+        results.extend(evaluated)
+    return outcome.model_copy(update={"queries": tuple(results)})
 
 
 def _parse_knowledge(
@@ -1736,12 +1767,12 @@ def _equation_report(
         name=name,
         interpretation=interpretation,
         operation_counts=_counts(submitted),
-        aggregate_operation_counts=None if blockers else render_operations(analysis.operations, work_render_budget),  # noqa: E501
+        aggregate_operation_counts=None if blockers else render_operations(analysis.operations, work_render_budget),
         aggregate_work=None if blockers else render_work(analysis.total_work, work_render_budget),
         direct_work_applicability="not_finite" if blockers else "finite",
         direct_work_blockers=blockers,
         dependencies=dependencies,
-        primitive_invocations=None if blockers else render_invocations(analysis.invocations, work_render_budget),  # noqa: E501
+        primitive_invocations=None if blockers else render_invocations(analysis.invocations, work_render_budget),
         unknown_costs=tuple(sorted(analysis.unknown_costs)),
         unresolved=tuple(sorted(analysis.unresolved)),
         relationships_used=relationships_used,
@@ -1765,13 +1796,13 @@ def _system_report(
     )
     return SystemReport(
         equations=equations,
-        aggregate_operation_counts=None if blockers else render_operations(analysis.operations, work_render_budget),  # noqa: E501
+        aggregate_operation_counts=None if blockers else render_operations(analysis.operations, work_render_budget),
         total_work=None if blockers else render_work(analysis.total_work, work_render_budget),
         direct_work_applicability="not_finite" if blockers else "finite",
         direct_work_blockers=blockers,
         dependency_edges=dependency_edges,
         reuse=reuse,
-        primitive_invocations=None if blockers else render_invocations(analysis.invocations, work_render_budget),  # noqa: E501
+        primitive_invocations=None if blockers else render_invocations(analysis.invocations, work_render_budget),
         unknown_costs=tuple(sorted(analysis.unknown_costs)),
         unresolved=tuple(sorted(analysis.unresolved)),
         extraction_opportunities=extraction_opportunities,

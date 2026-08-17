@@ -77,14 +77,14 @@ describe("formula adapter protocol boundary", () => {
     [
       "extra request key",
       JSON.stringify({
-        version: 3,
+        version: 4,
         request: { syntax: "sympy", expression: "x", extra: true },
       }),
     ],
     [
       "invalid request type",
       JSON.stringify({
-        version: 3,
+        version: 4,
         request: { syntax: "sympy", expression: 1 },
       }),
     ],
@@ -99,7 +99,7 @@ describe("formula adapter protocol boundary", () => {
     expect(result.stderr).toBe("");
     expect(Buffer.byteLength(result.stdout)).toBeLessThan(10_000);
     expect(JSON.parse(result.stdout)).toMatchObject({
-      version: 3,
+      version: 4,
       error: { kind: "request" },
     });
   });
@@ -124,13 +124,13 @@ print(module._encoded({"result": "x" * 262401}) is None)
 
   it("round trips a complete equation-system request through the real adapter", () => {
     const result = invoke(
-      JSON.stringify({ version: 3, request: systemRequest }),
+      JSON.stringify({ version: 4, request: systemRequest }),
     );
     expect(result.status).toBe(0);
     expect(result.stderr).toBe("");
     const envelope = JSON.parse(result.stdout);
     expect(envelope).toMatchObject({
-      version: 3,
+      version: 4,
       result: {
         status: "success",
         system: {
