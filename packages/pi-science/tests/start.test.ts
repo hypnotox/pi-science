@@ -1,4 +1,4 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -285,7 +285,11 @@ describe("readiness gate", () => {
       repo: expect.stringContaining("pi-science"),
     });
     const nonRepository = await mkdtemp(join(tmpdir(), "pi-science-no-git-"));
-    expect(resolvePinnedRevision(nonRepository)).toBeUndefined();
-    expect(resolvePinnedSource(nonRepository)).toBeUndefined();
+    try {
+      expect(resolvePinnedRevision(nonRepository)).toBeUndefined();
+      expect(resolvePinnedSource(nonRepository)).toBeUndefined();
+    } finally {
+      await rm(nonRepository, { recursive: true, force: true });
+    }
   });
 });

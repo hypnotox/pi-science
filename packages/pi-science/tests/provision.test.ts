@@ -14,9 +14,16 @@ const revision = execFileSync("git", ["rev-parse", "HEAD"], {
   cwd: repositoryRoot,
   encoding: "utf8",
 }).trim();
+const temporaryDirectories = new Set<string>();
+
+async function temporaryDirectory(prefix: string): Promise<string> {
+  const directory = await mkdtemp(join(tmpdir(), prefix));
+  temporaryDirectories.add(directory);
+  return directory;
+}
 
 async function executable(body: string): Promise<string> {
-  const directory = await mkdtemp(join(tmpdir(), "pi-science-uv-"));
+  const directory = await temporaryDirectory("pi-science-uv-");
   const path = join(directory, "uv");
   await writeFile(path, `#!/usr/bin/env node\n${body}`);
   await chmod(path, 0o755);
@@ -26,7 +33,7 @@ async function executable(body: string): Promise<string> {
 async function options(uv: string): Promise<ProvisionOptions> {
   return {
     uv,
-    cacheDir: await mkdtemp(join(tmpdir(), "pi-science-cache-")),
+    cacheDir: await temporaryDirectory("pi-science-cache-"),
     revision,
     repo: pathToFileURL(repositoryRoot).href,
     adapter: resolve(
@@ -73,13 +80,22 @@ async function expectGone(pid: number): Promise<void> {
 }
 
 afterEach(async () => {
-  for (const pid of leakedPids.splice(0)) {
-    try {
-      process.kill(pid, "SIGKILL");
-    } catch {
-      // The operation already cleaned up the descendant.
+  try {
+    for (const pid of leakedPids.splice(0)) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // The operation already cleaned up the descendant.
+      }
+      await expectGone(pid);
     }
-    await expectGone(pid);
+  } finally {
+    await Promise.all(
+      [...temporaryDirectories].map((directory) =>
+        rm(directory, { recursive: true, force: true }),
+      ),
+    );
+    temporaryDirectories.clear();
   }
 });
 
@@ -216,7 +232,7 @@ describe("eager provisioning", () => {
       ready: false,
       diagnosis: expect.stringContaining("external"),
     });
-    const alias = await mkdtemp(join(tmpdir(), "pi-science-alias-"));
+    const alias = await temporaryDirectory("pi-science-alias-");
     const { symlink } = await import("node:fs/promises");
     await symlink(repositoryRoot, join(alias, "checkout"));
     const linked = await provision({
@@ -252,7 +268,7 @@ describe("eager provisioning", () => {
 
   it("fails closed with a bounded cache diagnosis when checkout canonicalization races", async () => {
     const base = await options("unused");
-    const vanishedRoot = await mkdtemp(join(tmpdir(), "pi-science-vanished-"));
+    const vanishedRoot = await temporaryDirectory("pi-science-vanished-");
     await rm(vanishedRoot, { recursive: true });
     const state = await provision({ ...base, checkoutRoot: vanishedRoot });
     expect(state).toMatchObject({

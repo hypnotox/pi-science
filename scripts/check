@@ -4,6 +4,15 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo_root"
 
+temp_root=${XDG_CACHE_HOME:-$HOME/.cache}/pi-science
+mkdir -p "$temp_root"
+check_tmp=$(mktemp -d "$temp_root/check.XXXXXX")
+cleanup() {
+  rm -rf "$check_tmp"
+}
+trap cleanup EXIT
+export TMPDIR="$check_tmp"
+
 printf '==> pytest\n'
 uv run --locked pytest
 printf '==> pyright\n'
