@@ -1,6 +1,6 @@
 # py-science-formula
 
-`py-science-formula` is the independently importable Python 3.13, AGPL-3.0-only formula-analysis distribution from `pi-science`. It safely parses restricted SymPy expressions and named indexed equation systems, then reports normalized SymPy and LaTeX, symbolic work, dependency reuse, provenance, scenarios, and unresolved costs. It does not evaluate a submitted formula, benchmark application performance, or generate code; formula-to-code remains open but out of scope.
+`py-science-formula` is the independently importable Python 3.13, AGPL-3.0-only formula-analysis distribution from `pi-science`. It safely parses restricted SymPy expressions and named indexed equation systems, then reports normalized SymPy and LaTeX, symbolic work, dependency reuse, provenance, scenarios, and unresolved costs. It does not evaluate a submitted formula, benchmark application performance, or generate code; formula-to-code remains open but out of scope. Decimal literals are exact reduced rational values (for example `1.50` is `3/2`), not floating-point approximations. The reserved spellings `oo` and `-oo` represent mathematical infinity; an infinite iterator remains structural but has no finite direct-evaluation work.
 
 Pin a compatible repository ref directly in the Python environment (independently of a Pi package pin):
 

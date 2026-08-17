@@ -26,6 +26,17 @@ class IntegerLiteral:
 
 
 @dataclass(frozen=True, slots=True)
+class RationalLiteral:
+    numerator: int
+    positive_denominator: int
+
+
+@dataclass(frozen=True, slots=True)
+class InfinityLiteral:
+    sign: int
+
+
+@dataclass(frozen=True, slots=True)
 class Symbol:
     name: str
 
@@ -70,7 +81,7 @@ class Relationship:
     right: Expression
 
 
-type Expression = IntegerLiteral | Symbol | IndexedValue | Call | Sum | BinaryExpression
+type Expression = IntegerLiteral | RationalLiteral | InfinityLiteral | Symbol | IndexedValue | Call | Sum | BinaryExpression  # noqa: E501
 type Formula = Expression | Equation | Relationship
 
 

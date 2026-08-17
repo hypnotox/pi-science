@@ -10,7 +10,7 @@ from typing import Any, cast
 from py_science.formula import AnalysisRequest, analyze
 from pydantic import ValidationError
 
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 # The public request permits 262,144 UTF-8 source bytes. This whole-envelope
 # limit also covers JSON escaping and every bounded collection/name field.
 MAX_ENVELOPE_BYTES = 2_097_152
@@ -89,7 +89,15 @@ def main() -> int:
         request = AnalysisRequest.model_validate_json(
             json.dumps(request_payload, ensure_ascii=False, separators=(",", ":"))
         )
-        result = analyze(request).model_dump(mode="json", exclude_none=True)
+        outcome = analyze(request)
+        result = outcome.model_dump(mode="json", exclude_none=True)
+        if outcome.status == "failure":
+            error = result["error"]
+            error.update({
+                "location": outcome.error.location.model_dump(mode="json") if outcome.error.location else None,  # noqa: E501
+                "source": outcome.error.source.model_dump(mode="json") if outcome.error.source else None,  # noqa: E501
+                "supported_alternative": outcome.error.supported_alternative,
+            })
         if not response({"version": PROTOCOL_VERSION, "result": result}):
             response(
                 {

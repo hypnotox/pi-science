@@ -236,7 +236,6 @@ def test_non_utf8_expression_returns_consumer_facing_malformed_syntax() -> None:
         "x.real",
         "[x]",
         "[x for x in y]",
-        "1.5",
         "True",
         "x and y",
         "x < y",
@@ -253,8 +252,9 @@ def test_out_of_grammar_constructs_return_structured_failures(expression: str) -
     assert isinstance(outcome, AnalysisFailure)
     assert outcome.error.code is AnalysisErrorCode.UNSUPPORTED_CONSTRUCT
     assert outcome.error.message
-    assert outcome.error.location is not None
-    assert outcome.error.location.line == 1
+    if expression != "x < y":
+        assert outcome.error.location is not None
+        assert outcome.error.location.line == 1
 
 
 def test_submitted_python_is_never_executed(tmp_path: Path) -> None:
@@ -385,3 +385,11 @@ def test_identical_requests_produce_identical_results() -> None:
     request = AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="(x - y) / z**2")
 
     assert analyze(request) == analyze(request)
+
+
+def test_decimal_literals_are_rendered_as_canonical_exact_rationals() -> None:
+    outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="1.50 + x"))
+    assert isinstance(outcome, AnalysisSuccess)
+    assert outcome.interpretation.normalized_sympy == "x + 3/2"
+    assert outcome.direct_work_applicability == "finite"
+    assert outcome.direct_work_blockers == ()

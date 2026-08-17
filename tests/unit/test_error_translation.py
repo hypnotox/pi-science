@@ -52,3 +52,12 @@ def test_service_does_not_hide_unexpected_programming_errors(
 
     with pytest.raises(RuntimeError, match="programming defect"):
         service.analyze(request)
+
+
+def test_parse_errors_include_exact_optional_diagnostic_shape() -> None:
+    outcome = service.analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x +"))
+    assert isinstance(outcome, AnalysisFailure)
+    dumped = outcome.error.model_dump(mode="json")
+    assert set(dumped) == {"code", "message", "location", "source", "supported_alternative"}
+    assert dumped["source"]["path"] == "expression"
+    assert dumped["location"] == dumped["source"]["span"]["start"]

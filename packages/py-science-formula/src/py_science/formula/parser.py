@@ -7,6 +7,7 @@ import tokenize
 from dataclasses import dataclass
 from enum import StrEnum
 
+from py_science.formula.exact_values import parse_exact_scalar
 from py_science.formula.expressions import (
     BinaryExpression,
     BinaryOperator,
@@ -15,7 +16,9 @@ from py_science.formula.expressions import (
     Expression,
     Formula,
     IndexedValue,
+    InfinityLiteral,
     IntegerLiteral,
+    RationalLiteral,
     Relationship,
     RelationshipOperator,
     Sum,
@@ -162,6 +165,11 @@ def _integer_value(node: ast.AST) -> int | None:
 def _convert(node: ast.expr) -> ParseResult:
     if isinstance(node, ast.Constant) and type(node.value) is int:
         return IntegerLiteral(node.value)
+    if isinstance(node, ast.Constant) and type(node.value) is float:
+        value = parse_exact_scalar(str(node.value))
+        if value is None:
+            return _failure(ParseFailureKind.TOO_COMPLEX, "decimal literal exceeds exact-value bounds", node)  # noqa: E501
+        return RationalLiteral(value.numerator, value.denominator)
     if (
         isinstance(node, ast.UnaryOp)
         and isinstance(node.op, (ast.UAdd, ast.USub))
@@ -170,7 +178,12 @@ def _convert(node: ast.expr) -> ParseResult:
     ):
         sign = -1 if isinstance(node.op, ast.USub) else 1
         return IntegerLiteral(sign * node.operand.value)
+    if (isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub)
+            and isinstance(node.operand, ast.Name) and node.operand.id == "oo"):
+        return InfinityLiteral(-1)
     if isinstance(node, ast.Name):
+        if node.id == "oo":
+            return InfinityLiteral(1)
         return _symbol(node)
     if isinstance(node, ast.BinOp):
         return _convert_binary(node)

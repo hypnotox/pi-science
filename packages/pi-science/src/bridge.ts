@@ -1,7 +1,7 @@
 import { TextDecoder } from "node:util";
 import { spawnIsolated, terminateTree } from "./process.js";
 
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 export const MAX_FORMULA_BYTES = 65_536;
 export const MAX_ENVELOPE_BYTES = 2_097_152;
 export const MAX_RESPONSE_BYTES = 262_400;
@@ -80,14 +80,24 @@ export type SymbolicOperationCounts = {
   powers: string;
 };
 export type RelationshipUse = { name: string; relationship: string };
+export type SourceLocation = { line: number; column: number };
+export type SourceSpan = { start: SourceLocation; end: SourceLocation };
+export type SourceReference = {
+  path: string;
+  span: SourceSpan | null;
+  excerpt: string | null;
+};
+export type DirectWorkApplicability = "finite" | "not_finite";
 export type EquationReport = {
   name: string;
   interpretation: Interpretation;
   operation_counts: OperationCounts;
-  aggregate_operation_counts: SymbolicOperationCounts;
-  aggregate_work: string;
+  aggregate_operation_counts: SymbolicOperationCounts | null;
+  aggregate_work: string | null;
+  direct_work_applicability: DirectWorkApplicability;
+  direct_work_blockers: string[];
   dependencies: string[];
-  primitive_invocations: Record<string, string>;
+  primitive_invocations: Record<string, string> | null;
   unknown_costs: string[];
   unresolved: string[];
   relationships_used: RelationshipUse[];
@@ -105,11 +115,13 @@ export type ScenarioResult = {
 };
 export type SystemReport = {
   equations: EquationReport[];
-  aggregate_operation_counts: SymbolicOperationCounts;
-  total_work: string;
+  aggregate_operation_counts: SymbolicOperationCounts | null;
+  total_work: string | null;
+  direct_work_applicability: DirectWorkApplicability;
+  direct_work_blockers: string[];
   dependency_edges: [string, string][];
   reuse: Array<{ producer: string; consumer: string; references: number }>;
-  primitive_invocations: Record<string, string>;
+  primitive_invocations: Record<string, string> | null;
   unknown_costs: string[];
   unresolved: string[];
   extraction_opportunities: string[];
@@ -120,7 +132,9 @@ export type AnalysisSuccess = {
   status: "success";
   interpretation: Interpretation;
   operation_counts: OperationCounts;
-  abstract_work: number;
+  abstract_work: number | null;
+  direct_work_applicability: DirectWorkApplicability;
+  direct_work_blockers: string[];
   system?: SystemReport;
   scenarios: ScenarioResult[];
 };
@@ -134,7 +148,9 @@ export type AnalysisFailure = {
       | "normalization_failed"
       | "invalid_system";
     message: string;
-    location?: { line: number; column: number };
+    location: SourceLocation | null;
+    source: SourceReference | null;
+    supported_alternative: string | null;
   };
 };
 export type BridgeResult = AnalysisSuccess | AnalysisFailure;
@@ -347,6 +363,8 @@ function validEquationReport(value: unknown): boolean {
       "operation_counts",
       "aggregate_operation_counts",
       "aggregate_work",
+      "direct_work_applicability",
+      "direct_work_blockers",
       "dependencies",
       "primitive_invocations",
       "unknown_costs",
@@ -356,10 +374,16 @@ function validEquationReport(value: unknown): boolean {
     typeof value.name === "string" &&
     validInterpretation(value.interpretation) &&
     validOperationCounts(value.operation_counts) &&
-    validSymbolicCounts(value.aggregate_operation_counts) &&
-    typeof value.aggregate_work === "string" &&
+    (value.aggregate_operation_counts === null ||
+      validSymbolicCounts(value.aggregate_operation_counts)) &&
+    (value.aggregate_work === null ||
+      typeof value.aggregate_work === "string") &&
+    (value.direct_work_applicability === "finite" ||
+      value.direct_work_applicability === "not_finite") &&
+    validStringArray(value.direct_work_blockers) &&
     validStringArray(value.dependencies) &&
-    validStringMap(value.primitive_invocations) &&
+    (value.primitive_invocations === null ||
+      validStringMap(value.primitive_invocations)) &&
     validStringArray(value.unknown_costs) &&
     validStringArray(value.unresolved) &&
     validRelationshipUses(value.relationships_used)
@@ -407,6 +431,8 @@ function validSystemReport(value: unknown): boolean {
       "equations",
       "aggregate_operation_counts",
       "total_work",
+      "direct_work_applicability",
+      "direct_work_blockers",
       "dependency_edges",
       "reuse",
       "primitive_invocations",
@@ -439,11 +465,16 @@ function validSystemReport(value: unknown): boolean {
   return (
     Array.isArray(value.equations) &&
     value.equations.every(validEquationReport) &&
-    validSymbolicCounts(value.aggregate_operation_counts) &&
-    typeof value.total_work === "string" &&
+    (value.aggregate_operation_counts === null ||
+      validSymbolicCounts(value.aggregate_operation_counts)) &&
+    (value.total_work === null || typeof value.total_work === "string") &&
+    (value.direct_work_applicability === "finite" ||
+      value.direct_work_applicability === "not_finite") &&
+    validStringArray(value.direct_work_blockers) &&
     validEdges &&
     validReuse &&
-    validStringMap(value.primitive_invocations) &&
+    (value.primitive_invocations === null ||
+      validStringMap(value.primitive_invocations)) &&
     validStringArray(value.unknown_costs) &&
     validStringArray(value.unresolved) &&
     validStringArray(value.extraction_opportunities) &&
@@ -459,6 +490,8 @@ function validResult(value: unknown): value is BridgeResult {
       "interpretation",
       "operation_counts",
       "abstract_work",
+      "direct_work_applicability",
+      "direct_work_blockers",
       "scenarios",
     ];
     if ("system" in value) keys.push("system");
@@ -466,7 +499,11 @@ function validResult(value: unknown): value is BridgeResult {
       exactKeys(value, keys) &&
       validInterpretation(value.interpretation) &&
       validOperationCounts(value.operation_counts) &&
-      nonNegativeInteger(value.abstract_work) &&
+      (value.abstract_work === null ||
+        nonNegativeInteger(value.abstract_work)) &&
+      (value.direct_work_applicability === "finite" ||
+        value.direct_work_applicability === "not_finite") &&
+      validStringArray(value.direct_work_blockers) &&
       (!("system" in value) || validSystemReport(value.system)) &&
       Array.isArray(value.scenarios) &&
       value.scenarios.every(validScenarioResult)
@@ -476,8 +513,13 @@ function validResult(value: unknown): value is BridgeResult {
     const error = value.error;
     if (!exactKeys(value, ["status", "error"]) || !isRecord(error))
       return false;
-    const errorKeys = ["code", "message"];
-    if ("location" in error) errorKeys.push("location");
+    const errorKeys = [
+      "code",
+      "message",
+      "location",
+      "source",
+      "supported_alternative",
+    ];
     return (
       exactKeys(error, errorKeys) &&
       [
@@ -488,11 +530,29 @@ function validResult(value: unknown): value is BridgeResult {
         "invalid_system",
       ].includes(String(error.code)) &&
       typeof error.message === "string" &&
-      (!("location" in error) ||
+      (error.location === null ||
         (isRecord(error.location) &&
           exactKeys(error.location, ["line", "column"]) &&
           positiveInteger(error.location.line) &&
-          nonNegativeInteger(error.location.column)))
+          nonNegativeInteger(error.location.column))) &&
+      (error.source === null ||
+        (isRecord(error.source) &&
+          exactKeys(error.source, ["path", "span", "excerpt"]) &&
+          typeof error.source.path === "string" &&
+          (error.source.span === null ||
+            (isRecord(error.source.span) &&
+              exactKeys(error.source.span, ["start", "end"]) &&
+              [error.source.span.start, error.source.span.end].every(
+                (location) =>
+                  isRecord(location) &&
+                  exactKeys(location, ["line", "column"]) &&
+                  positiveInteger(location.line) &&
+                  nonNegativeInteger(location.column),
+              ))) &&
+          (error.source.excerpt === null ||
+            typeof error.source.excerpt === "string"))) &&
+      (error.supported_alternative === null ||
+        typeof error.supported_alternative === "string")
     );
   }
   return false;

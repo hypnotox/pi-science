@@ -252,10 +252,40 @@ class SourceLocation(StructuredModel):
     column: int = Field(ge=0)
 
 
+class SourceSpan(StructuredModel):
+    start: SourceLocation
+    end: SourceLocation
+
+    @model_validator(mode="after")
+    def validate_order(self) -> "SourceSpan":
+        if (self.end.line, self.end.column) < (self.start.line, self.start.column):
+            raise ValueError("source span end must not precede start")
+        return self
+
+
+class SourceReference(StructuredModel):
+    path: str = Field(min_length=1, max_length=160)
+    span: SourceSpan | None = None
+    excerpt: str | None = Field(default=None, max_length=160)
+
+
 class AnalysisError(StructuredModel):
     code: AnalysisErrorCode
     message: str
     location: SourceLocation | None = None
+    source: SourceReference | None = None
+    supported_alternative: str | None = Field(default=None, max_length=160)
+
+    @model_validator(mode="after")
+    def validate_source_location(self) -> "AnalysisError":
+        has_mismatched_location = (
+            self.source is not None
+            and self.source.span is not None
+            and self.location != self.source.span.start
+        )
+        if has_mismatched_location:
+            raise ValueError("error location must equal source span start")
+        return self
 
 
 class Interpretation(StructuredModel):
@@ -279,14 +309,19 @@ class SymbolicOperationCounts(StructuredModel):
     powers: str = "0"
 
 
+type DirectWorkApplicability = Literal["finite", "not_finite"]
+
+
 class EquationReport(StructuredModel):
     name: str
     interpretation: Interpretation
     operation_counts: OperationCounts
-    aggregate_operation_counts: SymbolicOperationCounts
-    aggregate_work: str
+    aggregate_operation_counts: SymbolicOperationCounts | None
+    aggregate_work: str | None
+    direct_work_applicability: DirectWorkApplicability = "finite"
+    direct_work_blockers: tuple[str, ...] = ()
     dependencies: tuple[str, ...] = ()
-    primitive_invocations: dict[str, str] = Field(default_factory=dict)
+    primitive_invocations: dict[str, str] | None = Field(default_factory=dict)
     unknown_costs: tuple[str, ...] = ()
     unresolved: tuple[str, ...] = ()
     relationships_used: tuple["RelationshipUse", ...] = ()
@@ -323,11 +358,13 @@ class ReuseReport(StructuredModel):
 
 class SystemReport(StructuredModel):
     equations: tuple[EquationReport, ...]
-    aggregate_operation_counts: SymbolicOperationCounts
-    total_work: str
+    aggregate_operation_counts: SymbolicOperationCounts | None
+    total_work: str | None
+    direct_work_applicability: DirectWorkApplicability = "finite"
+    direct_work_blockers: tuple[str, ...] = ()
     dependency_edges: tuple[tuple[str, str], ...] = ()
     reuse: tuple[ReuseReport, ...] = ()
-    primitive_invocations: dict[str, str] = Field(default_factory=dict)
+    primitive_invocations: dict[str, str] | None = Field(default_factory=dict)
     unknown_costs: tuple[str, ...] = ()
     unresolved: tuple[str, ...] = ()
     extraction_opportunities: tuple[str, ...] = ()
@@ -339,7 +376,9 @@ class AnalysisSuccess(StructuredModel):
     status: Literal["success"] = "success"
     interpretation: Interpretation
     operation_counts: OperationCounts
-    abstract_work: int = Field(ge=0)
+    abstract_work: int | None = Field(default=None, ge=0)
+    direct_work_applicability: DirectWorkApplicability = "finite"
+    direct_work_blockers: tuple[str, ...] = ()
     system: SystemReport | None = None
     scenarios: tuple[ScenarioResult, ...] = ()
 

@@ -15,7 +15,9 @@ from py_science.formula.expressions import (
     Expression,
     ExpressionTooComplex,
     IndexedValue,
+    InfinityLiteral,
     IntegerLiteral,
+    RationalLiteral,
     Relationship,
     RelationshipOperator,
     Sum,
@@ -42,6 +44,8 @@ from py_science.formula.models import (
     Scenario,
     ScenarioResult,
     SourceLocation,
+    SourceReference,
+    SourceSpan,
     SystemReport,
 )
 from py_science.formula.parser import ParseFailure, ParseFailureKind, parse_expression
@@ -269,6 +273,10 @@ def _parse_knowledge(
 def _constant_value(expression: Expression) -> Fraction | None:
     if isinstance(expression, IntegerLiteral):
         return Fraction(expression.value)
+    if isinstance(expression, RationalLiteral):
+        return Fraction(expression.numerator, expression.positive_denominator)
+    if isinstance(expression, InfinityLiteral):
+        return None
     if not isinstance(expression, BinaryExpression):
         return None
     left = _constant_value(expression.left)
@@ -295,8 +303,10 @@ def _constant_value(expression: Expression) -> Fraction | None:
 
 
 def _is_real_expression(expression: Expression, context: WorkContext) -> bool:
-    if isinstance(expression, IntegerLiteral):
+    if isinstance(expression, (IntegerLiteral, RationalLiteral)):
         return True
+    if isinstance(expression, InfinityLiteral):
+        return False
     if isinstance(expression, (Symbol, IndexedValue)):
         return expression.name in context.variable_domains
     if isinstance(expression, Call):
@@ -688,10 +698,13 @@ def _analyze_single(
             if item.name not in {used.name for used in relationships}
         ),
     )
+    blockers = tuple(sorted(analysis.direct_work_blockers))
     return AnalysisSuccess(
         interpretation=interpretation,
         operation_counts=_counts(tally),
-        abstract_work=tally.total,
+        abstract_work=None if blockers else tally.total,
+        direct_work_applicability="not_finite" if blockers else "finite",
+        direct_work_blockers=blockers,
         system=system,
         scenarios=_scenario_results(
             request, analysis, work_render_budget, relationships, knowledge
@@ -814,10 +827,17 @@ def _analyze_system(
     submitted = OperationTally()
     for name in order:
         submitted = submitted.combine(count_operations(by_name[name].formula.right))
+    blockers = tuple(sorted(combined.direct_work_blockers))
     return AnalysisSuccess(
         interpretation=system_interpretation,
         operation_counts=_counts(submitted),
-        abstract_work=submitted.total,
+        abstract_work=None if blockers else submitted.total,
+        direct_work_applicability="not_finite" if blockers else "finite",
+        direct_work_blockers=tuple(
+            f"equation {report.name}: {blocker}"
+            for report in system.equations if report.direct_work_blockers
+            for blocker in report.direct_work_blockers
+        ) if blockers else (),
         system=system,
         scenarios=_scenario_results(
             request, combined, work_render_budget, used_relationships, knowledge
@@ -853,6 +873,8 @@ def _parse_equations(
                 upper, (Equation, Relationship)
             ):
                 return _invalid(f"equation {item.name} domain bounds cannot contain Eq")
+            if isinstance(lower, InfinityLiteral) or isinstance(upper, InfinityLiteral):
+                return _invalid(f"equation {item.name} domain bounds cannot be infinite")
             domains[index] = (lower, upper)
         output_indices = set(domains)
         for lower, upper in domains.values():
@@ -1624,14 +1646,17 @@ def _equation_report(
     work_render_budget: WorkRenderBudget,
     relationships_used: tuple[RelationshipUse, ...] = (),
 ) -> EquationReport:
+    blockers = tuple(sorted(analysis.direct_work_blockers))
     return EquationReport(
         name=name,
         interpretation=interpretation,
         operation_counts=_counts(submitted),
-        aggregate_operation_counts=render_operations(analysis.operations, work_render_budget),
-        aggregate_work=render_work(analysis.total_work, work_render_budget),
+        aggregate_operation_counts=None if blockers else render_operations(analysis.operations, work_render_budget),  # noqa: E501
+        aggregate_work=None if blockers else render_work(analysis.total_work, work_render_budget),
+        direct_work_applicability="not_finite" if blockers else "finite",
+        direct_work_blockers=blockers,
         dependencies=dependencies,
-        primitive_invocations=render_invocations(analysis.invocations, work_render_budget),
+        primitive_invocations=None if blockers else render_invocations(analysis.invocations, work_render_budget),  # noqa: E501
         unknown_costs=tuple(sorted(analysis.unknown_costs)),
         unresolved=tuple(sorted(analysis.unresolved)),
         relationships_used=relationships_used,
@@ -1648,13 +1673,20 @@ def _system_report(
     relationships_used: tuple[RelationshipUse, ...] = (),
     unused_assumptions: tuple[str, ...] = (),
 ) -> SystemReport:
+    blockers = tuple(
+        f"equation {equation.name}: {blocker}"
+        for equation in equations if equation.direct_work_blockers
+        for blocker in equation.direct_work_blockers
+    )
     return SystemReport(
         equations=equations,
-        aggregate_operation_counts=render_operations(analysis.operations, work_render_budget),
-        total_work=render_work(analysis.total_work, work_render_budget),
+        aggregate_operation_counts=None if blockers else render_operations(analysis.operations, work_render_budget),  # noqa: E501
+        total_work=None if blockers else render_work(analysis.total_work, work_render_budget),
+        direct_work_applicability="not_finite" if blockers else "finite",
+        direct_work_blockers=blockers,
         dependency_edges=dependency_edges,
         reuse=reuse,
-        primitive_invocations=render_invocations(analysis.invocations, work_render_budget),
+        primitive_invocations=None if blockers else render_invocations(analysis.invocations, work_render_budget),  # noqa: E501
         unknown_costs=tuple(sorted(analysis.unknown_costs)),
         unresolved=tuple(sorted(analysis.unresolved)),
         extraction_opportunities=extraction_opportunities,
@@ -1778,14 +1810,8 @@ def _parse_failure(parsed: ParseFailure) -> AnalysisFailure:
                 ParseFailureKind.TOO_COMPLEX: AnalysisErrorCode.EXPRESSION_TOO_COMPLEX,
             }[parsed.kind],
             message=parsed.message,
-            location=(
-                SourceLocation(line=parsed.line, column=parsed.column)
-                if parsed.line is not None
-                and parsed.line >= 1
-                and parsed.column is not None
-                and parsed.column >= 0
-                else None
-            ),
+            location=(SourceLocation(line=parsed.line, column=parsed.column) if parsed.line is not None and parsed.line >= 1 and parsed.column is not None and parsed.column >= 0 else None),  # noqa: E501
+            source=SourceReference(path="expression", span=(SourceSpan(start=SourceLocation(line=parsed.line, column=parsed.column), end=SourceLocation(line=parsed.line, column=parsed.column + 1)) if parsed.line is not None and parsed.line >= 1 and parsed.column is not None and parsed.column >= 0 else None), excerpt=None),  # noqa: E501
         )
     )
 
@@ -1795,7 +1821,6 @@ def _unsupported(message: str) -> AnalysisFailure:
         error=AnalysisError(
             code=AnalysisErrorCode.UNSUPPORTED_CONSTRUCT,
             message=message,
-            location=SourceLocation(line=1, column=0),
         )
     )
 

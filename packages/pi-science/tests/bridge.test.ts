@@ -90,6 +90,8 @@ const success = {
     powers: 0,
   },
   abstract_work: 0,
+  direct_work_applicability: "finite",
+  direct_work_blockers: [],
   scenarios: [],
 };
 const richSuccess = {
@@ -104,6 +106,8 @@ const richSuccess = {
     subtractions: 1,
   },
   abstract_work: 2,
+  direct_work_applicability: "finite",
+  direct_work_blockers: [],
   system: {
     equations: [
       {
@@ -118,6 +122,8 @@ const richSuccess = {
           powers: "0",
         },
         aggregate_work: "Max(0, n - 1) + Max(0, n)",
+        direct_work_applicability: "finite",
+        direct_work_blockers: [],
         dependencies: [],
         primitive_invocations: {},
         unknown_costs: [],
@@ -133,6 +139,8 @@ const richSuccess = {
       powers: "0",
     },
     total_work: "Max(0, n - 1) + Max(0, n)",
+    direct_work_applicability: "finite",
+    direct_work_blockers: [],
     dependency_edges: [],
     reuse: [],
     primitive_invocations: {},
@@ -263,22 +271,54 @@ describe("private formula bridge", () => {
     });
   });
 
+  it("accepts complete diagnostics and rejects missing, surplus, and malformed nested fields", async () => {
+    const failure = {
+      status: "failure",
+      error: {
+        code: "malformed_syntax",
+        message: "bad",
+        location: { line: 1, column: 0 },
+        source: {
+          path: "expression",
+          span: { start: { line: 1, column: 0 }, end: { line: 1, column: 1 } },
+          excerpt: "x",
+        },
+        supported_alternative: null,
+      },
+    };
+    await expect(
+      invokeAdapter(node, responder(failure), request()),
+    ).resolves.toMatchObject(failure);
+    const missing = { ...failure, error: { ...failure.error } };
+    delete (missing.error as { source?: unknown }).source;
+    const surplus = { ...failure, error: { ...failure.error, extra: true } };
+    const malformed = {
+      ...failure,
+      error: {
+        ...failure.error,
+        source: { ...failure.error.source, span: { start: 1, end: 2 } },
+      },
+    };
+    for (const value of [missing, surplus, malformed])
+      await kind(invokeAdapter(node, responder(value), request()), "protocol");
+  });
+
   it("strictly rejects malformed envelopes and result shapes", async () => {
     const outputs = [
       "no",
       JSON.stringify(null),
       JSON.stringify([]),
       JSON.stringify({ version: 1, result: success }),
-      JSON.stringify({ version: 2, result: success, extra: true }),
-      JSON.stringify({ version: 2, result: null }),
-      JSON.stringify({ version: 2, result: [] }),
-      JSON.stringify({ version: 2, result: { status: "success" } }),
+      JSON.stringify({ version: 3, result: success, extra: true }),
+      JSON.stringify({ version: 3, result: null }),
+      JSON.stringify({ version: 3, result: [] }),
+      JSON.stringify({ version: 3, result: { status: "success" } }),
       JSON.stringify({
-        version: 2,
+        version: 3,
         result: { ...success, unexpected: true },
       }),
       JSON.stringify({
-        version: 2,
+        version: 3,
         result: {
           ...richSuccess,
           system: { ...richSuccess.system, extra: true },
@@ -296,8 +336,8 @@ describe("private formula bridge", () => {
   });
 
   it("rejects duplicate response keys and invalid UTF-8", async () => {
-    const duplicateRoot = `{"version":2,"version":2,"result":${JSON.stringify(success)}}`;
-    const duplicateNested = `{"version":2,"result":{"status":"failure","error":{"code":"invalid_system","code":"invalid_system","message":"bad"}}}`;
+    const duplicateRoot = `{"version":3,"version":3,"result":${JSON.stringify(success)}}`;
+    const duplicateNested = `{"version":3,"result":{"status":"failure","error":{"code":"invalid_system","code":"invalid_system","message":"bad"}}}`;
     for (const output of [duplicateRoot, duplicateNested])
       await kind(
         invokeAdapter(

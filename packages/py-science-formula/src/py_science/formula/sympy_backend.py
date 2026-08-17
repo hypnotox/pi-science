@@ -12,7 +12,9 @@ from py_science.formula.expressions import (
     Equation,
     Expression,
     IndexedValue,
+    InfinityLiteral,
     IntegerLiteral,
+    RationalLiteral,
     Sum,
     Symbol,
 )
@@ -108,6 +110,11 @@ def _to_sympy(formula: Expression | Equation) -> SympyExpression:
     if isinstance(formula, IntegerLiteral):
         constructor = cast(Callable[[int], SympyExpression], sympy.Integer)
         return constructor(formula.value)
+    if isinstance(formula, RationalLiteral):
+        constructor = cast(Callable[[int, int], SympyExpression], sympy.Rational)
+        return constructor(formula.numerator, formula.positive_denominator)
+    if isinstance(formula, InfinityLiteral):
+        return cast(SympyExpression, sympy.oo if formula.sign > 0 else -sympy.oo)
     if isinstance(formula, Symbol):
         constructor = cast(Callable[[str], SympyExpression], sympy.Symbol)
         return constructor(formula.name)

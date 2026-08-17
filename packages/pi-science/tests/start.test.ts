@@ -74,6 +74,8 @@ describe("readiness gate", () => {
         powers: 0,
       },
       abstract_work: 0,
+      direct_work_applicability: "finite",
+      direct_work_blockers: [],
       scenarios: [],
     };
     await start(
@@ -84,7 +86,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 2, result: response }),
+            JSON.stringify({ version: 3, result: response }),
           )}))`,
         ],
       }),

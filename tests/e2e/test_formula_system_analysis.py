@@ -52,6 +52,7 @@ def test_named_indexed_equations_reuse_producer_and_sum_work() -> None:
         "consumer": "l",
         "references": 2,
     }
+    assert outcome.system.equations[0].aggregate_work is not None
     assert "Max" in outcome.system.equations[0].aggregate_work
     assert outcome.system.extraction_opportunities == ()
 
@@ -74,6 +75,7 @@ def test_sum_work_handles_empty_one_term_nested_and_symbolic_domains() -> None:
     assert nested.system is not None
     assert empty.system.total_work == "0"
     assert one.system.total_work == "0"
+    assert nested.system.total_work is not None
     assert "Max" in nested.system.total_work
 
 
@@ -91,6 +93,7 @@ def test_nonintegral_sum_bounds_remain_explicitly_unresolved() -> None:
     )
     assert outcome.status == "success"
     assert outcome.system is not None
+    assert outcome.system.total_work is not None
     assert "cardinality" in outcome.system.total_work
     assert outcome.system.unresolved == ("sum index i cardinality requires integral bounds",)
 
@@ -601,6 +604,10 @@ def test_afmm_like_request_reports_structural_work_scenarios_and_uncertainty() -
         "N*Sum(2*a + 1, (a, 0, -1 + p**2)) + N*p**2 + "
         "Sum(Max(0, n[b] - 1), (b, 0, B_leaf - 1))*p**2"
     )
+    assert system.total_work is not None
+    assert system.primitive_invocations is not None
+    assert system.equations[1].primitive_invocations is not None
+    assert system.equations[2].aggregate_work is not None
     assert system.total_work.startswith("D_dim*N + N*Sum(2*a + 1")
     assert system.primitive_invocations["basis"] == "N*p**2"
     assert [item.name for item in system.relationships_used] == [
@@ -625,3 +632,13 @@ def test_afmm_like_request_reports_structural_work_scenarios_and_uncertainty() -
     assert scenarios["joint_scale"].asymptotic is None
     assert "multivariate" in " ".join(scenarios["joint_scale"].unresolved)
     assert system.total_work == outcome.system.total_work
+
+
+def test_infinite_output_domain_is_rejected_as_a_finite_computational_bound() -> None:
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(EquationRequest(name="a", expression="Eq(A[i], x[i])", domains={"i": IndexDomain(lower="0", upper="oo")}),),  # noqa: E501
+        variables=variables("x"),
+    ))
+    assert outcome.status == "failure"
+    assert "infinite" in outcome.error.message

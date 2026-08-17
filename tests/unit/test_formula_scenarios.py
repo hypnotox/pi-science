@@ -594,6 +594,7 @@ def test_directed_definitions_apply_in_dependency_order_with_provenance() -> Non
     )
     assert result.status == "success"
     assert result.system is not None
+    assert result.system.total_work is not None
     assert "(N + 2)**2" in result.system.total_work
     assert [item.name for item in result.system.relationships_used] == [
         "definition:q",

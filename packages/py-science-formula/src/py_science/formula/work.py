@@ -10,7 +10,9 @@ from py_science.formula.expressions import (
     Expression,
     ExpressionTooComplex,
     IndexedValue,
+    InfinityLiteral,
     IntegerLiteral,
+    RationalLiteral,
     Sum,
     Symbol,
     expression_node_count,
@@ -139,6 +141,7 @@ class WorkAnalysis:
     invocations: dict[str, Expression] = field(default_factory=_empty_invocations)
     unknown_costs: set[str] = field(default_factory=_empty_strings)
     unresolved: set[str] = field(default_factory=_empty_strings)
+    direct_work_blockers: set[str] = field(default_factory=_empty_strings)
 
     def combine(self, other: WorkAnalysis) -> WorkAnalysis:
         invocations = dict(self.invocations)
@@ -150,6 +153,7 @@ class WorkAnalysis:
             invocations=invocations,
             unknown_costs=self.unknown_costs | other.unknown_costs,
             unresolved=self.unresolved | other.unresolved,
+            direct_work_blockers=self.direct_work_blockers | other.direct_work_blockers,
         )
 
     def scale(self, factor: Expression) -> WorkAnalysis:
@@ -161,6 +165,7 @@ class WorkAnalysis:
             },
             unknown_costs=set(self.unknown_costs),
             unresolved=set(self.unresolved),
+            direct_work_blockers=set(self.direct_work_blockers),
         )
 
     @property
@@ -197,6 +202,8 @@ def cardinality(
     context: WorkContext,
     label: str,
 ) -> tuple[Expression, str | None]:
+    if isinstance(lower, InfinityLiteral) or isinstance(upper, InfinityLiteral):
+        return IntegerLiteral(0), "infinite iterator has no finite direct-evaluation work"
     if isinstance(lower, IntegerLiteral) and isinstance(upper, IntegerLiteral):
         return IntegerLiteral(max(upper.value - lower.value + 1, 0)), None
     extent_value = _zero_to_nonnegative_extent(lower, upper, context)
@@ -227,6 +234,8 @@ def _zero_to_nonnegative_extent(
 def is_nonnegative_expression(expression: Expression, context: WorkContext) -> bool:
     if isinstance(expression, IntegerLiteral):
         return expression.value >= 0
+    if isinstance(expression, RationalLiteral):
+        return expression.numerator >= 0
     if isinstance(expression, (Symbol, IndexedValue)):
         declaration = context.variable_domains.get(expression.name)
         return declaration in {
@@ -260,6 +269,8 @@ def is_nonnegative_expression(expression: Expression, context: WorkContext) -> b
 def is_positive_expression(expression: Expression, context: WorkContext) -> bool:
     if isinstance(expression, IntegerLiteral):
         return expression.value > 0
+    if isinstance(expression, RationalLiteral):
+        return expression.numerator > 0
     if isinstance(expression, (Symbol, IndexedValue)):
         return context.variable_domains.get(expression.name) in {
             MathematicalDomain.POSITIVE_INTEGER,
@@ -290,6 +301,8 @@ def is_positive_expression(expression: Expression, context: WorkContext) -> bool
 def is_integer_expression(expression: Expression, context: WorkContext) -> bool:
     if isinstance(expression, IntegerLiteral):
         return True
+    if isinstance(expression, RationalLiteral):
+        return expression.positive_denominator == 1
     if isinstance(expression, Symbol):
         declaration = context.variable_domains.get(expression.name)
         return expression.name in context.integer_symbols or (
@@ -322,7 +335,9 @@ def is_integer_expression(expression: Expression, context: WorkContext) -> bool:
         return is_integer_expression(
             substitute(definition.body, replacements, max_nodes=MAX_WORK_NODES), context
         )
-    return is_integer_expression(expression.body, context.with_integer_symbol(expression.index))
+    if isinstance(expression, Sum):
+        return is_integer_expression(expression.body, context.with_integer_symbol(expression.index))
+    return False
 
 
 def render_work(expression: Expression, budget: WorkRenderBudget) -> str:
@@ -335,6 +350,10 @@ def render_work(expression: Expression, budget: WorkRenderBudget) -> str:
 
 def _rendered_size_upper_bound(expression: Expression) -> int:
     """A cheap conservative IR spelling bound, evaluated before SymPy rendering."""
+    if isinstance(expression, RationalLiteral):
+        return len(str(expression.numerator)) + len(str(expression.positive_denominator)) + 1
+    if isinstance(expression, InfinityLiteral):
+        return 3
     if isinstance(expression, IntegerLiteral):
         # log10(2) is below 0.31; include a possible leading minus sign.
         digits = max(1, (expression.value.bit_length() * 31 + 99) // 100)
@@ -394,6 +413,7 @@ def map_analysis(
         invocations={name: transform(count) for name, count in analysis.invocations.items()},
         unknown_costs=set(analysis.unknown_costs),
         unresolved=set(analysis.unresolved),
+        direct_work_blockers=set(analysis.direct_work_blockers),
     )
 
 
@@ -606,6 +626,7 @@ def substitute_analysis(
         },
         unknown_costs=set(analysis.unknown_costs),
         unresolved=set(analysis.unresolved),
+        direct_work_blockers=set(analysis.direct_work_blockers),
     )
 
 
@@ -627,6 +648,8 @@ def _analyze_sum(expression: Sum, context: WorkContext) -> WorkAnalysis:
     result.operations = result.operations.combine(SymbolicTally(additions=reduction))
     if unresolved is not None:
         result.unresolved.add(unresolved)
+        if unresolved == "infinite iterator has no finite direct-evaluation work":
+            result.direct_work_blockers.add(unresolved)
     return result
 
 
@@ -728,4 +751,4 @@ def _is_zero(expression: Expression) -> bool:
 
 
 def _is_one(expression: Expression) -> bool:
-    return isinstance(expression, IntegerLiteral) and expression.value == 1
+    return (isinstance(expression, IntegerLiteral) and expression.value == 1) or (isinstance(expression, RationalLiteral) and expression.numerator == expression.positive_denominator)  # noqa: E501
