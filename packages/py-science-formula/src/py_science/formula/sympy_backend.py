@@ -431,15 +431,22 @@ def bounded_series_verify(
                 and _series_value_is_bounded(sympy.cancel(candidate - boundary))
                 and sympy.cancel(candidate - boundary) == 0
             )
+        # H(t) is independently constructed as a prefix antidifference.  Verify its
+        # one-step identity before using its requested boundary difference.
+        def prefix_antidifference(endpoint: Any) -> Any:
+            return av * rho * sympy.diff((1 - rho**endpoint) / (1 - rho), rho) + bv * (
+                1 - rho**endpoint
+            ) / (1 - rho)
+
+        t = sympy.Symbol("_series_antidifference_index", integer=True)
+        raw_step = prefix_antidifference(t + 1) - prefix_antidifference(t) - (av * t + bv) * rho**t
+        # This is the exact integer-index rewrite r**(t+1) = r*r**t,
+        # not a generic simplification pass.
+        step = sympy.cancel(raw_step.xreplace({rho ** (t + 1): rho * rho**t}))
+        if not _series_value_is_bounded(step) or step != 0:
+            return False
         if upper is not None:
             nv = _to_query_sympy(upper)
-
-            # H(t) is the independently constructed prefix antidifference at t.
-            def prefix_antidifference(endpoint: Any) -> Any:
-                return av * rho * sympy.diff((1 - rho**endpoint) / (1 - rho), rho) + bv * (
-                    1 - rho**endpoint
-                ) / (1 - rho)
-
             boundary = sympy.cancel(
                 (prefix_antidifference(nv + 1) - prefix_antidifference(mv)).subs(rho, rv)
             )
@@ -449,21 +456,60 @@ def bounded_series_verify(
                 and _series_value_is_bounded(difference)
                 and difference == 0
             )
-        # Compare the candidate with every symbolic finite partial sum; the remaining
-        # r**(N+1) tail is then discharged only by the caller's proved Abs(r) < 1.
-        n = sympy.Symbol("_series_partial_upper")
-        finite = bounded_series_candidate(a, b, r, lower, _from_sympy_integer_symbol(n))
-        if finite is None:
+        # Derive the exact finite partial sum independently.  Its difference from
+        # the candidate must be a family-shaped endpoint tail: every additive term
+        # containing the endpoint contains rho**(N+c), and no endpoint-free term is
+        # permitted.  Under the caller-proved Abs(r)<1 these polynomial-times-power
+        # factors tend to zero; no generic limit/summation/simplify/series is used.
+        n = sympy.Symbol("_series_partial_upper", integer=True)
+        finite = sympy.cancel(
+            (prefix_antidifference(n + 1) - prefix_antidifference(mv)).subs(rho, rv)
+        )
+        if not _series_value_is_bounded(finite):
             return False
         tail = sympy.cancel(finite - candidate)
-        return _series_value_is_bounded(tail) and n in tail.free_symbols
+        return _series_value_is_bounded(tail) and _endpoint_tail_tends_to_zero(tail, n, rv)
     except Exception:
         return False
 
 
-def _from_sympy_integer_symbol(value: Any) -> Expression:
-    # Internal-only bridge used for the independently checked partial-sum endpoint.
-    return Symbol(str(value))
+def _endpoint_tail_tends_to_zero(tail: Any, endpoint: Any, ratio: Any) -> bool:
+    """Recognize only polynomial-times-r**(N+c) endpoint tails from this family."""
+    if endpoint not in tail.free_symbols:
+        return False
+    try:
+        numerator, denominator = sympy.fraction(tail)
+        if endpoint in denominator.free_symbols:
+            return False
+        terms = sympy.Add.make_args(numerator)
+        for term in terms:
+            powers: list[Any] = []
+            for factor in sympy.Mul.make_args(term):
+                power: Any = factor
+                if (
+                    power.is_Pow
+                    and power.base == ratio
+                    and endpoint in power.exp.free_symbols
+                ):
+                    powers.append(power)
+            if len(powers) != 1:
+                return False
+            exponent = powers[0].exp
+            # The exponent is exactly N plus an endpoint-independent integer offset.
+            if sympy.cancel(exponent - endpoint).free_symbols & {endpoint}:
+                return False
+            remainder = sympy.cancel(term / powers[0])
+            # The remainder may be a bounded polynomial in N and a denominator that
+            # does not depend on N, but cannot hide another endpoint-dependent factor.
+            remainder_numerator, remainder_denominator = sympy.fraction(remainder)
+            if endpoint in remainder_denominator.free_symbols:
+                return False
+            polynomial = sympy.Poly(remainder_numerator, endpoint)
+            if polynomial.degree() > 1:
+                return False
+        return True
+    except Exception:
+        return False
 
 
 def render(formula: Expression | Equation) -> NormalizedRendering:

@@ -140,6 +140,21 @@ class ReasoningContext:
     def relevant_unsupported(self, symbols: set[str]) -> tuple[str, ...]:
         return tuple(name for name, relevant in self.unsupported if relevant & symbols)
 
+    def application_uses(self, symbols: tuple[str, ...]) -> tuple[RelationshipUse, ...]:
+        """Return only directed definitions/equalities transitively used to replace inputs."""
+        relevant = set(symbols)
+        uses: list[RelationshipUse] = []
+        changed = True
+        while changed:
+            changed = False
+            for use in self.replacement_uses:
+                relationship_symbols = _relationship_source_symbols(use.relationship)
+                if relationship_symbols & relevant and use not in uses:
+                    uses.append(use)
+                    relevant.update(relationship_symbols)
+                    changed = True
+        return _unique_uses(uses)
+
     def relevant_uses(
         self, symbols: set[str], *, include_facts: bool = False
     ) -> tuple[RelationshipUse, ...]:

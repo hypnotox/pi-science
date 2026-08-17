@@ -39,7 +39,8 @@ from py_science.formula.sympy_backend import (
     render,
 )
 
-MAX_NODES = 4096
+MAX_TARGET_NODES = 512
+MAX_INTERMEDIATE_NODES = 4096
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,8 +55,15 @@ def derive_closed_form(expression: Expression, reasoning: ReasoningContext | Non
     if reasoning is None:
         return _unresolved("query reasoning exceeds its bound")
     # This is the common pre-call gate, including sibling (not total descendant) sums.
-    if expression_node_count(expression) > 512 or not _series_preflight(expression):
+    if (
+        expression_node_count(expression) > MAX_TARGET_NODES
+        or not _series_preflight(expression)
+        or not rational_ir_preflight(_shell_projection(expression))
+    ):
         return _unresolved("query family is unsupported")
+    # Preserve denominator obligations from the submitted shell before candidates
+    # can be normalized or cancelled.
+    original_denominators = _denominators(expression)
     sums = _sums(expression)
     if not sums or len(sums) > 8:
         return _unresolved("query family is unsupported")
@@ -72,8 +80,26 @@ def derive_closed_form(expression: Expression, reasoning: ReasoningContext | Non
     candidate = expression
     for item, rule in zip(sums, rules, strict=True):
         candidate = _replace(candidate, item, rule.candidate)
-        if expression_node_count(candidate) > MAX_NODES:
+        if (
+            expression_node_count(candidate) > MAX_INTERMEDIATE_NODES
+            or not _result_preflight(candidate)
+        ):
             return _unresolved("query derived expression exceeds its bound")
+    denominator_conditions: list[str] = []
+    denominator_uses: tuple[Any, ...] = ()
+    for denominator in original_denominators:
+        # Prove the original denominator's replacement, but report the submitted
+        # denominator rather than silently cancelling its domain.
+        discharged, discharged_uses = reasoning.prove_nonzero(
+            _replace_many(denominator, sums, rules)
+        )
+        if not discharged:
+            return _unresolved("original denominator is not proved nonzero")
+        try:
+            denominator_conditions.append(f"{render(denominator).sympy} != 0")
+        except Exception:
+            return _unresolved("query candidate cannot be rendered")
+        denominator_uses = _unique((*denominator_uses, *discharged_uses))
     try:
         interpretation = render(candidate)
         source = render(expression).sympy
@@ -82,8 +108,9 @@ def derive_closed_form(expression: Expression, reasoning: ReasoningContext | Non
     if max(len(interpretation.sympy), len(interpretation.latex), len(source)) > 4096:
         return _unresolved("query candidate rendering exceeds its bound")
     tally = count_operations(candidate)
-    conditions = tuple(dict.fromkeys(condition for rule in rules for condition in rule.conditions))
-    uses = _unique(tuple(use for rule in rules for use in rule.uses))
+    rule_conditions = tuple(condition for rule in rules for condition in rule.conditions)
+    conditions = tuple(dict.fromkeys((*denominator_conditions, *rule_conditions)))
+    uses = _unique((*tuple(use for rule in rules for use in rule.uses), *denominator_uses))
     return QueryAnswer(
         conclusion="proved_under_assumptions" if uses or conditions else "proved",
         conditions=conditions,
@@ -126,6 +153,9 @@ def _derive_sum(item: Sum, reasoning: ReasoningContext) -> SeriesRule | QueryAns
             reasoning.apply(item.upper),
             reasoning.apply(item.body),
         )
+        replacement_uses = reasoning.application_uses(
+            (*_names(item.lower), *_names(item.upper), *_names(item.body))
+        )
     except Exception:
         return _unresolved("query reasoning exceeds its bound")
     if not reasoning.proves_integral(lower) or (
@@ -136,7 +166,7 @@ def _derive_sum(item: Sum, reasoning: ReasoningContext) -> SeriesRule | QueryAns
     if parsed is None:
         return _unresolved("query family is unsupported")
     a, b, r = parsed
-    uses: tuple[Any, ...] = ()
+    uses: tuple[Any, ...] = replacement_uses
     if not isinstance(upper, InfinityLiteral):
         ordered, order_uses = reasoning.prove_ordered(lower, upper)
         if not ordered:
@@ -151,7 +181,7 @@ def _derive_sum(item: Sum, reasoning: ReasoningContext) -> SeriesRule | QueryAns
             return _unresolved(
                 "series bounds are not proved ordered", reasoning.relevant_unsupported(_names(item))
             )
-        uses = order_uses
+        uses = _unique((*uses, *order_uses))
     # A submitted r**k has an original r != 0 obligation whenever k can be negative.
     nonnegative_lower, lower_uses = reasoning.prove_nonnegative(lower)
     if not nonnegative_lower:
@@ -224,7 +254,10 @@ def _parse_candidate(value: Any) -> Expression | None:
     parsed = parse_expression(source)
     return (
         None
-        if isinstance(parsed, (ParseFailure, tuple)) or expression_node_count(parsed) > MAX_NODES
+        if (
+            isinstance(parsed, (ParseFailure, tuple))
+            or expression_node_count(parsed) > MAX_INTERMEDIATE_NODES
+        )
         else parsed
     )
 
@@ -233,7 +266,9 @@ def _linear_geometric(
     value: Expression, index: str
 ) -> tuple[Expression, Expression, Expression] | None:
     """Collect only a bounded sum of products sharing exactly one r**k factor."""
-    terms = _flatten(value, BinaryOperator.ADD)
+    terms = _normalized_terms(value, index)
+    if terms is None:
+        return None
     ratio: Expression | None = None
     coefficient_terms: list[Expression] = []
     for term in terms:
@@ -267,6 +302,40 @@ def _linear_geometric(
     return a, b, ratio
 
 
+def _normalized_terms(value: Expression, index: str) -> list[Expression] | None:
+    """Distribute only index-independent products over bounded add/subtract terms."""
+    def visit(term: Expression, scale: list[Expression]) -> list[Expression] | None:
+        if isinstance(term, BinaryExpression) and term.operator is BinaryOperator.ADD:
+            left, right = visit(term.left, scale), visit(term.right, scale)
+            return None if left is None or right is None else [*left, *right]
+        if isinstance(term, BinaryExpression) and term.operator is BinaryOperator.SUBTRACT:
+            left = visit(term.left, scale)
+            right = visit(term.right, [*scale, IntegerLiteral(-1)])
+            return None if left is None or right is None else [*left, *right]
+        if isinstance(term, BinaryExpression) and term.operator is BinaryOperator.MULTIPLY:
+            factors = _flatten(term, BinaryOperator.MULTIPLY)
+            additive = [
+                factor
+                for factor in factors
+                if _is_additive(factor) and _contains_index(factor, index)
+            ]
+            if len(additive) == 1:
+                distributed = additive[0]
+                other = [factor for factor in factors if factor != distributed]
+                if not any(_contains_index(factor, index) for factor in other):
+                    return visit(distributed, [*scale, *other])
+        return [_product([*scale, term])]
+
+    return visit(value, [])
+
+
+def _is_additive(value: Expression) -> bool:
+    return isinstance(value, BinaryExpression) and value.operator in {
+        BinaryOperator.ADD,
+        BinaryOperator.SUBTRACT,
+    }
+
+
 def _flatten(value: Expression, op: BinaryOperator) -> list[Expression]:
     if isinstance(value, BinaryExpression) and value.operator is op:
         return [*_flatten(value.left, op), *_flatten(value.right, op)]
@@ -287,16 +356,30 @@ def _sum(values: list[Expression]) -> Expression:
     return result
 
 
-def _series_preflight(value: Expression) -> bool:
+def _series_preflight(value: Expression, index: str | None = None) -> bool:
+    """Preflight the complete shell before any backend conversion or rendering."""
+    if expression_node_count(value) > MAX_TARGET_NODES:
+        return False
     if isinstance(value, Sum):
         return (
-            _series_preflight(value.body)
+            _series_preflight(value.body, value.index)
             and rational_ir_preflight(value.lower)
             and (isinstance(value.upper, InfinityLiteral) or rational_ir_preflight(value.upper))
         )
     if isinstance(value, (Call, IndexedValue, InfinityLiteral)):
         return False
-    return all(_series_preflight(child) for child in expression_children(value))
+    if isinstance(value, BinaryExpression) and value.operator is BinaryOperator.POWER:
+        indexed_power = isinstance(value.right, Symbol) and value.right.name == index
+        if not indexed_power and (
+            not isinstance(value.right, IntegerLiteral) or abs(value.right.value) > 32
+        ):
+            return False
+    if isinstance(value, IntegerLiteral):
+        return abs(value.value).bit_length() <= 1024
+    if isinstance(value, RationalLiteral):
+        bits = max(abs(value.numerator).bit_length(), value.positive_denominator.bit_length())
+        return bits <= 1024
+    return all(_series_preflight(child, index) for child in expression_children(value))
 
 
 def _sums(value: Expression) -> list[Sum]:
@@ -329,6 +412,53 @@ def _supported_shell(value: Expression) -> bool:
     if isinstance(value, (Call, IndexedValue, InfinityLiteral)):
         return False
     return all(_supported_shell(child) for child in expression_children(value))
+
+
+def _shell_projection(value: Expression) -> Expression:
+    """Replace series leaves so the enclosing arithmetic gets rational IR caps."""
+    if isinstance(value, Sum):
+        return Symbol("_series_shell_sum")
+    if isinstance(value, BinaryExpression):
+        return BinaryExpression(
+            value.operator, _shell_projection(value.left), _shell_projection(value.right)
+        )
+    return value
+
+
+def _result_preflight(value: Expression) -> bool:
+    """Bound generated candidates without rejecting supported symbolic-bound powers."""
+    if expression_node_count(value) > MAX_INTERMEDIATE_NODES:
+        return False
+    if isinstance(value, (Call, IndexedValue, Sum, InfinityLiteral)):
+        return False
+    if (
+        isinstance(value, BinaryExpression)
+        and value.operator is BinaryOperator.POWER
+        and isinstance(value.right, IntegerLiteral)
+        and abs(value.right.value) > 32
+    ):
+        return False
+    if isinstance(value, IntegerLiteral):
+        return abs(value.value).bit_length() <= 1024
+    if isinstance(value, RationalLiteral):
+        bits = max(abs(value.numerator).bit_length(), value.positive_denominator.bit_length())
+        return bits <= 1024
+    return all(_result_preflight(child) for child in expression_children(value))
+
+
+def _denominators(value: Expression) -> tuple[Expression, ...]:
+    found: list[Expression] = []
+    for node in _walk(value):
+        if isinstance(node, BinaryExpression) and node.operator is BinaryOperator.DIVIDE:
+            found.append(node.right)
+    return tuple(found)
+
+
+def _replace_many(value: Expression, sums: list[Sum], rules: list[SeriesRule]) -> Expression:
+    result = value
+    for item, rule in zip(sums, rules, strict=True):
+        result = _replace(result, item, rule.candidate)
+    return result
 
 
 def _replace(value: Expression, old: Sum, new: Expression) -> Expression:

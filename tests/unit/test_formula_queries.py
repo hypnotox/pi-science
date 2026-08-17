@@ -1,6 +1,7 @@
 # ruff: noqa: E501, E701
 # pyright: basic, reportArgumentType=false, reportOptionalMemberAccess=false
 import py_science.formula.query as formula_query
+import py_science.formula.series as formula_series
 import py_science.formula.sympy_backend as formula_sympy
 import pytest
 from py_science.formula import (
@@ -160,6 +161,75 @@ def test_closed_form_never_labels_an_unverified_candidate_proved(monkeypatch):
     assert answer.conclusion == "unresolved"
     assert answer.evidence is None and answer.derived_candidates == ()
     assert answer.blockers == ("series antidifference verification failed",)
+
+
+def test_closed_form_residual_verification_domain_preflight_normalization_and_provenance(monkeypatch):
+    original_candidate = formula_series.bounded_series_candidate
+
+    def candidate_plus_one(*args, **kwargs):
+        candidate = original_candidate(*args, **kwargs)
+        assert candidate is not None
+        return candidate + 1
+
+    monkeypatch.setattr(formula_series, "bounded_series_candidate", candidate_plus_one)
+    for expression, blocker in (
+        ("Sum(k*2**k, (k, 0, 3))", "series antidifference verification failed"),
+        ("Sum(k*q**k, (k, 0, oo))", "series partial-sum verification failed"),
+    ):
+        extra = (
+            {"variables": {"q": VariableDeclaration(domain=MathematicalDomain.REAL)},
+             "assumptions": (Assumption(name="converges", relationship="q > 0"), Assumption(name="below_one", relationship="q < 1"))}
+            if "oo" in expression else {}
+        )
+        result = analyze(AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY, expression=expression,
+            queries=({"name": "closed", "kind": "closed_form"},), **extra,
+        ))
+        assert result.status == "success"
+        assert result.queries[0].answers[0].blockers == (blocker,)
+
+    monkeypatch.undo()
+    # A submitted denominator remains an obligation: q=-1 makes the original
+    # finite geometric sum zero and may not become an unconditional 1.
+    denominator = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="Sum(q**k, (k, 0, 1))/Sum(q**k, (k, 0, 1))",
+        assumptions=(Assumption(name="q_is_minus_one", relationship="q == -1"),),
+        queries=({"name": "closed", "kind": "closed_form"},),
+    ))
+    assert denominator.status == "success"
+    assert denominator.queries[0].answers[0].blockers == ("original denominator is not proved nonzero",)
+
+    for expression in ("Sum(k*q**k-q**k, (k, 0, 2))", "Sum(2*(k*q**k+q**k), (k, 0, 2))"):
+        normalized = analyze(AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY, expression=expression,
+            assumptions=(Assumption(name="ratio_not_one", relationship="q < 1"),),
+            queries=({"name": "closed", "kind": "closed_form"},),
+        ))
+        assert normalized.status == "success"
+        assert normalized.queries[0].answers[0].conclusion == "proved_under_assumptions"
+
+    provenance = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY, expression="Sum(k*r**k, (k, 0, 3))",
+        assumptions=(Assumption(name="ratio_value", relationship="r == 2"),),
+        queries=({"name": "closed", "kind": "closed_form"},),
+    ))
+    assert provenance.status == "success"
+    assert {use.name for use in provenance.queries[0].answers[0].assumptions_used} == {"ratio_value"}
+
+
+def test_closed_form_exponent_preflight_precedes_series_backend(monkeypatch):
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("series backend/render must remain behind shell preflight")
+
+    monkeypatch.setattr(formula_series, "render", forbidden)
+    monkeypatch.setattr(formula_series, "bounded_series_candidate", forbidden)
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY, expression="Sum(k*2**k, (k, 0, 3))**33",
+        queries=({"name": "closed", "kind": "closed_form"},),
+    ))
+    assert outcome.status == "success"
+    assert outcome.queries[0].answers[0].blockers == ("query family is unsupported",)
 
 
 def test_query_contract_rejects_invalid_context_and_points():
