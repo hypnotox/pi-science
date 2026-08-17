@@ -1,6 +1,6 @@
 [project]
 name = "py-science-formula"
-version = "0.1.1"
+version = "0.2.0"
 description = "Deterministic symbolic formula analysis for coding agents"
 readme = "README.md"
 license = "AGPL-3.0-only"
