@@ -2,8 +2,8 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-- [ADR-adopt-bounded-nested-finite-polynomial-closed-forms: Adopt bounded nested finite polynomial closed forms](adopt-bounded-nested-finite-polynomial-closed-forms.md) (Implementing)
-- [ADR-adopt-explicit-reusable-verified-query-candidates: Adopt explicit reusable verified query candidates](adopt-explicit-reusable-verified-query-candidates.md) (Implementing)
+- [ADR-0011: Adopt explicit reusable verified query candidates](0011-adopt-explicit-reusable-verified-query-candidates.md) (Implementing)
+- [ADR-0012: Adopt bounded nested finite polynomial closed forms](0012-adopt-bounded-nested-finite-polynomial-closed-forms.md) (Implementing)
 
 ## History
 

@@ -4,7 +4,7 @@ slug: adopt-explicit-reusable-verified-query-candidates
 status: Implementing
 date: 2026-08-18
 ---
-# ADR-adopt-explicit-reusable-verified-query-candidates: Adopt explicit reusable verified query candidates
+# ADR-0011: Adopt explicit reusable verified query candidates
 
 ## Context
 

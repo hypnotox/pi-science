@@ -4,7 +4,7 @@ slug: adopt-bounded-nested-finite-polynomial-closed-forms
 status: Implementing
 date: 2026-08-18
 ---
-# ADR-adopt-bounded-nested-finite-polynomial-closed-forms: Adopt bounded nested finite polynomial closed forms
+# ADR-0012: Adopt bounded nested finite polynomial closed forms
 
 ## Context
 
