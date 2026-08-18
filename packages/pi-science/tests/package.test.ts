@@ -69,21 +69,45 @@ describe("npm package boundary", () => {
           "--input-type=module",
           "--eval",
           `
+            import { createRequire } from "node:module";
+            import { writeFileSync } from "node:fs";
             import { discoverAndLoadExtensions } from "@earendil-works/pi-coding-agent";
             import { resolve } from "node:path";
             const extensionPath = resolve("node_modules/pi-science/packages/pi-science/src/index.ts");
-            const loaded = await discoverAndLoadExtensions([extensionPath], process.cwd());
+            const adapter = resolve("node_modules/pi-science/packages/pi-science/bridge/formula_adapter.py");
+            const probeExtension = resolve("formula-probe.ts");
+            writeFileSync(
+              probeExtension,
+              "import { start } from " + JSON.stringify(extensionPath) + ";\\n" +
+                "export default (pi) => start(pi, Promise.resolve({ ready: true, command: \\\"uv\\\", args: [\\\"run\\\", \\\"--project\\\", " +
+                JSON.stringify(${JSON.stringify(root)}) +
+                ", \\\"--locked\\\", \\\"python\\\", " + JSON.stringify(adapter) + "] }));\\n",
+            );
+            const loaded = await discoverAndLoadExtensions([probeExtension], process.cwd());
             if (loaded.errors.length !== 0) throw new Error(JSON.stringify(loaded.errors));
             if (loaded.extensions.length !== 1) throw new Error("formula extension was not loaded");
-            if (!loaded.extensions[0].commands.has("pi-science-doctor")) {
+            const extension = loaded.extensions[0];
+            if (!extension.commands.has("pi-science-doctor")) {
               throw new Error("formula extension did not register its diagnostic command");
             }
-            process.stdout.write("installed-extension-loaded");
+            const registered = extension.tools.get("analyze_formula");
+            if (!registered) throw new Error("formula tool was not registered");
+            const hostRequire = createRequire(import.meta.resolve("@earendil-works/pi-coding-agent"));
+            const { Compile } = await import(hostRequire.resolve("typebox/compile"));
+            const parameters = { expression: "x + 1", variables: { x: { domain: "real" } } };
+            if (!Compile(registered.definition.parameters).Check(parameters)) {
+              throw new Error("formula parameters failed host validation");
+            }
+            const result = await registered.definition.execute("id", parameters);
+            if (result.details.status !== "success") {
+              throw new Error("formula tool did not return success");
+            }
+            process.stdout.write("installed-formula-tool-invoked");
           `,
         ],
         { cwd: installed, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
       );
-      expect(probe).toBe("installed-extension-loaded");
+      expect(probe).toBe("installed-formula-tool-invoked");
     } finally {
       await rm(directory, { recursive: true, force: true });
       if (installed !== undefined)

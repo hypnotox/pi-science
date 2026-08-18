@@ -15,7 +15,7 @@ import { provision, type Readiness } from "./provision.js";
 
 const SHA = /^[0-9a-f]{40}$/;
 const PRODUCT_SKILLS = fileURLToPath(new URL("../skills", import.meta.url));
-export const formulaSchema = formulaSchemaJson as TSchema;
+export const formulaSchema = structuredClone(formulaSchemaJson) as TSchema;
 export type FormulaParameters =
   | Omit<ExpressionAnalysisRequest, "syntax">
   | Omit<SystemAnalysisRequest, "syntax">;
