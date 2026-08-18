@@ -21,7 +21,7 @@ from py_science.formula.expressions import (
     substitute,
 )
 from py_science.formula.models import MathematicalDomain, SymbolicOperationCounts
-from py_science.formula.sympy_backend import render, render_affine_direct_work
+from py_science.formula.sympy_backend import render
 
 _ZERO = IntegerLiteral(0)
 _ONE = IntegerLiteral(1)
@@ -404,8 +404,7 @@ def render_work(expression: Expression, budget: WorkRenderBudget) -> str:
     if expression_node_count(expression) > MAX_WORK_NODES:
         raise ExpressionTooComplex("aggregate work exceeds its structural bound")
     budget.accept(expression)
-    polynomial = render_affine_direct_work(expression, max_nodes=MAX_WORK_NODES)
-    return polynomial if polynomial is not None else render(expression).sympy
+    return render(expression).sympy
 
 
 def _rendered_size_upper_bound(expression: Expression) -> int:
@@ -494,9 +493,16 @@ def aggregate_analysis(
     else:
         count, unresolved = proven_extent, None
     if ordering_unresolved is not None:
+        # SymPy gives reversed finite sums an algebraic continuation, which can
+        # report negative work.  Clamp the inclusive extent while retaining a
+        # lexical binder for every index-dependent value.
+        count, _ = cardinality(lower, upper, context, label)
+        clamped_upper = _subtract(_add(lower, count), _ONE)
         return map_analysis(
             analysis,
-            lambda value: Sum(value, index, lower, upper),
+            lambda value: _aggregate_unresolved_value(
+                value, index, lower, clamped_upper, count
+            ),
         ), ordering_unresolved
     return map_analysis(
         analysis,
@@ -513,6 +519,18 @@ def _aggregate_value(
 ) -> Expression:
     if index in _free_symbol_names(value):
         return _close_affine_sum(factor_independent(Sum(value, index, lower, upper), index))
+    return _multiply(count, value)
+
+
+def _aggregate_unresolved_value(
+    value: Expression,
+    index: str,
+    lower: Expression,
+    clamped_upper: Expression,
+    count: Expression,
+) -> Expression:
+    if index in _free_symbol_names(value):
+        return Sum(value, index, lower, clamped_upper)
     return _multiply(count, value)
 
 
@@ -683,12 +701,18 @@ def simplify_constants(expression: Expression) -> Expression:
             )
         return Call(expression.name, arguments)
     if isinstance(expression, Sum):
-        return Sum(
-            simplify_constants(expression.body),
-            expression.index,
-            simplify_constants(expression.lower),
-            simplify_constants(expression.upper),
-        )
+        body = simplify_constants(expression.body)
+        lower = simplify_constants(expression.lower)
+        upper = simplify_constants(expression.upper)
+        lower_value = exact_integer_value(lower)
+        upper_value = exact_integer_value(upper)
+        if (
+            lower_value is not None
+            and upper_value is not None
+            and upper_value < lower_value
+        ):
+            return _ZERO
+        return Sum(body, expression.index, lower, upper)
     if not isinstance(expression, BinaryExpression):
         return expression
     left = simplify_constants(expression.left)

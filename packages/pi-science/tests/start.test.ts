@@ -532,6 +532,10 @@ describe("readiness gate", () => {
         { name: "conjugate", parameters: ["value"], work: "1" },
         { name: "harmonic", parameters: ["degree", "order"], work: "1" },
       ],
+      scenarios: [
+        { name: "p12", fixed: { p: 12 } },
+        { name: "p20", fixed: { p: 20 } },
+      ],
     });
     expect(result.details).toMatchObject({
       status: "success",
@@ -544,18 +548,55 @@ describe("readiness gate", () => {
           ["factor_s", "translation"],
           ["factor_t", "translation"],
         ],
+        total_work: expect.any(String),
+        primitive_invocations: {
+          conjugate: "((p + 1)**2)**2",
+          harmonic: "((p + 1)**2)**2",
+        },
         unresolved: [],
-        equations: expect.arrayContaining([
-          expect.objectContaining({
-            name: "translation",
-            aggregate_work: "(p + 1)**3*(6*p + 7)",
-            primitive_invocations: {
-              conjugate: "(p + 1)**4",
-              harmonic: "(p + 1)**4",
-            },
-          }),
-        ]),
+        relationships_used: [{ name: "domain:n", relationship: "0 <= n <= p" }],
+        unused_assumptions: [],
       },
+      scenarios: [
+        { name: "p12", substituted_work: "173760", unresolved: [] },
+        { name: "p20", substituted_work: "1176632", unresolved: [] },
+      ],
+    });
+    const system = (result.details as { system: { equations: unknown[] } })
+      .system;
+    const translation = system.equations.find(
+      (item) => (item as { name?: string }).name === "translation",
+    );
+    expect(translation).toMatchObject({
+      name: "translation",
+      interpretation: {
+        normalized_sympy:
+          "Eq(L[n, m], a[n]*Sum(b[k]*Sum(harmonic(k + n, l + m)*conjugate(M[k, l]), (l, -k, k)), (k, 0, p)))",
+      },
+      operation_counts: {
+        additions: 2,
+        subtractions: 0,
+        multiplications: 4,
+        divisions: 0,
+        powers: 0,
+      },
+      aggregate_operation_counts: {
+        additions: "(p + (p + 1)*(3*p + 2))*(p + 1)**2",
+        subtractions: "0",
+        multiplications: "((p + 1)*(p + 2) + 1)*(p + 1)**2",
+        divisions: "0",
+        powers: "0",
+      },
+      aggregate_work:
+        "(p + (p + 1)*(3*p + 2))*(p + 1)**2 + ((p + 1)*(p + 2) + 1)*(p + 1)**2 + 2*((p + 1)**2)**2",
+      dependencies: ["factor_s", "factor_t"],
+      primitive_invocations: {
+        conjugate: "((p + 1)**2)**2",
+        harmonic: "((p + 1)**2)**2",
+      },
+      unknown_costs: [],
+      unresolved: [],
+      relationships_used: [{ name: "domain:n", relationship: "0 <= n <= p" }],
     });
   });
 

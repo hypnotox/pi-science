@@ -1103,7 +1103,7 @@ def _validate_system(
     unknown_arities = dict(request_unknown_arities)
     external: set[str] = set()
     producer_names = set(producers)
-    for equation in equations:
+    for equation_position, equation in enumerate(equations):
         name = equation.request.name
         scope = set(equation.domains)
         index_error, index_unknown = _validate_index_scopes(
@@ -1113,8 +1113,11 @@ def _validate_system(
         )
         if index_error is not None:
             return _invalid(f"equation {name}: {index_error}")
-        for lower, upper in equation.domains.values():
-            for bound in (lower, upper):
+        for index, (lower, upper) in equation.domains.items():
+            for endpoint, bound in (("lower", lower), ("upper", upper)):
+                bound_path = (
+                    f"equations[{equation_position}].domains.{index}.{endpoint}"
+                )
                 referenced_producers = _referenced_producers(bound, producers)
                 if referenced_producers:
                     return _invalid(
@@ -1126,7 +1129,19 @@ def _validate_system(
                     return call_failure
                 bound_error, bound_unknown = _validate_index_scopes(bound, scope, context)
                 if bound_error is not None:
-                    return _invalid(f"equation {name} domain: {bound_error}")
+                    return _invalid(
+                        f"equation {name} domain: {bound_error}",
+                        source=SourceReference(path=bound_path),
+                    )
+                missing_bound = _external_value_names(bound, scope, producer_names) - set(
+                    request.variables
+                )
+                if missing_bound:
+                    return _invalid(
+                        "system variables require mathematical domains: "
+                        + ", ".join(sorted(missing_bound)),
+                        source=SourceReference(path=bound_path),
+                    )
                 index_unknown.update(bound_unknown)
         unresolved[name] = tuple(sorted(index_unknown))
         call_failure = _check_call_arities(

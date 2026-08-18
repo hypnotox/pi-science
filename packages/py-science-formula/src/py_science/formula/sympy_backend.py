@@ -1295,22 +1295,6 @@ def _to_query_sympy(expression: Expression) -> SympyExpression:
     return power(left, right)
 
 
-def render_affine_direct_work(expression: Expression, *, max_nodes: int) -> str | None:
-    """Factor a call-free polynomial direct-work expression within its work budget."""
-    try:
-        # Reparse only this internally rendered, already restricted IR to allow
-        # SymPy to evaluate the deliberately inert construction nodes.
-        symbolic = sympy.sympify(str(_to_sympy(expression)))
-        if not symbolic.is_polynomial():
-            return None
-        factored = sympy.factor(symbolic)
-        if sum(1 for _ in sympy.preorder_traversal(factored)) > max_nodes:
-            return None
-        return str(factored)
-    except Exception:
-        return None
-
-
 def close_direct_work_sum(
     body: Expression,
     index_name: str,
@@ -1320,6 +1304,12 @@ def close_direct_work_sum(
     max_nodes: int,
 ) -> str | None:
     """Close a bounded degree-two polynomial sum for direct-work accounting only."""
+    inputs = (body, lower, upper)
+    if (
+        sum(expression_node_count(item) for item in inputs) > max_nodes
+        or not rational_ir_preflight(body, max_nodes=max_nodes, max_degree=2)
+    ):
+        return None
     try:
         index = sympy.Symbol(index_name)
         symbolic_body = _to_sympy(body)

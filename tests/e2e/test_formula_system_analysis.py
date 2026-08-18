@@ -1,7 +1,9 @@
 # ruff: noqa: E501
 # pyright: basic, reportArgumentType=false, reportOptionalMemberAccess=false, reportOptionalSubscript=false, reportAttributeAccessIssue=false, reportOperatorIssue=false, reportCallIssue=false, reportUnknownMemberType=false, reportUnknownVariableType=false
+from types import SimpleNamespace
 from typing import Any, cast
 
+import py_science.formula.reasoning as formula_reasoning
 import py_science.formula.service as formula_service
 import py_science.formula.work as formula_work
 import pytest
@@ -22,7 +24,9 @@ from py_science.formula import (
     VariableDeclaration,
     analyze,
 )
-from py_science.formula.expressions import IntegerLiteral, Sum, Symbol
+from py_science.formula.domains import build_output_domains
+from py_science.formula.expressions import IntegerLiteral, Relationship, Sum, Symbol
+from py_science.formula.parser import parse_expression
 from pydantic import ValidationError
 from sympy import Max, simplify, sympify  # type: ignore[import-untyped]
 from sympy import Sum as SympySum  # type: ignore[import-untyped]
@@ -398,6 +402,25 @@ def test_dependent_output_domain_cycles_and_non_affine_bounds_are_local_errors()
         assert path in location or "output-domain bounds cannot depend" in outcome.error.message
 
 
+def test_unsupported_inequality_is_preflighted_before_sympy_conversion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    relationship = parse_expression("h**2 <= sigma**2")
+    assert isinstance(relationship, Relationship)
+    item = SimpleNamespace(
+        name="nonlinear",
+        source="h**2 <= sigma**2",
+        value=relationship,
+    )
+
+    def forbidden_conversion(_expression: object) -> object:
+        raise AssertionError("unsupported inequality reached SymPy conversion")
+
+    monkeypatch.setattr(formula_reasoning, "_to_sympy", forbidden_conversion)
+    context = formula_reasoning.ReasoningContext.build({}, (), (item,))
+    assert context.unsupported == (("nonlinear", frozenset({"h", "sigma"})),)
+
+
 def test_affine_domain_ordering_uses_named_relationship_provenance() -> None:
     qualified = analyze(AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,
@@ -411,7 +434,7 @@ def test_affine_domain_ordering_uses_named_relationship_provenance() -> None:
             "sigma": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER),
             "x": VariableDeclaration(domain=MathematicalDomain.REAL),
         },
-        assumptions=(Assumption(name="h_le_sigma", relationship="h <= sigma"),),
+        assumptions=(Assumption(name="h_le_sigma", relationship="2*h <= 2*sigma"),),
     ))
     unresolved = analyze(AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,
@@ -431,8 +454,103 @@ def test_affine_domain_ordering_uses_named_relationship_provenance() -> None:
     assert [item.name for item in qualified.system.relationships_used] == ["h_le_sigma"]
     assert qualified.system.unresolved == ()
     assert unresolved.status == "success" and unresolved.system is not None
-    assert "Sum" in unresolved.system.total_work
+    assert unresolved.system.total_work == "Max(0, -h + sigma + 1)"
     assert "ordering or finiteness is unproved" in " ".join(unresolved.system.unresolved)
+
+
+def test_unproved_symbolic_then_fixed_empty_domain_never_reports_negative_work() -> None:
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(EquationRequest(
+            name="empty",
+            expression="Eq(A[i, j], primitive(i))",
+            domains={
+                "i": IndexDomain(lower="0", upper="sigma - h"),
+                "j": IndexDomain(lower="0", upper="i"),
+            },
+        ),),
+        variables={
+            "h": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER),
+            "sigma": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER),
+        },
+        primitive_costs=(PrimitiveCost(name="primitive", parameters=("z",), work="z"),),
+        scenarios=(Scenario(name="empty", fixed={"h": 2, "sigma": 0}),),
+    ))
+    assert outcome.status == "success" and outcome.system is not None
+    assert "Max(0, -h + sigma + 1)" in outcome.system.total_work
+    assert "Sum" in outcome.system.total_work
+    assert outcome.scenarios[0].substituted_work == "0"
+    assert outcome.scenarios[0].unresolved
+
+
+def test_dependent_bound_family_and_topological_ties_follow_the_adr_boundary() -> None:
+    rejected = (
+        "value[j]", "f(j)", "j*N", "N*j", "j**2", "j/2",
+        "Sum(j, (q, 0, N))",
+    )
+    for upper in rejected:
+        outcome = analyze(AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=(EquationRequest(
+                name="bad", expression="Eq(A[i, j], x)",
+                domains={"i": IndexDomain(lower="0", upper=upper), "j": IndexDomain(lower="0", upper="N")},
+            ),),
+            variables=variables("N", "x", "value"),
+        ))
+        assert outcome.status == "failure"
+        assert outcome.error.source is not None
+        assert outcome.error.source.path == "equations[0].domains.i.upper"
+
+    for upper in ("2*j", "j*2", "-j + 3*N"):
+        outcome = analyze(AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=(EquationRequest(
+                name="ok", expression="Eq(A[i, j], x)",
+                domains={"i": IndexDomain(lower="-j", upper=upper), "j": IndexDomain(lower="0", upper="N")},
+            ),),
+            variables=variables("N", "x"),
+        ))
+        assert outcome.status == "success"
+
+    independent_nonlinear = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(EquationRequest(
+            name="independent", expression="Eq(A[i], x)",
+            domains={"i": IndexDomain(lower="0", upper="N**2")},
+        ),),
+        variables=variables("N", "x"),
+    ))
+    assert independent_nonlinear.status == "success"
+
+    parsed_bounds = {
+        "i": (parse_expression("0"), parse_expression("k")),
+        "j": (parse_expression("0"), parse_expression("N")),
+        "k": (parse_expression("0"), parse_expression("N")),
+    }
+    assert all(not hasattr(value, "message") for pair in parsed_bounds.values() for value in pair)
+    built = build_output_domains(parsed_bounds, ("i", "j", "k"), 0, frozenset({"N"}))  # type: ignore[arg-type]
+    assert not hasattr(built, "message")
+    assert built[1] == ("j", "k", "i")  # type: ignore[index]
+
+
+def test_domain_bounds_localize_free_symbol_and_shadowing_diagnostics() -> None:
+    free = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(EquationRequest(name="bad", expression="Eq(A[i], x)", domains={"i": IndexDomain(lower="0", upper="missing")}),),
+        variables=variables("x"),
+    ))
+    shadowed = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(EquationRequest(name="bad", expression="Eq(A[i, j], x)", domains={
+            "i": IndexDomain(lower="0", upper="Sum(j, (j, 0, N))"),
+            "j": IndexDomain(lower="0", upper="N"),
+        }),),
+        variables=variables("N", "x"),
+    ))
+    assert free.status == "failure" and free.error.source is not None
+    assert free.error.source.path == "equations[0].domains.i.upper"
+    assert shadowed.status == "failure"
+    assert "shadows an existing index" in shadowed.error.message
 
 
 def test_harmonic_style_system_closes_dependent_domain_work_without_special_semantics() -> None:
@@ -462,6 +580,7 @@ def test_harmonic_style_system_closes_dependent_domain_work_without_special_sema
             PrimitiveCost(name="conjugate", parameters=("value",), work="1"),
             PrimitiveCost(name="harmonic", parameters=("degree", "order"), work="1"),
         ),
+        scenarios=(Scenario(name="p12", fixed={"p": 12}), Scenario(name="p20", fixed={"p": 20})),
     )
     outcome = analyze(request)
     assert outcome.status == "success" and outcome.system is not None
@@ -471,14 +590,59 @@ def test_harmonic_style_system_closes_dependent_domain_work_without_special_sema
         ("factor_s", "scale"), ("factor_t", "scale"),
         ("factor_s", "translation"), ("factor_t", "translation"),
     )
-    assert all(item.references == 1 for item in system.reuse)
+    assert [(item.producer, item.consumer, item.references) for item in system.reuse] == [
+        ("ratio_s", "factor_s", 1),
+        ("ratio_t", "factor_t", 1),
+        ("factor_s", "scale", 1),
+        ("factor_t", "scale", 1),
+        ("factor_s", "translation", 1),
+        ("factor_t", "translation", 1),
+    ]
     translation = next(item for item in system.equations if item.name == "translation")
-    assert translation.interpretation.normalized_sympy.startswith("Eq(L[n, m]")
-    expected = sympify("(p + 1)**2*(6*p**2 + 13*p + 7)")
-    assert simplify(sympify(translation.aggregate_work) - expected) == 0
-    assert translation.primitive_invocations == {
-        "conjugate": "(p + 1)**4", "harmonic": "(p + 1)**4"
+    assert translation.interpretation.normalized_sympy == "Eq(L[n, m], a[n]*Sum(b[k]*Sum(harmonic(k + n, l + m)*conjugate(M[k, l]), (l, -k, k)), (k, 0, p)))"
+    assert translation.operation_counts.model_dump() == {
+        "additions": 2, "subtractions": 0, "multiplications": 4,
+        "divisions": 0, "powers": 0,
     }
+    expected = sympify("(p + 1)**2*(6*p**2 + 13*p + 7)")
+    assert translation.aggregate_work == (
+        "(p + (p + 1)*(3*p + 2))*(p + 1)**2 + "
+        "((p + 1)*(p + 2) + 1)*(p + 1)**2 + 2*((p + 1)**2)**2"
+    )
+    assert simplify(sympify(translation.aggregate_work) - expected) == 0
+    assert translation.aggregate_operation_counts.model_dump() == {
+        "additions": "(p + (p + 1)*(3*p + 2))*(p + 1)**2",
+        "subtractions": "0",
+        "multiplications": "((p + 1)*(p + 2) + 1)*(p + 1)**2",
+        "divisions": "0",
+        "powers": "0",
+    }
+    assert translation.direct_work_applicability == "finite"
+    assert translation.direct_work_blockers == ()
+    assert translation.unknown_costs == () and translation.unresolved == ()
+    assert set(translation.dependencies) == {"factor_s", "factor_t"}
+    assert [(item.name, item.relationship) for item in translation.relationships_used] == [
+        ("domain:n", "0 <= n <= p")
+    ]
+    assert [(item.name, item.relationship) for item in system.relationships_used] == [
+        ("domain:n", "0 <= n <= p")
+    ]
+    assert system.unused_assumptions == ()
+    for rendered in (translation.aggregate_work, *translation.primitive_invocations.values()):
+        assert not ({"n", "m", "k", "l"} & {str(item) for item in sympify(rendered).free_symbols})
+    for primitive in ("conjugate", "harmonic"):
+        assert translation.primitive_invocations[primitive] == "((p + 1)**2)**2"
+        assert simplify(sympify(translation.primitive_invocations[primitive]) - sympify("(p + 1)**4")) == 0
+    operation_work = sum(
+        sympify(value)
+        for value in translation.aggregate_operation_counts.model_dump().values()
+    )
+    assert simplify(sympify(translation.aggregate_work) - operation_work) == 2 * sympify(
+        "(p + 1)**4"
+    )
+    for scenario, work in zip(outcome.scenarios, (173760, 1176632), strict=True):
+        assert scenario.substituted_work == str(work)
+        assert scenario.unresolved == ()
     for value, work, invocations in ((12, 173563, 28561), (20, 1176147, 194481)):
         assert int(expected.subs({"p": value})) == work
         assert int(sympify(translation.primitive_invocations["harmonic"]).subs({"p": value})) == invocations

@@ -13,6 +13,7 @@ from fractions import Fraction
 from typing import Any
 
 import sympy
+from py_science.formula.domains import affine_form
 from py_science.formula.expressions import (
     BinaryExpression,
     BinaryOperator,
@@ -24,6 +25,7 @@ from py_science.formula.expressions import (
     Symbol,
     exact_integer_value,
     expression_children,
+    expression_node_count,
     substitute,
 )
 from py_science.formula.models import MathematicalDomain, RelationshipUse
@@ -302,32 +304,59 @@ class ReasoningContext:
             return False, ()
 
     def _submitted_nonnegative_use(self, expression: Expression) -> RelationshipUse | None:
-        """Match a normalized affine difference to one submitted directed inequality."""
-        try:
-            target = sympy.expand(_to_sympy(expression))
-            if not rational_ir_preflight(expression, max_degree=1):
-                return None
-            for item in self.affine_relationships:
-                relationship: Relationship = item.value
-                left = sympy.expand(_to_sympy(self.apply(relationship.left)))
-                right = sympy.expand(_to_sympy(self.apply(relationship.right)))
-                if relationship.operator in {
-                    RelationshipOperator.LESS,
-                    RelationshipOperator.LESS_EQUAL,
-                }:
-                    candidate = sympy.expand(right - left)
-                elif relationship.operator in {
-                    RelationshipOperator.GREATER,
-                    RelationshipOperator.GREATER_EQUAL,
-                }:
-                    candidate = sympy.expand(left - right)
-                else:
-                    continue
-                remainder = sympy.expand(target - candidate)
-                if remainder.is_Rational and remainder >= 0:
-                    return RelationshipUse(name=item.name, relationship=item.source)
-        except Exception:
+        """Match affine differences up to a common positive scalar."""
+        target = affine_form(expression)
+        if target is None or expression_node_count(expression) > MAX_INTERMEDIATE_NODES:
             return None
+        for step, item in enumerate(self.affine_relationships, start=1):
+            if step > MAX_REASONING_STEPS:
+                return None
+            relationship: Relationship = item.value
+            left, right = self.apply(relationship.left), self.apply(relationship.right)
+            if (
+                expression_node_count(left) > MAX_INTERMEDIATE_NODES
+                or expression_node_count(right) > MAX_INTERMEDIATE_NODES
+            ):
+                continue
+            if relationship.operator in {
+                RelationshipOperator.LESS,
+                RelationshipOperator.LESS_EQUAL,
+            }:
+                candidate_expression = BinaryExpression(BinaryOperator.SUBTRACT, right, left)
+            elif relationship.operator in {
+                RelationshipOperator.GREATER,
+                RelationshipOperator.GREATER_EQUAL,
+            }:
+                candidate_expression = BinaryExpression(BinaryOperator.SUBTRACT, left, right)
+            else:
+                continue
+            if expression_node_count(candidate_expression) > MAX_INTERMEDIATE_NODES:
+                continue
+            candidate = affine_form(candidate_expression)
+            if candidate is None:
+                continue
+            target_coefficients, target_constant = target
+            candidate_coefficients, candidate_constant = candidate
+            names = set(target_coefficients) | set(candidate_coefficients)
+            ratio: Fraction | None = None
+            for name in sorted(names):
+                target_value = target_coefficients.get(name, Fraction(0))
+                candidate_value = candidate_coefficients.get(name, Fraction(0))
+                if candidate_value == 0:
+                    if target_value != 0:
+                        ratio = Fraction(0)
+                        break
+                    continue
+                current = target_value / candidate_value
+                if ratio is None:
+                    ratio = current
+                elif current != ratio:
+                    ratio = Fraction(0)
+                    break
+            if ratio is None:
+                ratio = Fraction(1)
+            if ratio > 0 and target_constant - ratio * candidate_constant >= 0:
+                return RelationshipUse(name=item.name, relationship=item.source)
         return None
 
     def _affine_sign(
@@ -587,13 +616,19 @@ def _affine_fact(
             replacements,
             max_nodes=MAX_INTERMEDIATE_NODES,
         )
-        if not rational_ir_preflight(left_expression, max_degree=1) or not rational_ir_preflight(
-            right_expression, max_degree=1
+        difference_expression = BinaryExpression(
+            BinaryOperator.SUBTRACT, left_expression, right_expression
+        )
+        if (
+            expression_node_count(difference_expression) > MAX_INTERMEDIATE_NODES
+            or not rational_ir_preflight(
+                difference_expression,
+                max_nodes=MAX_INTERMEDIATE_NODES,
+                max_degree=1,
+            )
         ):
             return None
-        left = _to_sympy(left_expression)
-        right = _to_sympy(right_expression)
-        difference = sympy.expand(left - right)
+        difference = sympy.expand(_to_sympy(difference_expression))
         if sum(1 for _ in sympy.preorder_traversal(difference)) > MAX_INTERMEDIATE_NODES:
             return None
         symbols = tuple(difference.free_symbols)
