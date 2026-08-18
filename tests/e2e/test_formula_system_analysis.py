@@ -620,6 +620,29 @@ def test_unproved_independent_domain_closure_clamps_fixed_empty_work() -> None:
     assert all("-1" not in value for value in outcome.scenarios[0].choice_work.values())
 
 
+def test_unproved_sum_clamps_index_dependent_work_before_specialization() -> None:
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(EquationRequest(
+            name="sum_after_substitution",
+            expression="Eq(y, Sum(primitive(i), (i, 2, N)))",
+        ),),
+        variables={
+            "N": VariableDeclaration(domain=MathematicalDomain.INTEGER),
+        },
+        primitive_costs=(
+            PrimitiveCost(name="primitive", parameters=("value",), work="value"),
+        ),
+        scenarios=(Scenario(name="empty", fixed={"N": 0}),),
+    ))
+
+    assert outcome.status == "success" and outcome.system is not None
+    assert "Sum(i, (i, 2, Max(0, N - 1) + 1))" in outcome.system.total_work
+    n_value = sympify("n_value")
+    assert sympify(outcome.system.total_work, locals={"N": n_value}).subs(n_value, 0).doit() == 0
+    assert outcome.scenarios[0].substituted_work == "0"
+
+
 def test_harmonic_style_system_closes_dependent_domain_work_without_special_semantics() -> None:
     positive_real = VariableDeclaration(domain=MathematicalDomain.POSITIVE_REAL)
     request = AnalysisRequest(
