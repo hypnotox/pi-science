@@ -10,7 +10,7 @@ date: 2026-08-18
 
 The shipped formula API accepts safely parsed restricted-SymPy input only. The mathematical input current state still says requests accept LaTeX or restricted SymPy, while its bounded-query claim, the implemented analysis contract, the product skill, and the roadmap identify restricted LaTeX as future work.
 
-Leaving the older claim active makes unsupported input appear available and weakens the rule that a mathematical frontend needs an explicit safe grammar, bounded semantics, qualification behavior, tests, and documentation before callers may rely on it.
+Leaving the older claim active makes unsupported input appear available and weakens the rule that a mathematical frontend needs a bounded contract and implementation before callers may rely on it.
 
 ## Decision
 
@@ -22,7 +22,7 @@ Leaving the older claim active makes unsupported input appear available and weak
 
 ## Consequences
 
-Current authority matches the shipped request contract and no longer routes agents toward unsupported LaTeX input. Normalized LaTeX output remains available and is distinct from accepting LaTeX as input.
+Current authority matches the shipped request contract and no longer routes agents toward unsupported LaTeX input. Normalized LaTeX output remains available and is distinct from accepting LaTeX as input. Callers with LaTeX formulations must translate them into the restricted-SymPy dialect until a bounded LaTeX frontend is implemented.
 
 A future LaTeX frontend requires a successor decision and complete bounded product contract before it becomes current guidance.
 
@@ -30,7 +30,8 @@ A future LaTeX frontend requires a successor decision and complete bounded produ
 
 | Alternative | Why not chosen |
 |---|---|
-| Retain LaTeX as a current frontend claim | The implementation does not accept it, so the claim would remain false. |
+| Retain ADR-0001's complementary LaTeX and SymPy frontend direction as current behavior | The implementation does not accept LaTeX, so the claim would remain false. |
+| Implement a bounded restricted-LaTeX frontend now | No bounded contract or implementation exists; this decision corrects current authority while retaining that work as future direction. |
 | Accept arbitrary LaTeX through a general parser | Ambiguity and parser behavior would define an unsafe, unbounded public contract. |
 | Remove LaTeX from future direction | A safe restricted frontend remains a valid roadmap option. |
 
