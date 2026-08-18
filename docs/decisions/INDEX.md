@@ -3,6 +3,7 @@
 ## In flight
 
 - [ADR-0007: Keep LaTeX input deferred until bounded](0007-keep-latex-input-deferred-until-bounded.md) (Proposed)
+- [ADR-0008: Keep rewrite guidance deferred until implemented](0008-keep-rewrite-guidance-deferred-until-implemented.md) (Proposed)
 
 ## History
 
