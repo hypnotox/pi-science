@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-_No decisions are in flight._
+- [ADR-0007: Keep LaTeX input deferred until bounded](0007-keep-latex-input-deferred-until-bounded.md) (Proposed)
 
 ## History
 
