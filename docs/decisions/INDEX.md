@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-_No decisions are in flight._
+- [ADR-adopt-acyclic-dependent-output-domains: Adopt acyclic dependent output domains](adopt-acyclic-dependent-output-domains.md) (Proposed)
 
 ## History
 
