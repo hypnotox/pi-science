@@ -33,7 +33,7 @@ The project retains adapter and verification code around SymPy and may expose le
 | Alternative | Why not chosen |
 |---|---|
 | Treat SymPy only as a renderer | This encourages duplicate algebra and does not describe the implemented backend. |
-| Select SymPy or project-owned mechanics independently for each checked family without a preferred backend | This weakens the direction to reuse mature SymPy mechanics while preserving replaceable seams and project-owned semantics. |
+| Select SymPy or project-owned mechanics independently for each checked family without a preferred backend | This reduces default SymPy coupling and upgrade exposure, but forgoes consistent reuse of mature SymPy mechanics behind replaceable seams and project-owned semantics. |
 | Expose unrestricted SymPy behavior as the analysis contract | General CAS behavior does not supply the project's resource, work, provenance, qualification, or stability guarantees. |
 | Reimplement supported symbolic mechanics in project-owned code | This duplicates mature backend functionality without improving the public policy boundary. |
 
