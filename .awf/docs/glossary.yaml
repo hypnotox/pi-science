@@ -11,7 +11,7 @@ data:
     - term: equation system
       meaning: Named indexed equations whose domains and references define aggregate work and dependencies.
     - term: mathematical request
-      meaning: A LaTeX or restricted-SymPy computation with relevant domains, assumptions, scenarios, and primitive costs.
+      meaning: A restricted-SymPy computation with relevant domains, assumptions, scenarios, and primitive costs.
     - term: normalized interpretation
       meaning: The canonical mathematical form the analyzer actually uses, returned in SymPy and LaTeX renderings for inspection.
     - term: opaque primitive

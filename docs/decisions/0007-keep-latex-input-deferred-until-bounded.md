@@ -1,7 +1,7 @@
 ---
 format: current-state-v4
 slug: keep-latex-input-deferred-until-bounded
-status: Proposed
+status: Implemented
 date: 2026-08-18
 ---
 # ADR-0007: Keep LaTeX input deferred until bounded
@@ -38,3 +38,4 @@ Restricted LaTeX remains deferred until a bounded contract and implementation ex
 ## Status history
 
 - 2026-08-18: Proposed
+- 2026-08-18: Implemented; content-sha256: 76ac2e3cf7e82182d4e40083895e641159ba134670fc9bd6d16daec2427e6c5b

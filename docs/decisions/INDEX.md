@@ -2,7 +2,6 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-- [ADR-0007: Keep LaTeX input deferred until bounded](0007-keep-latex-input-deferred-until-bounded.md) (Proposed)
 - [ADR-0008: Keep rewrite guidance deferred until implemented](0008-keep-rewrite-guidance-deferred-until-implemented.md) (Proposed)
 
 ## History
@@ -13,3 +12,4 @@
 - [ADR-0004: Adopt explicit bounded mathematical queries](0004-adopt-explicit-bounded-mathematical-queries.md) (Implemented)
 - [ADR-0005: Require actionable bounded query blockers](0005-require-actionable-bounded-query-blockers.md) (Implemented)
 - [ADR-0006: Use SymPy behind checked analysis boundaries](0006-use-sympy-behind-checked-analysis-boundaries.md) (Implemented)
+- [ADR-0007: Keep LaTeX input deferred until bounded](0007-keep-latex-input-deferred-until-bounded.md) (Implemented)
