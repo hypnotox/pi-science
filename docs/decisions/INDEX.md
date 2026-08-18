@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-_No decisions are in flight._
+- [ADR-adopt-bounded-affine-output-domain-constraints: Adopt bounded affine output-domain constraints](adopt-bounded-affine-output-domain-constraints.md) (Proposed)
 
 ## History
 
