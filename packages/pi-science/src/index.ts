@@ -57,7 +57,7 @@ const MAX_COMPACT_EXPRESSION_LENGTH = 512;
 function compactExpression(expression: string): string {
   return expression.length <= MAX_COMPACT_EXPRESSION_LENGTH
     ? expression
-    : `${expression.slice(0, MAX_COMPACT_EXPRESSION_LENGTH - 1)}…`;
+    : `${expression.slice(0, MAX_COMPACT_EXPRESSION_LENGTH - 3)}...`;
 }
 
 function compactToolText(result: BridgeResult): string {
