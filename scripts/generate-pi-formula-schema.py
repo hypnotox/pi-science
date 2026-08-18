@@ -112,9 +112,11 @@ def _query_variants(
         if system:
             if target is not None and "target" not in required:
                 required.append("target")
-            # Only equivalence and limit may consume a derived target; every
-            # other system query retains its submitted equation target.
-            if target is not None and kind not in {"equivalence", "limit"}:
+            # Closed form remains equation-only; every downstream analysis
+            # query may explicitly consume an earlier verified candidate.
+            if target is not None and kind not in {
+                "equivalence", "properties", "limit", "asymptotic"
+            }:
                 options = target.get("anyOf") if isinstance(target, dict) else None
                 if isinstance(options, list):
                     equation = [
@@ -123,7 +125,7 @@ def _query_variants(
                     ]
                     properties["target"] = {"anyOf": equation}
         elif target is not None:
-            if kind not in {"equivalence", "limit"}:
+            if kind not in {"equivalence", "properties", "limit", "asymptotic"}:
                 properties.pop("target")
                 variant["required"] = [field for field in required if field != "target"]
                 variants.append(variant)

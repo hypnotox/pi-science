@@ -122,7 +122,7 @@ def test_nested_finite_polynomial_closed_form_is_direct_only():
     answer = nested.queries[0].answers[0]
     assert answer.conclusion == "proved"
     assert answer.evidence is not None and answer.evidence.kind == "closed_form"
-    assert answer.derived_candidates[0].interpretation.normalized_sympy == "2*p + 1 + p**2"
+    assert answer.derived_candidates[0].interpretation.normalized_sympy == "(p + 1)**2"
     direct_property = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="Sum(Sum(1, (l, -k, k)), (k, 0, p))", variables={"p": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER)}, queries=({"name": "properties", "kind": "properties", "checks": ({"kind": "sign"},)},)))
     assert direct_property.status == "success"
     assert direct_property.queries[0].answers[0].conclusion == "unresolved"
@@ -492,12 +492,20 @@ def test_nested_polynomial_direct_consumers_and_explicit_derived_reuse():
         queries=(
             {"name": "closed", "kind": "closed_form"},
             {"name": "equivalent", "kind": "equivalence", "target": {"kind": "derived", "query": "closed"}, "comparison": "(p + 1)**2"},
+            {"name": "properties", "kind": "properties", "target": {"kind": "derived", "query": "closed"}, "checks": ({"kind": "sign"},)},
             {"name": "limit", "kind": "limit", "target": {"kind": "derived", "query": "closed"}, "variable": "p", "point": "oo"},
+            {"name": "asymptotic", "kind": "asymptotic", "target": {"kind": "derived", "query": "closed"}, "variable": "p", "point": "oo", "order": 2},
         ),
     ))
     assert outcome.status == "success"
-    assert [item.answers[0].conclusion for item in outcome.queries] == ["proved", "proved", "proved"]
-    assert isinstance(outcome.queries[1].target, DerivedTarget)
+    assert [item.answers[0].conclusion for item in outcome.queries] == [
+        "proved", "proved", "proved", "proved", "proved_under_assumptions"
+    ]
+    assert all(isinstance(item.target, DerivedTarget) for item in outcome.queries[1:])
+    assert outcome.queries[2].answers[0].evidence is not None
+    assert outcome.queries[2].answers[0].evidence.kind == "property"
+    assert outcome.queries[4].answers[0].evidence is not None
+    assert outcome.queries[4].answers[0].evidence.kind == "asymptotic"
 
     for query in (
         {"name": "properties", "kind": "properties", "checks": ({"kind": "sign"},)},
@@ -513,6 +521,82 @@ def test_nested_polynomial_direct_consumers_and_explicit_derived_reuse():
         assert direct.status == "success"
         assert direct.queries[0].answers[0].conclusion == "unresolved"
         assert direct.queries[0].answers[0].blockers
+
+
+def test_nested_polynomial_canonicalizes_packed_and_literal_m2l_counts():
+    variables = {"p": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER)}
+    cases = (
+        (
+            "Sum(Sum(Sum(2*k + 1, (k, 0, p-n)), (m, 0, n)), (n, 0, p))",
+            "(p + 1)*(p + 2)**2*(p + 3)/12",
+            "(p + 1)*(p + 3)*(p + 2)**2/12",
+            "3185",
+            True,
+        ),
+        (
+            "Sum(Sum(Sum(2*k + 1, (k, 0, p-n)), (m, -n, n)), (n, 0, p))",
+            "(p + 1)*(p + 2)*(p**2 + 3*p + 3)/6",
+            "(p + 1)*(p + 2)*(3*p + 3 + p**2)/6",
+            "5551",
+            False,
+        ),
+    )
+    for expression, comparison, canonical, fixed_value, check_sign in cases:
+        queries = [
+            {"name": "closed", "kind": "closed_form"},
+            {"name": "compact", "kind": "equivalence", "target": {"kind": "derived", "query": "closed"}, "comparison": comparison},
+            {"name": "asymptotic", "kind": "asymptotic", "target": {"kind": "derived", "query": "closed"}, "variable": "p", "point": "oo", "order": 2},
+        ]
+        if check_sign:
+            queries.append({"name": "sign", "kind": "properties", "target": {"kind": "derived", "query": "closed"}, "checks": ({"kind": "sign"},)})
+        general = analyze(AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression=expression,
+            variables=variables,
+            queries=tuple(queries),  # pyright: ignore[reportArgumentType]
+        ))
+        assert general.status == "success"
+        assert general.queries[0].answers[0].derived_candidates[0].interpretation.normalized_sympy == canonical
+        assert all(item.answers[0].conclusion in {"proved", "proved_under_assumptions"} for item in general.queries)
+        submitted = parse_expression(expression)
+        assert not isinstance(submitted, tuple)
+        assert general.queries[0].answers[0].evidence.statement.startswith(  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+            f"{formula_sympy.render(submitted).sympy} = "
+        )
+
+        fixed = analyze(AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression=expression,
+            variables=variables,
+            assumptions=(Assumption(name="fixed_order", relationship="p == 12"),),
+            queries=(
+                {"name": "closed", "kind": "closed_form"},
+                {"name": "value", "kind": "equivalence", "target": {"kind": "derived", "query": "closed"}, "comparison": fixed_value},
+            ),
+        ))
+        assert fixed.status == "success"
+        assert fixed.queries[1].answers[0].conclusion == "proved_under_assumptions"
+        assert {item.name for item in fixed.queries[1].answers[0].assumptions_used} == {"fixed_order"}
+
+
+@pytest.mark.parametrize(
+    ("attribute", "replacement"),
+    (
+        ("bounded_polynomial_canonical_candidate", lambda *args: None),
+        ("bounded_polynomial_canonical_verify", lambda *args: False),
+    ),
+)
+def test_nested_polynomial_canonicalization_fails_closed(
+    monkeypatch, attribute, replacement
+):
+    monkeypatch.setattr(formula_series, attribute, replacement)
+    answer = _nested_answer(
+        "Sum(Sum(1, (l, -k, k)), (k, 0, p))",
+        variables={"p": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER)},
+    )
+    assert answer.conclusion == "unresolved"
+    assert answer.derived_candidates == ()
+    assert answer.blockers == ("nested polynomial canonicalization failed",)
 
 
 def test_closed_form_uses_affine_facts_domain_obligations_and_bounded_collection():
@@ -1244,6 +1328,63 @@ def test_derived_target_reuses_earlier_verified_candidate():
     assert outcome.queries[1].answers[0].conclusion == "proved_under_assumptions"
 
 
+def test_derived_properties_inherit_source_qualification_for_every_check():
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="Sum(k*q**k, (k, 0, 2))",
+        assumptions=(Assumption(name="q_lt_one", relationship="q < 1"),),
+        queries=(
+            {"name": "closed", "kind": "closed_form"},
+            {
+                "name": "properties",
+                "kind": "properties",
+                "target": {"kind": "derived", "query": "closed"},
+                "checks": (
+                    {"kind": "valid_domain", "variable": "q"},
+                    {"kind": "singularities", "variable": "q"},
+                ),
+            },
+        ),
+    ))
+    assert outcome.status == "success"
+    result = outcome.queries[1]
+    assert isinstance(result.target, DerivedTarget)
+    assert result.normalized_target is not None
+    assert len(result.answers) == 2
+    for answer in result.answers:
+        assert answer.conclusion == "proved_under_assumptions"
+        assert "q != 1" in answer.conditions
+        assert tuple(use.name for use in answer.assumptions_used) == ("q_lt_one",)
+
+
+def test_unavailable_derived_properties_preserve_all_correlated_answers():
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="Sum(k*q**k, (k, 0, oo))",
+        queries=(
+            {"name": "closed", "kind": "closed_form"},
+            {
+                "name": "properties",
+                "kind": "properties",
+                "target": {"kind": "derived", "query": "closed"},
+                "checks": (
+                    {"kind": "valid_domain", "variable": "q"},
+                    {"kind": "singularities", "variable": "q"},
+                ),
+            },
+        ),
+    ))
+    assert outcome.status == "success"
+    result = outcome.queries[1]
+    assert result.normalized_target is None
+    assert len(result.answers) == 2
+    assert all(answer.conclusion == "inapplicable" for answer in result.answers)
+    assert all(
+        answer.blockers == ("derived target source closed concluded unresolved",)
+        for answer in result.answers
+    )
+
+
 def test_derived_target_uses_its_non_adjacent_named_source_qualification():
     outcome = analyze(AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,
@@ -1312,7 +1453,7 @@ def test_derived_qualification_overflow_is_unresolved_without_losing_existing_de
     assert answer.relevant_unsupported_assumptions == ("dependent",)
 
 
-def test_derived_request_structure_rejects_non_earlier_sources_and_forbidden_consumers():
+def test_derived_request_structure_rejects_non_earlier_sources_and_closed_form_consumers():
     invalid_queries = (
         ({"name": "later", "kind": "equivalence", "target": {"kind": "derived", "query": "missing"}, "comparison": "x"},),
         (

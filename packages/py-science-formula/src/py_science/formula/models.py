@@ -526,22 +526,30 @@ class QueryResultCommon(StructuredModel):
         unavailable = False
         if (
             isinstance(self.target, DerivedTarget)
-            and len(self.answers) == 1
-            and self.answers[0].conclusion == "inapplicable"
+            and self.answers
+            and all(answer.conclusion == "inapplicable" for answer in self.answers)
         ):
             prefix = f"derived target source {self.target.query} concluded "
             conclusions = tuple(
-                blocker.removeprefix(prefix)
-                for blocker in self.answers[0].blockers
-                if blocker.startswith(prefix)
+                tuple(
+                    blocker.removeprefix(prefix)
+                    for blocker in answer.blockers
+                    if blocker.startswith(prefix)
+                )
+                for answer in self.answers
             )
-            unavailable = len(conclusions) == 1 and conclusions[0] in {
-                "proved",
-                "proved_under_assumptions",
-                "disproved",
-                "unresolved",
-                "inapplicable",
-            }
+            unavailable = (
+                all(len(items) == 1 for items in conclusions)
+                and len({items[0] for items in conclusions}) == 1
+                and conclusions[0][0]
+                in {
+                    "proved",
+                    "proved_under_assumptions",
+                    "disproved",
+                    "unresolved",
+                    "inapplicable",
+                }
+            )
         if (self.normalized_target is None) != unavailable:
             raise ValueError("normalized target is null only for an unavailable derived target")
         return self
@@ -665,8 +673,12 @@ class AnalysisRequest(StructuredModel):
             if self.equations and item.target is None:
                 raise ValueError("system queries require a named equation target")
             if isinstance(item.target, DerivedTarget):
-                if not isinstance(item, (EquivalenceQuery, LimitQuery)):
-                    raise ValueError(f"queries[{position}].target: derived targets require equivalence or limit")
+                if not isinstance(
+                    item, (EquivalenceQuery, PropertiesQuery, LimitQuery, AsymptoticQuery)
+                ):
+                    raise ValueError(
+                        f"queries[{position}].target: derived targets require equivalence, properties, limit, or asymptotic"
+                    )
                 earlier = next((source for source in self.queries[:position] if source.name == item.target.query), None)
                 if earlier is None:
                     raise ValueError(f"queries[{position}].target: derived query must reference an earlier query")

@@ -40,6 +40,7 @@ from py_science.formula.models import (
     AnalysisRequest,
     AnalysisSuccess,
     AsymptoticQuery,
+    AsymptoticResult,
     ClosedFormEvidence,
     ClosedFormResult,
     ConstraintUse,
@@ -60,6 +61,7 @@ from py_science.formula.models import (
     MathematicalDomain,
     OperationCounts,
     PropertiesQuery,
+    PropertiesResult,
     QueryAnswer,
     QueryResult,
     RelationshipUse,
@@ -249,7 +251,9 @@ def _attach_queries(
         source: QueryResult | None = None
         report: EquationReport | None = None
         if isinstance(query.target, DerivedTarget):
-            assert isinstance(query, (EquivalenceQuery, LimitQuery))
+            assert isinstance(
+                query, (EquivalenceQuery, PropertiesQuery, LimitQuery, AsymptoticQuery)
+            )
             source = next(result for result in results if result.name == query.target.query)
             target_or_none = _derived_target(query.target, source)
             if target_or_none is None:
@@ -399,38 +403,81 @@ def _derived_target(target: DerivedTarget, source: QueryResult) -> QueryTarget |
     return QueryTarget(target, parsed, answer.derived_candidates[0].interpretation)
 
 
-def _unavailable_derived_result(query: EquivalenceQuery | LimitQuery, source: QueryResult) -> QueryResult:
+def _unavailable_derived_result(
+    query: EquivalenceQuery | PropertiesQuery | LimitQuery | AsymptoticQuery,
+    source: QueryResult,
+) -> QueryResult:
     assert isinstance(query.target, DerivedTarget)
-    answer = QueryAnswer(
-        conclusion="inapplicable",
-        blockers=(f"derived target source {source.name} concluded {source.answers[0].conclusion}",),
-    )
+    blocker = f"derived target source {source.name} concluded {source.answers[0].conclusion}"
+    answer = QueryAnswer(conclusion="inapplicable", blockers=(blocker,))
     if isinstance(query, EquivalenceQuery):
-        return EquivalenceResult(name=query.name, target=query.target, normalized_target=None,
-            summary="derived target is unavailable", answers=(answer,))
-    return LimitResult(name=query.name, target=query.target, normalized_target=None,
-        summary="derived target is unavailable", answers=(answer,))
+        return EquivalenceResult(
+            name=query.name,
+            target=query.target,
+            normalized_target=None,
+            summary="derived target is unavailable",
+            answers=(answer,),
+        )
+    if isinstance(query, PropertiesQuery):
+        return PropertiesResult(
+            name=query.name,
+            target=query.target,
+            normalized_target=None,
+            summary="derived target is unavailable",
+            answers=tuple(
+                QueryAnswer(check=check, conclusion="inapplicable", blockers=(blocker,))
+                for check in query.checks
+            ),
+        )
+    if isinstance(query, LimitQuery):
+        return LimitResult(
+            name=query.name,
+            target=query.target,
+            normalized_target=None,
+            summary="derived target is unavailable",
+            answers=(answer,),
+        )
+    return AsymptoticResult(
+        name=query.name,
+        target=query.target,
+        normalized_target=None,
+        summary="derived target is unavailable",
+        answers=(answer,),
+    )
 
 
 def _compose_derived_qualification(result: QueryResult, source: QueryResult) -> QueryResult:
-    """Carry source qualifications into every correlated dependent result."""
-    answer = result.answers[0]
+    """Carry source qualifications into every correlated dependent answer."""
     source_answer = source.answers[0]
-    conditions = tuple(dict.fromkeys((*answer.conditions, *source_answer.conditions)))
-    uses = tuple({(item.name, item.relationship): item for item in (*answer.assumptions_used, *source_answer.assumptions_used)}.values())
-    unsupported = tuple(dict.fromkeys((*answer.relevant_unsupported_assumptions, *source_answer.relevant_unsupported_assumptions)))
-    if len(conditions) > 256 or len(uses) > 128 or len(unsupported) > 128:
-        return result.model_copy(update={"answers": (answer.model_copy(update={
-            "conclusion": "unresolved",
-            "blockers": tuple(dict.fromkeys((*answer.blockers, "derived target qualification exceeds its bound"))),
-        }),)})
-    return result.model_copy(update={"answers": (answer.model_copy(update={
-        "conclusion": "proved_under_assumptions"
-        if answer.conclusion == "proved" and (conditions or uses) else answer.conclusion,
-        "conditions": conditions,
-        "assumptions_used": uses,
-        "relevant_unsupported_assumptions": unsupported,
-    }),)})
+    composed: list[QueryAnswer] = []
+    for answer in result.answers:
+        conditions = tuple(dict.fromkeys((*answer.conditions, *source_answer.conditions)))
+        uses = tuple({
+            (item.name, item.relationship): item
+            for item in (*answer.assumptions_used, *source_answer.assumptions_used)
+        }.values())
+        unsupported = tuple(dict.fromkeys((
+            *answer.relevant_unsupported_assumptions,
+            *source_answer.relevant_unsupported_assumptions,
+        )))
+        if len(conditions) > 256 or len(uses) > 128 or len(unsupported) > 128:
+            composed.append(answer.model_copy(update={
+                "conclusion": "unresolved",
+                "blockers": tuple(dict.fromkeys((
+                    *answer.blockers,
+                    "derived target qualification exceeds its bound",
+                ))),
+            }))
+            continue
+        composed.append(answer.model_copy(update={
+            "conclusion": "proved_under_assumptions"
+            if answer.conclusion == "proved" and (conditions or uses)
+            else answer.conclusion,
+            "conditions": conditions,
+            "assumptions_used": uses,
+            "relevant_unsupported_assumptions": unsupported,
+        }))
+    return result.model_copy(update={"answers": tuple(composed)})
 
 def _parse_knowledge(
     request: AnalysisRequest,

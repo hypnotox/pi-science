@@ -255,6 +255,32 @@
                     "minLength": 1,
                     "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
                     "type": "string"
+                  },
+                  "target": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "enum": [
+                              "derived"
+                            ],
+                            "type": "string"
+                          },
+                          "query": {
+                            "maxLength": 128,
+                            "minLength": 1,
+                            "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "query",
+                          "kind"
+                        ],
+                        "type": "object"
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -373,6 +399,32 @@
                       },
                       {
                         "type": "integer"
+                      }
+                    ]
+                  },
+                  "target": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "enum": [
+                              "derived"
+                            ],
+                            "type": "string"
+                          },
+                          "query": {
+                            "maxLength": 128,
+                            "minLength": 1,
+                            "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "query",
+                          "kind"
+                        ],
+                        "type": "object"
                       }
                     ]
                   },
@@ -944,6 +996,28 @@
                           "kind"
                         ],
                         "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "enum": [
+                              "derived"
+                            ],
+                            "type": "string"
+                          },
+                          "query": {
+                            "maxLength": 128,
+                            "minLength": 1,
+                            "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "query",
+                          "kind"
+                        ],
+                        "type": "object"
                       }
                     ]
                   }
@@ -1111,6 +1185,28 @@
                         },
                         "required": [
                           "name",
+                          "kind"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "enum": [
+                              "derived"
+                            ],
+                            "type": "string"
+                          },
+                          "query": {
+                            "maxLength": 128,
+                            "minLength": 1,
+                            "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "query",
                           "kind"
                         ],
                         "type": "object"

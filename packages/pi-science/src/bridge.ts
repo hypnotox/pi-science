@@ -70,7 +70,12 @@ type QueryCore =
       target?: DerivedTarget;
     }
   | { name: string; kind: "closed_form" }
-  | { name: string; kind: "properties"; checks: PropertyCheckRequest[] }
+  | {
+      name: string;
+      kind: "properties";
+      checks: PropertyCheckRequest[];
+      target?: DerivedTarget;
+    }
   | {
       name: string;
       kind: "limit";
@@ -93,6 +98,7 @@ type QueryCore =
       point: ExactScenarioScalar;
       direction: "left" | "right" | "both";
       order: number;
+      target?: DerivedTarget;
     }
   | {
       name: string;
@@ -100,6 +106,7 @@ type QueryCore =
       variable: string;
       point: "oo" | "-oo";
       order: number;
+      target?: DerivedTarget;
     };
 export type ExpressionQueryRequest = QueryCore;
 export type SystemQueryRequest =
@@ -114,7 +121,7 @@ export type SystemQueryRequest =
       name: string;
       kind: "properties";
       checks: PropertyCheckRequest[];
-      target: EquationTarget;
+      target: EquationTarget | DerivedTarget;
     }
   | {
       name: string;
@@ -138,7 +145,7 @@ export type SystemQueryRequest =
       point: ExactScenarioScalar;
       direction: "left" | "right" | "both";
       order: number;
-      target: EquationTarget;
+      target: EquationTarget | DerivedTarget;
     }
   | {
       name: string;
@@ -146,7 +153,7 @@ export type SystemQueryRequest =
       variable: string;
       point: "oo" | "-oo";
       order: number;
-      target: EquationTarget;
+      target: EquationTarget | DerivedTarget;
     };
 export type QueryRequest = ExpressionQueryRequest | SystemQueryRequest;
 
@@ -1096,28 +1103,34 @@ function validQueryResult(value: unknown): boolean {
       ? `derived target source ${value.target.query} concluded `
       : undefined;
   const sourceConclusions =
-    sourcePrefix === undefined || answers.length !== 1
+    sourcePrefix === undefined
       ? []
-      : answers[0]!.blockers
-          .filter((blocker) => blocker.startsWith(sourcePrefix))
-          .map((blocker) => blocker.slice(sourcePrefix.length));
+      : answers.map((answer) =>
+          answer.blockers
+            .filter((blocker) => blocker.startsWith(sourcePrefix))
+            .map((blocker) => blocker.slice(sourcePrefix.length)),
+        );
   const derivedUnavailable =
     sourcePrefix !== undefined &&
-    answers[0]?.conclusion === "inapplicable" &&
-    sourceConclusions.length === 1 &&
+    answers.length > 0 &&
+    answers.every((answer) => answer.conclusion === "inapplicable") &&
+    sourceConclusions.every((items) => items.length === 1) &&
+    new Set(sourceConclusions.map((items) => items[0])).size === 1 &&
     [
       "proved",
       "proved_under_assumptions",
       "disproved",
       "unresolved",
       "inapplicable",
-    ].includes(sourceConclusions[0]!);
+    ].includes(sourceConclusions[0]![0]!);
   if (
     (value.normalized_target === null) !== derivedUnavailable ||
     (!derivedUnavailable && !validInterpretation(value.normalized_target)) ||
     (isRecord(value.target) &&
       value.target.kind === "derived" &&
-      !["equivalence", "limit"].includes(String(value.kind)))
+      !["equivalence", "properties", "limit", "asymptotic"].includes(
+        String(value.kind),
+      ))
   )
     return false;
   if (value.kind === "properties") {

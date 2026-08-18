@@ -37,6 +37,8 @@ from py_science.formula.reasoning import ReasoningContext
 from py_science.formula.sympy_backend import (
     RationalMeasureFailure,
     bounded_linear_coefficients,
+    bounded_polynomial_canonical_candidate,
+    bounded_polynomial_canonical_verify,
     bounded_polynomial_degrees,
     bounded_polynomial_sum_candidate,
     bounded_polynomial_sum_verify,
@@ -239,6 +241,19 @@ def _derive_nested_polynomial(expression: Expression, reasoning: ReasoningContex
     candidate_expression = _replace(expression, root, rule.candidate)
     if not _result_preflight(candidate_expression):
         return _unresolved("query derived expression exceeds its bound")
+    canonical_built = bounded_polynomial_canonical_candidate(candidate_expression)
+    if canonical_built is None or not bounded_polynomial_canonical_verify(
+        candidate_expression, canonical_built
+    ):
+        return _unresolved("nested polynomial canonicalization failed")
+    canonical = _parse_candidate(canonical_built)
+    if (
+        canonical is None
+        or not _result_preflight(canonical)
+        or _names(canonical) - set(reasoning.domains)
+    ):
+        return _unresolved("nested polynomial canonicalization failed")
+    candidate_expression = canonical
 
     denominator_conditions: list[str] = []
     denominator_uses: tuple[Any, ...] = ()

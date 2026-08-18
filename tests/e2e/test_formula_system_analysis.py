@@ -399,7 +399,7 @@ def test_named_rhs_nested_closed_form_preserves_system_work_and_reuses_candidate
     assert outcome.queries[0].answers[0].conclusion == "proved"
     assert outcome.queries[1].answers[0].conclusion == "proved"
     assert outcome.queries[1].normalized_target is not None
-    assert outcome.queries[1].normalized_target.normalized_sympy == "2*p + 1 + p**2"
+    assert outcome.queries[1].normalized_target.normalized_sympy == "(p + 1)**2"
 
 
 def test_named_indexed_equations_reuse_producer_and_sum_work() -> None:
@@ -1075,7 +1075,7 @@ def test_harmonic_style_system_closes_dependent_domain_work_without_special_sema
     assert queried.scenarios == query_baseline.scenarios
     count_answer = queried.queries[0].answers[0]
     assert count_answer.conclusion == "proved"
-    assert count_answer.derived_candidates[0].interpretation.normalized_sympy == "2*p + 1 + p**2"
+    assert count_answer.derived_candidates[0].interpretation.normalized_sympy == "(p + 1)**2"
     queried_translation = next(
         item for item in queried.system.equations if item.name == "translation"
     )

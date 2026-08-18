@@ -708,6 +708,48 @@ def bounded_polynomial_degrees(
         return None
 
 
+def bounded_polynomial_canonical_candidate(expression: Expression) -> Any | None:
+    """Factor one bounded exact polynomial without defining proof policy."""
+    if not rational_ir_preflight(expression, max_degree=32):
+        return None
+    try:
+        value: Any = _to_query_sympy(expression)
+        if not _series_value_is_bounded(value, max_degree=32):
+            return None
+        symbols = tuple(sorted(value.free_symbols, key=str))
+        if symbols:
+            polynomial = sympy.Poly(value, *symbols)
+            if any(not coefficient.is_Rational for coefficient in polynomial.coeffs()):
+                return None
+        elif not value.is_Rational:
+            return None
+        candidate = sympy.factor(value)
+        if not _series_value_is_bounded(candidate, max_degree=32):
+            return None
+        return candidate if len(str(candidate)) <= 4096 else None
+    except Exception:
+        return None
+
+
+def bounded_polynomial_canonical_verify(
+    expression: Expression, candidate: Any
+) -> bool:
+    """Independently verify a canonical polynomial candidate by exact residual."""
+    if not rational_ir_preflight(expression, max_degree=32) or not _series_value_is_bounded(
+        candidate, max_degree=32
+    ):
+        return False
+    try:
+        value: Any = _to_query_sympy(expression)
+        raw_residual = value - candidate
+        if not _series_value_is_bounded(raw_residual, max_degree=32):
+            return False
+        residual = sympy.cancel(raw_residual)
+        return _series_value_is_bounded(residual, max_degree=32) and residual == 0
+    except Exception:
+        return False
+
+
 def bounded_polynomial_sum_candidate(
     body: Expression, index: str, lower: Expression, upper: Expression
 ) -> Any | None:

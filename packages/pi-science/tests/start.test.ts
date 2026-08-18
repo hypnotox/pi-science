@@ -878,6 +878,20 @@ describe("readiness gate", () => {
           target: { kind: "derived", query: "closed" },
           comparison: "(p + 1)**2",
         },
+        {
+          name: "sign",
+          kind: "properties",
+          target: { kind: "derived", query: "closed" },
+          checks: [{ kind: "sign" }],
+        },
+        {
+          name: "growth",
+          kind: "asymptotic",
+          target: { kind: "derived", query: "closed" },
+          variable: "p",
+          point: "oo",
+          order: 2,
+        },
       ],
     });
     expect(result.details).toMatchObject({
@@ -895,7 +909,7 @@ describe("readiness gate", () => {
               },
               derived_candidates: [
                 {
-                  interpretation: { normalized_sympy: "2*p + 1 + p**2" },
+                  interpretation: { normalized_sympy: "(p + 1)**2" },
                 },
               ],
             },
@@ -907,10 +921,22 @@ describe("readiness gate", () => {
           target: { kind: "derived", query: "closed" },
           answers: [{ conclusion: "proved" }],
         },
+        {
+          name: "sign",
+          kind: "properties",
+          target: { kind: "derived", query: "closed" },
+          answers: [{ conclusion: "proved" }],
+        },
+        {
+          name: "growth",
+          kind: "asymptotic",
+          target: { kind: "derived", query: "closed" },
+          answers: [{ conclusion: "proved_under_assumptions" }],
+        },
       ],
     });
     expect(result.content[0]?.text).toContain("- closed (closed_form): proved");
-    expect(result.content[0]?.text).toContain("2*p + 1 + p**2");
+    expect(result.content[0]?.text).toContain("(p + 1)**2");
   });
 
   it("surfaces Python request diagnostics through the registered tool", async () => {

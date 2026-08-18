@@ -257,7 +257,7 @@ describe("private formula bridge", () => {
               },
               derived_candidates: [
                 {
-                  interpretation: { normalized_sympy: "2*p + 1 + p**2" },
+                  interpretation: { normalized_sympy: "(p + 1)**2" },
                 },
               ],
             },
