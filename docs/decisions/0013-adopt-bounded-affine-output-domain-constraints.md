@@ -4,7 +4,7 @@ slug: adopt-bounded-affine-output-domain-constraints
 status: Implementing
 date: 2026-08-18
 ---
-# ADR-adopt-bounded-affine-output-domain-constraints: Adopt bounded affine output-domain constraints
+# ADR-0013: Adopt bounded affine output-domain constraints
 
 ## Context
 
