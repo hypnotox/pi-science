@@ -599,6 +599,39 @@ def test_nested_polynomial_canonicalization_fails_closed(
     assert answer.blockers == ("nested polynomial canonicalization failed",)
 
 
+def test_nested_polynomial_canonicalization_preserves_a_qualified_rational_shell():
+    expression = "Sum(Sum(1, (l, -k, k)), (k, 0, p))/q"
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression=expression,
+        variables={
+            "p": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER),
+            "q": VariableDeclaration(domain=MathematicalDomain.POSITIVE_REAL),
+        },
+        queries=(
+            {"name": "closed", "kind": "closed_form"},
+            {
+                "name": "same",
+                "kind": "equivalence",
+                "target": {"kind": "derived", "query": "closed"},
+                "comparison": "(p + 1)**2/q",
+            },
+        ),
+    ))
+    assert outcome.status == "success"
+    assert outcome.queries[0].answers[0].conclusion == "proved_under_assumptions"
+    assert outcome.queries[0].answers[0].conditions == ("q != 0",)
+    assert outcome.queries[1].answers[0].conclusion == "proved_under_assumptions"
+
+
+def test_real_nested_polynomial_canonical_verifier_rejects_wrong_candidate():
+    expression = parse_expression("p**2 + 2*p + 1")
+    assert not isinstance(expression, tuple)
+    assert not formula_sympy.bounded_polynomial_canonical_verify(
+        expression, formula_sympy.sympy.Integer(0)  # pyright: ignore[reportArgumentType]
+    )
+
+
 def test_closed_form_uses_affine_facts_domain_obligations_and_bounded_collection():
     symbolic = analyze(AnalysisRequest(
         syntax=FormulaSyntax.SYMPY, expression="Sum(k*q**k, (k, 0, n))",

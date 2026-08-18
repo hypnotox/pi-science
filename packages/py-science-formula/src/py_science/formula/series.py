@@ -241,9 +241,16 @@ def _derive_nested_polynomial(expression: Expression, reasoning: ReasoningContex
     candidate_expression = _replace(expression, root, rule.candidate)
     if not _result_preflight(candidate_expression):
         return _unresolved("query derived expression exceeds its bound")
-    canonical_built = bounded_polynomial_canonical_candidate(candidate_expression)
+    canonical_source = candidate_expression
+    canonical_built = bounded_polynomial_canonical_candidate(canonical_source)
+    preserve_shell = canonical_built is None and any(
+        _names(denominator) for denominator in _denominators(candidate_expression)
+    )
+    if preserve_shell:
+        canonical_source = rule.candidate
+        canonical_built = bounded_polynomial_canonical_candidate(canonical_source)
     if canonical_built is None or not bounded_polynomial_canonical_verify(
-        candidate_expression, canonical_built
+        canonical_source, canonical_built
     ):
         return _unresolved("nested polynomial canonicalization failed")
     canonical = _parse_candidate(canonical_built)
@@ -253,7 +260,11 @@ def _derive_nested_polynomial(expression: Expression, reasoning: ReasoningContex
         or _names(canonical) - set(reasoning.domains)
     ):
         return _unresolved("nested polynomial canonicalization failed")
-    candidate_expression = canonical
+    candidate_expression = (
+        _replace(expression, root, canonical) if preserve_shell else canonical
+    )
+    if not _result_preflight(candidate_expression):
+        return _unresolved("query derived expression exceeds its bound")
 
     denominator_conditions: list[str] = []
     denominator_uses: tuple[Any, ...] = ()

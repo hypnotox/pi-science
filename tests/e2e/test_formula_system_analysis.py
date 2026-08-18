@@ -281,6 +281,46 @@ def test_equation_targeted_query_maps_local_constraint_uses_without_removing_glo
     assert outcome.queries[1].answers[0].constraint_uses == ()
 
 
+def test_derived_properties_preserve_equation_constraint_provenance_for_every_answer() -> None:
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(
+            EquationRequest(
+                name="count",
+                expression="Eq(C[p], Sum(Sum(1, (l, -k, k)), (k, 0, p)))",
+                domains={"p": IndexDomain(lower="-5", upper="20")},
+                constraints=(
+                    DomainConstraint(
+                        name="nonnegative_order", target="p", relationship="p >= 0"
+                    ),
+                ),
+            ),
+        ),
+        queries=(
+            {
+                "name": "closed",
+                "kind": "closed_form",
+                "target": {"kind": "equation", "name": "count"},
+            },
+            {
+                "name": "properties",
+                "kind": "properties",
+                "target": {"kind": "derived", "query": "closed"},
+                "checks": (
+                    {"kind": "sign"},
+                    {"kind": "valid_domain", "variable": "p"},
+                ),
+            },
+        ),
+    ))
+    assert isinstance(outcome, AnalysisSuccess)
+    assert outcome.queries[0].answers[0].conclusion == "proved_under_assumptions"
+    assert len(outcome.queries[1].answers) == 2
+    for answer in outcome.queries[1].answers:
+        assert answer.conclusion == "proved_under_assumptions"
+        assert [use.name for use in answer.constraint_uses] == ["nonnegative_order"]
+
+
 def test_named_rhs_query_is_local_and_preserves_system_work() -> None:
     base = AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,

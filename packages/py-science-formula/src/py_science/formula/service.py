@@ -50,6 +50,7 @@ from py_science.formula.models import (
     EquationEffectiveDomains,
     EquationReport,
     EquationRequest,
+    EquationTarget,
     EquivalenceQuery,
     EquivalenceResult,
     ExpressionTarget,
@@ -250,6 +251,7 @@ def _attach_queries(
     for position, query in enumerate(request.queries):
         source: QueryResult | None = None
         report: EquationReport | None = None
+        owning: EquationRequest | None = None
         if isinstance(query.target, DerivedTarget):
             assert isinstance(
                 query, (EquivalenceQuery, PropertiesQuery, LimitQuery, AsymptoticQuery)
@@ -260,6 +262,15 @@ def _attach_queries(
                 results.append(_compose_derived_qualification(_unavailable_derived_result(query, source), source))
                 continue
             target = target_or_none
+            if request.expression is None and isinstance(source.target, EquationTarget):
+                owning = next(
+                    item for item in request.equations if item.name == source.target.name
+                )
+                report = next(
+                    item
+                    for item in outcome.system.equations  # type: ignore[union-attr]
+                    if item.name == source.target.name
+                )
         elif request.expression is not None:
             parsed = parse_expression(request.expression)
             target = QueryTarget(ExpressionTarget(), parsed, outcome.interpretation) if not isinstance(parsed, (ParseFailure, Equation, Relationship)) else None
@@ -274,14 +285,16 @@ def _attach_queries(
         if target is None:
             return _invalid("query target could not be resolved", source=SourceReference(path=f"queries[{position}].target"))
         query_reasoning = reasoning
-        owning: EquationRequest | None = None
-        if request.expression is None and not isinstance(query.target, DerivedTarget):
-            assert query.target is not None
-            owning = next(item for item in request.equations if item.name == query.target.name)
-            assert report is not None
-            # Equation-local facts are deliberately constructed only for this
-            # target. They augment the bounded scalar reasoner; they are never
-            # request-wide solver facts and cannot leak to another equation.
+        if request.expression is None:
+            if not isinstance(query.target, DerivedTarget):
+                assert query.target is not None
+                owning = next(
+                    item for item in request.equations if item.name == query.target.name
+                )
+            assert owning is not None and report is not None
+            # Equation-local facts are deliberately reconstructed only for the
+            # submitted equation or its explicit verified derived operand. They
+            # never become request-wide solver facts or leak to another equation.
             query_reasoning = _equation_query_reasoning(request, knowledge, owning, report)
         evaluated = evaluate_queries((query,), target, query_reasoning)
         if isinstance(evaluated, AnalysisFailure):
@@ -460,7 +473,16 @@ def _compose_derived_qualification(result: QueryResult, source: QueryResult) -> 
             *answer.relevant_unsupported_assumptions,
             *source_answer.relevant_unsupported_assumptions,
         )))
-        if len(conditions) > 256 or len(uses) > 128 or len(unsupported) > 128:
+        constraint_uses = tuple({
+            item.model_dump_json(): item
+            for item in (*answer.constraint_uses, *source_answer.constraint_uses)
+        }.values())
+        if (
+            len(conditions) > 256
+            or len(uses) > 128
+            or len(unsupported) > 128
+            or len(constraint_uses) > 128
+        ):
             composed.append(answer.model_copy(update={
                 "conclusion": "unresolved",
                 "blockers": tuple(dict.fromkeys((
@@ -471,11 +493,12 @@ def _compose_derived_qualification(result: QueryResult, source: QueryResult) -> 
             continue
         composed.append(answer.model_copy(update={
             "conclusion": "proved_under_assumptions"
-            if answer.conclusion == "proved" and (conditions or uses)
+            if answer.conclusion == "proved" and (conditions or uses or constraint_uses)
             else answer.conclusion,
             "conditions": conditions,
             "assumptions_used": uses,
             "relevant_unsupported_assumptions": unsupported,
+            "constraint_uses": constraint_uses,
         }))
     return result.model_copy(update={"answers": tuple(composed)})
 
