@@ -492,12 +492,25 @@ class QueryResultCommon(StructuredModel):
 
     @model_validator(mode="after")
     def derived_target_nullability(self) -> "QueryResultCommon":
-        unavailable = (
+        unavailable = False
+        if (
             isinstance(self.target, DerivedTarget)
             and len(self.answers) == 1
             and self.answers[0].conclusion == "inapplicable"
-            and any(item.startswith("derived target source ") for item in self.answers[0].blockers)
-        )
+        ):
+            prefix = f"derived target source {self.target.query} concluded "
+            conclusions = tuple(
+                blocker.removeprefix(prefix)
+                for blocker in self.answers[0].blockers
+                if blocker.startswith(prefix)
+            )
+            unavailable = len(conclusions) == 1 and conclusions[0] in {
+                "proved",
+                "proved_under_assumptions",
+                "disproved",
+                "unresolved",
+                "inapplicable",
+            }
         if (self.normalized_target is None) != unavailable:
             raise ValueError("normalized target is null only for an unavailable derived target")
         return self

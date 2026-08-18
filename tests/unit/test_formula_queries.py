@@ -943,3 +943,7 @@ def test_query_result_models_reject_invalid_derived_target_nullability():
         EquivalenceResult(name="derived", target={"kind": "derived", "query": "closed"}, normalized_target=None, summary="bad", answers=(answer,))
     with pytest.raises(ValidationError):
         EquivalenceResult(name="unavailable", target={"kind": "derived", "query": "closed"}, normalized_target=interpretation, summary="bad", answers=(QueryAnswer(conclusion="inapplicable", blockers=("derived target source closed concluded unresolved",)),))
+    with pytest.raises(ValidationError):
+        EquivalenceResult(name="wrong_source", target={"kind": "derived", "query": "closed"}, normalized_target=None, summary="bad", answers=(QueryAnswer(conclusion="inapplicable", blockers=("derived target source other concluded unresolved",)),))
+    with pytest.raises(ValidationError):
+        EquivalenceResult(name="missing_conclusion", target={"kind": "derived", "query": "closed"}, normalized_target=None, summary="bad", answers=(QueryAnswer(conclusion="inapplicable", blockers=("derived target source closed",)),))

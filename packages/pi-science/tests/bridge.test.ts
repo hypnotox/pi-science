@@ -932,6 +932,33 @@ describe("private formula bridge", () => {
         answers: [{ ...unavailableAnswer, conclusion: "unresolved" }],
       },
       { ...dependent, kind: "properties" },
+      {
+        ...dependent,
+        answers: [
+          {
+            ...unavailableAnswer,
+            blockers: ["derived target source other concluded unresolved"],
+          },
+        ],
+      },
+      {
+        ...dependent,
+        answers: [
+          {
+            ...unavailableAnswer,
+            blockers: ["derived target source closed"],
+          },
+        ],
+      },
+      {
+        ...dependent,
+        answers: [
+          {
+            ...unavailableAnswer,
+            blockers: ["derived target source closed concluded inapplicable"],
+          },
+        ],
+      },
       { ...source, normalized_target: null },
       { ...source, normalized_target: { normalized_sympy: "x" } },
     ])

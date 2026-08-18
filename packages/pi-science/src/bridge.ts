@@ -967,14 +967,29 @@ function validQueryResult(value: unknown): boolean {
   )
     return false;
   const answers = value.answers as QueryAnswer[];
-  const derivedUnavailable =
+  const sourcePrefix =
     isRecord(value.target) &&
     value.target.kind === "derived" &&
-    answers.length === 1 &&
+    typeof value.target.query === "string"
+      ? `derived target source ${value.target.query} concluded `
+      : undefined;
+  const sourceConclusions =
+    sourcePrefix === undefined || answers.length !== 1
+      ? []
+      : answers[0]!.blockers
+          .filter((blocker) => blocker.startsWith(sourcePrefix))
+          .map((blocker) => blocker.slice(sourcePrefix.length));
+  const derivedUnavailable =
+    sourcePrefix !== undefined &&
     answers[0]?.conclusion === "inapplicable" &&
-    answers[0].blockers.some((blocker) =>
-      blocker.startsWith("derived target source "),
-    );
+    sourceConclusions.length === 1 &&
+    [
+      "proved",
+      "proved_under_assumptions",
+      "disproved",
+      "unresolved",
+      "inapplicable",
+    ].includes(sourceConclusions[0]!);
   if (
     (value.normalized_target === null) !== derivedUnavailable ||
     (!derivedUnavailable && !validInterpretation(value.normalized_target)) ||
@@ -1042,11 +1057,29 @@ function validQueryCorrelation(
     )
       return false;
     if ("target" in query && query.target?.kind === "derived") {
+      const sourceQuery = query.target.query;
       if (
         result.target.kind !== "derived" ||
-        result.target.query !== query.target.query
+        result.target.query !== sourceQuery
       )
         return false;
+      if (result.normalized_target === null) {
+        const sourceIndex = queries.findIndex(
+          (candidate) => candidate.name === sourceQuery,
+        );
+        const sourceResult = results[sourceIndex];
+        const sourceConclusion = sourceResult?.answers[0]?.conclusion;
+        if (
+          sourceIndex < 0 ||
+          sourceIndex >= index ||
+          sourceResult?.kind !== "closed_form" ||
+          sourceConclusion === undefined ||
+          !result.answers[0]?.blockers.includes(
+            `derived target source ${sourceQuery} concluded ${sourceConclusion}`,
+          )
+        )
+          return false;
+      }
     } else if (isExpressionRequest(request)) {
       if (result.target.kind !== "expression") return false;
     } else {
