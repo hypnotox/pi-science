@@ -24,14 +24,14 @@ Leaving the older claim active makes unsupported input appear available and weak
 
 Current authority matches the shipped request contract and no longer routes agents toward unsupported LaTeX input. Normalized LaTeX output remains available and is distinct from accepting LaTeX as input. Callers with LaTeX formulations must translate them into the restricted-SymPy dialect until a bounded LaTeX frontend is implemented.
 
-A future LaTeX frontend requires a successor decision and complete bounded product contract before it becomes current guidance.
+Restricted LaTeX remains deferred until a bounded contract and implementation exist.
 
 ## Alternatives Considered
 
 | Alternative | Why not chosen |
 |---|---|
 | Retain ADR-0001's complementary LaTeX and SymPy frontend direction as current behavior | The implementation does not accept LaTeX, so the claim would remain false. |
-| Implement a bounded restricted-LaTeX frontend now | No bounded contract or implementation exists; this decision corrects current authority while retaining that work as future direction. |
+| Implement a bounded restricted-LaTeX frontend now | Designing safe bounded syntax and semantics and delivering the frontend is separate product work; this decision corrects current authority while retaining that work as future direction. |
 | Accept arbitrary LaTeX through a general parser | Ambiguity and parser behavior would define an unsafe, unbounded public contract. |
 | Remove LaTeX from future direction | A safe restricted frontend remains a valid roadmap option. |
 
