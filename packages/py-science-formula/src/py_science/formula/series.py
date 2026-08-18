@@ -23,7 +23,6 @@ from py_science.formula.expressions import (
     Symbol,
     expression_children,
     expression_node_count,
-    substitute,
 )
 from py_science.formula.models import (
     ClosedFormEvidence,
@@ -207,7 +206,9 @@ def _derive_nested_polynomial(expression: Expression, reasoning: ReasoningContex
     """Evaluate one bounded finite-polynomial Sum tree innermost first."""
     roots = _direct_sums(expression)
     try:
-        expanded = _nested_expand_for_limits(expression, reasoning, ())
+        expanded = _nested_expand_for_limits(
+            expression, reasoning, (), [MAX_INTERMEDIATE_NODES]
+        )
     except _NestedReasoningCapture:
         return _unresolved("nested polynomial reasoning would capture a bound name")
     except Exception:
@@ -301,9 +302,10 @@ def _derive_nested_node(
         )
     try:
         bound = (*outer, item.index)
-        lower = _nested_expand_for_limits(item.lower, reasoning, bound)
-        upper = _nested_expand_for_limits(item.upper, reasoning, bound)
-        body = _nested_expand_for_limits(item.body, reasoning, bound)
+        budget = [MAX_INTERMEDIATE_NODES]
+        lower = _nested_expand_for_limits(item.lower, reasoning, bound, budget)
+        upper = _nested_expand_for_limits(item.upper, reasoning, bound, budget)
+        body = _nested_expand_for_limits(item.body, reasoning, bound, budget)
     except _NestedReasoningCapture:
         return _unresolved("nested polynomial reasoning would capture a bound name")
     except Exception:
@@ -375,9 +377,10 @@ def _nested_tree_preflight(
         return "nested polynomial bounds must be finite and independent of their binder"
     try:
         bound = (*outer, item.index)
-        lower = _nested_expand_for_limits(item.lower, reasoning, bound)
-        upper = _nested_expand_for_limits(item.upper, reasoning, bound)
-        body = _nested_expand_for_limits(item.body, reasoning, bound)
+        budget = [MAX_INTERMEDIATE_NODES]
+        lower = _nested_expand_for_limits(item.lower, reasoning, bound, budget)
+        upper = _nested_expand_for_limits(item.upper, reasoning, bound, budget)
+        body = _nested_expand_for_limits(item.body, reasoning, bound, budget)
     except _NestedReasoningCapture:
         return "nested polynomial reasoning would capture a bound name"
     except Exception:
@@ -405,49 +408,43 @@ def _nested_tree_preflight(
 
 
 def _nested_apply(
-    reasoning: ReasoningContext, value: Expression, bound: tuple[str, ...]
+    reasoning: ReasoningContext, value: Symbol, bound: tuple[str, ...]
 ) -> Expression:
-    replacements = {
-        name: replacement
-        for name, replacement in reasoning.replacements.items()
-        if name not in bound
-    }
-    resolved = value
-    for _ in range(len(replacements) + 1):
-        scoped = set(bound) | {
-            item.index for item in _walk(resolved) if isinstance(item, Sum)
-        }
-        applicable = _names(resolved) & set(replacements)
-        if any(_names(replacements[name]) & scoped for name in applicable):
-            raise _NestedReasoningCapture
-        updated = substitute(resolved, replacements, max_nodes=MAX_INTERMEDIATE_NODES)
-        if updated == resolved:
-            return resolved
-        resolved = updated
-    return resolved
+    replacement = reasoning.replacements.get(value.name)
+    if replacement is None or value.name in bound:
+        return value
+    if _names(replacement) & set(bound):
+        raise _NestedReasoningCapture
+    return replacement
 
 
 def _nested_expand_for_limits(
-    value: Expression, reasoning: ReasoningContext, bound: tuple[str, ...]
+    value: Expression,
+    reasoning: ReasoningContext,
+    bound: tuple[str, ...],
+    budget: list[int],
 ) -> Expression:
+    if isinstance(value, Symbol) and value.name not in bound:
+        expanded = _nested_apply(reasoning, value, bound)
+        if expanded != value:
+            return _nested_expand_for_limits(expanded, reasoning, bound, budget)
+    budget[0] -= 1
+    if budget[0] < 0:
+        raise ValueError("nested reasoning expansion exceeds its bound")
     if isinstance(value, Sum):
         scoped = (*bound, value.index)
         return Sum(
-            _nested_expand_for_limits(value.body, reasoning, scoped),
+            _nested_expand_for_limits(value.body, reasoning, scoped, budget),
             value.index,
-            _nested_expand_for_limits(value.lower, reasoning, scoped),
-            _nested_expand_for_limits(value.upper, reasoning, scoped),
+            _nested_expand_for_limits(value.lower, reasoning, scoped, budget),
+            _nested_expand_for_limits(value.upper, reasoning, scoped, budget),
         )
     if isinstance(value, BinaryExpression):
         return BinaryExpression(
             value.operator,
-            _nested_expand_for_limits(value.left, reasoning, bound),
-            _nested_expand_for_limits(value.right, reasoning, bound),
+            _nested_expand_for_limits(value.left, reasoning, bound, budget),
+            _nested_expand_for_limits(value.right, reasoning, bound, budget),
         )
-    if isinstance(value, Symbol) and value.name not in bound:
-        expanded = _nested_apply(reasoning, value, bound)
-        if expanded != value:
-            return _nested_expand_for_limits(expanded, reasoning, bound)
     return value
 
 

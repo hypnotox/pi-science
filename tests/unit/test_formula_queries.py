@@ -1,5 +1,7 @@
 # ruff: noqa: E501, E701
 # pyright: basic, reportArgumentType=false, reportOptionalMemberAccess=false
+from types import SimpleNamespace
+
 import py_science.formula.query as formula_query
 import py_science.formula.series as formula_series
 import py_science.formula.service as formula_query_service
@@ -385,6 +387,75 @@ def test_nested_polynomial_binders_shadow_declared_definitions():
         "nested polynomial reasoning would capture a bound name",
     )
     assert not captured.derived_candidates
+
+    transitive = _nested_answer(
+        "Sum(Sum(x, (l, 0, 1)), (k, 0, 1))",
+        variables={
+            "x": VariableDeclaration(domain=MathematicalDomain.INTEGER),
+            "y": VariableDeclaration(domain=MathematicalDomain.INTEGER),
+            "k": VariableDeclaration(domain=MathematicalDomain.INTEGER),
+        },
+        definitions=(
+            DirectedDefinition(variable="x", expression="y"),
+            DirectedDefinition(variable="y", expression="k"),
+        ),
+    )
+    assert transitive.conclusion == "unresolved"
+    assert transitive.blockers == (
+        "nested polynomial reasoning would capture a bound name",
+    )
+    assert not transitive.derived_candidates
+
+    safe_sibling = _nested_answer(
+        "Sum(Sum(x, (l, 0, 1)), (k, 0, 1))",
+        variables={
+            "x": VariableDeclaration(domain=MathematicalDomain.INTEGER),
+            "y": VariableDeclaration(domain=MathematicalDomain.INTEGER),
+            "j": VariableDeclaration(domain=MathematicalDomain.INTEGER),
+        },
+        definitions=(
+            DirectedDefinition(variable="x", expression="Sum(1, (j, 0, 1)) + y"),
+            DirectedDefinition(variable="y", expression="j"),
+        ),
+    )
+    assert safe_sibling.conclusion == "proved_under_assumptions"
+    assert safe_sibling.derived_candidates
+
+
+def test_nested_reasoning_expansion_has_a_shared_budget(monkeypatch):
+    target_terms = ["x"] * 100
+    while len(target_terms) > 1:
+        target_terms = [
+            f"({target_terms[index]} + {target_terms[index + 1]})"
+            if index + 1 < len(target_terms)
+            else target_terms[index]
+            for index in range(0, len(target_terms), 2)
+        ]
+    replacement = " + ".join("y" for _ in range(50))
+    expression = parse_expression(
+        f"Sum(Sum({target_terms[0]}, (l, 0, 1)), (k, 0, 1))"
+    )
+    replacement_expression = parse_expression(replacement)
+    assert not isinstance(expression, tuple) and not isinstance(replacement_expression, tuple)
+    reasoning = ReasoningContext.build(
+        {"x": MathematicalDomain.INTEGER, "y": MathematicalDomain.INTEGER},
+        (
+            SimpleNamespace(
+                name="x", expression=replacement_expression, source=f"x = {replacement}"
+            ),
+        ),
+        (),
+    )
+    bounded = formula_series.derive_closed_form(expression, reasoning)
+    assert bounded.conclusion == "unresolved"
+    assert bounded.blockers == ("query reasoning exceeds its bound",)
+
+    monkeypatch.setattr(formula_series, "MAX_INTERMEDIATE_NODES", 20_000)
+    falsified = formula_series.derive_closed_form(expression, reasoning)
+    assert falsified.conclusion == "unresolved"
+    assert falsified.blockers == (
+        "nested polynomial family exceeds its bounded preconditions",
+    )
 
 
 def test_nested_polynomial_direct_consumers_and_explicit_derived_reuse():
