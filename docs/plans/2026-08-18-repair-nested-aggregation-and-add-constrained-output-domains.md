@@ -4,7 +4,7 @@ date: 2026-08-18
 adrs:
   - adopt-compositional-indexed-equation-analysis
   - adopt-acyclic-dependent-output-domains
-status: Proposed
+status: Implemented
 ---
 # Plan: Repair nested aggregation and add constrained output domains
 

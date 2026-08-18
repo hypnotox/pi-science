@@ -1,7 +1,7 @@
 ---
 format: current-state-v4
 slug: adopt-acyclic-dependent-output-domains
-status: Implementing
+status: Implemented
 date: 2026-08-18
 ---
 # ADR-0010: Adopt acyclic dependent output domains
@@ -53,3 +53,4 @@ Inferring a bounded dependency graph costs more cross-cutting validation, aggreg
 - 2026-08-18: Accepted; content-sha256: 06938c0953bf78f9def41acfb21d4a86891c35dba07ec24c802e05e94c053fd9
 - 2026-08-18: Implementing; content-sha256: 06938c0953bf78f9def41acfb21d4a86891c35dba07ec24c802e05e94c053fd9
 - 2026-08-18: Applied; operations: update `product/mathematical-input-contract:compositional-indexed-equation-requests`, update `product/mathematical-analysis-model:ideal-equation-dependency-work`, update `product/analysis-report-contract:provenance-preserving-system-work`
+- 2026-08-18: Implemented; content-sha256: 06938c0953bf78f9def41acfb21d4a86891c35dba07ec24c802e05e94c053fd9
