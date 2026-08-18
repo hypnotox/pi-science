@@ -292,7 +292,23 @@ describe("readiness gate", () => {
       expect(Value.Check(parameters, pythonValidated)).toBe(true);
     const result = await current.tools[0]?.execute("id", { expression: "x" });
     expect(result).toEqual({
-      content: [{ type: "text", text: JSON.stringify(response) }],
+      content: [
+        {
+          type: "text",
+          text: [
+            "Interpretation",
+            "- SymPy: x",
+            "- LaTeX: x",
+            "Query conclusions",
+            "- none",
+            "Work",
+            "- General direct work: 0",
+            "- Specialized evaluation work: none",
+            "Blockers",
+            "- none",
+          ].join("\n"),
+        },
+      ],
       details: response,
     });
   });
@@ -366,9 +382,11 @@ describe("readiness gate", () => {
         },
       ],
     });
-    expect(result.content).toEqual([
-      { type: "text", text: JSON.stringify(result.details) },
-    ]);
+    expect(result.content[0]?.text).toContain(
+      "Specialized evaluation work (scenario fixed_order):",
+    );
+    expect(result.content[0]?.text).not.toContain("substituted_work");
+    expect(result.content[0]?.text).not.toBe(JSON.stringify(result.details));
   });
 
   it("keeps nested finite-work iterators bound through the registered tool", async () => {

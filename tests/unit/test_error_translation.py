@@ -10,7 +10,9 @@ from py_science.formula import (
     AnalysisFailure,
     AnalysisRequest,
     Assumption,
+    DirectedDefinition,
     FormulaSyntax,
+    Scenario,
 )
 from py_science.formula.expressions import Expression, Symbol
 from py_science.formula.parser import ParseFailure
@@ -116,3 +118,44 @@ def test_parse_errors_identify_the_nested_request_source() -> None:
     assert outcome.error.source is not None
     assert outcome.error.source.path == "assumptions[0].relationship"
     assert outcome.error.source.excerpt == "x +"
+
+
+@pytest.mark.parametrize(
+    ("analysis_request", "path"),
+    [
+        (
+            AnalysisRequest(
+                syntax=FormulaSyntax.SYMPY,
+                expression="x",
+                assumptions=(Assumption(name="not_a_relationship", relationship="x + 1"),),
+            ),
+            "assumptions[0].relationship",
+        ),
+        (
+            AnalysisRequest(
+                syntax=FormulaSyntax.SYMPY,
+                expression="x",
+                definitions=(DirectedDefinition(variable="y", expression="Eq(y, x)"),),
+            ),
+            "definitions[0].expression",
+        ),
+        (
+            AnalysisRequest(
+                syntax=FormulaSyntax.SYMPY,
+                expression="x",
+                scenarios=(Scenario(name="unknown", fixed={"y": 1}),),
+            ),
+            "scenarios[0].fixed.y",
+        ),
+    ],
+)
+def test_semantic_request_errors_identify_the_precise_field_without_coordinates(
+    analysis_request: AnalysisRequest, path: str
+) -> None:
+    outcome = service.analyze(analysis_request)
+
+    assert isinstance(outcome, AnalysisFailure)
+    assert outcome.error.source is not None
+    assert outcome.error.source.path == path
+    assert outcome.error.source.span is None
+    assert outcome.error.location is None

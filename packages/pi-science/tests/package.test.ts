@@ -20,6 +20,11 @@ describe("npm package boundary", () => {
     expect(skill).toContain("Parser acceptance, request-context validity");
     expect(skill).toContain("any returned field path, source span");
     expect(skill).toContain("proof qualifications");
+    expect(skill).toContain("compact human-readable projection");
+    expect(skill).toContain("complete canonical report in `details`");
+    expect(skill).toContain(
+      "evaluation work, not represented mathematical value",
+    );
     expect(skill).toMatch(/unresolved query blocker[\s\S]+recovery hint/);
     expect(skill).toMatch(/Recovery hints[\s\S]+do not certify equivalence/);
     expect(skill).toMatch(

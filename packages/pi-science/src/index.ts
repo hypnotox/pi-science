@@ -8,6 +8,7 @@ import type { TSchema } from "typebox";
 import formulaSchemaJson from "./formula-schema.json" with { type: "json" };
 import {
   invokeAdapter,
+  type BridgeResult,
   type ExpressionAnalysisRequest,
   type SystemAnalysisRequest,
 } from "./bridge.js";
@@ -50,9 +51,69 @@ export function resolvePinnedRevision(
   return resolvePinnedSource(repositoryRoot, git)?.revision;
 }
 
-function toolResult(result: Record<string, unknown>) {
+function compactToolText(result: BridgeResult): string {
+  if (result.status === "failure")
+    return [
+      "Interpretation",
+      "- unavailable",
+      "Query conclusions",
+      "- none",
+      "Work",
+      "- unavailable",
+      "Blockers",
+      `- ${result.error.message}`,
+    ].join("\n");
+
+  const queryConclusions = result.queries.flatMap((query) =>
+    query.answers.map(
+      (answer) =>
+        `- ${query.name} (${query.kind}): ${answer.conclusion}${answer.check ? ` (${answer.check.kind})` : ""}`,
+    ),
+  );
+  const generalWork = result.system?.total_work ?? result.abstract_work;
+  const work = [
+    `- General direct work: ${generalWork ?? "unavailable"}`,
+    ...(result.scenarios.length === 0
+      ? ["- Specialized evaluation work: none"]
+      : result.scenarios.map(
+          (scenario) =>
+            `- Specialized evaluation work (scenario ${scenario.name}): ${scenario.substituted_work}`,
+        )),
+  ];
+  const blockers = [
+    ...result.direct_work_blockers,
+    ...(result.system?.unknown_costs.map((cost) => `unknown cost: ${cost}`) ??
+      []),
+    ...(result.system?.unresolved ?? []),
+    ...result.scenarios.flatMap((scenario) =>
+      scenario.unresolved.map(
+        (blocker) => `scenario ${scenario.name}: ${blocker}`,
+      ),
+    ),
+    ...result.queries.flatMap((query) =>
+      query.answers.flatMap((answer) =>
+        answer.blockers.map((blocker) => `query ${query.name}: ${blocker}`),
+      ),
+    ),
+  ];
+  return [
+    "Interpretation",
+    `- SymPy: ${result.interpretation.normalized_sympy}`,
+    `- LaTeX: ${result.interpretation.normalized_latex}`,
+    "Query conclusions",
+    ...(queryConclusions.length === 0 ? ["- none"] : queryConclusions),
+    "Work",
+    ...work,
+    "Blockers",
+    ...(blockers.length === 0
+      ? ["- none"]
+      : blockers.map((blocker) => `- ${blocker}`)),
+  ].join("\n");
+}
+
+function toolResult(result: BridgeResult) {
   return {
-    content: [{ type: "text" as const, text: JSON.stringify(result) }],
+    content: [{ type: "text" as const, text: compactToolText(result) }],
     details: result,
   };
 }

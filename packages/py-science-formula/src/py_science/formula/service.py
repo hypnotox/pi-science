@@ -266,7 +266,10 @@ def _parse_knowledge(
         if isinstance(parsed, AnalysisFailure):
             return parsed
         if not isinstance(parsed, Relationship):
-            return _invalid(f"assumption {item.name} must be an equality or inequality")
+            return _invalid(
+                f"assumption {item.name} must be an equality or inequality",
+                source=SourceReference(path=f"assumptions[{position}].relationship"),
+            )
         assumptions.append(NamedRelationship(item.name, item.relationship, parsed))
     parsed_definitions: list[tuple[str, str, Expression]] = []
     for position, item in enumerate(request.definitions):
@@ -274,7 +277,10 @@ def _parse_knowledge(
         if isinstance(parsed, AnalysisFailure):
             return parsed
         if isinstance(parsed, (Equation, Relationship)):
-            return _invalid(f"definition {item.variable} must be an expression")
+            return _invalid(
+                f"definition {item.variable} must be an expression",
+                source=SourceReference(path=f"definitions[{position}].expression"),
+            )
         parsed_definitions.append((item.variable, item.expression, parsed))
     graph = {
         name: _symbol_names(expression) & {other[0] for other in parsed_definitions}
@@ -333,10 +339,18 @@ def _parse_knowledge(
                 + ", ".join(sorted(overlapping_treatments))
             )
         scenario_qualifications = _scenario_definition_qualifications(
-            scenario, scenario_expressions, request, context, resolved_definitions
+            scenario,
+            scenario_expressions,
+            request,
+            context,
+            resolved_definitions,
+            scenario_position,
         )
         if isinstance(scenario_qualifications, AnalysisFailure):
-            return _invalid(f"scenario {scenario.name}: {scenario_qualifications.error.message}")
+            return _invalid(
+                f"scenario {scenario.name}: {scenario_qualifications.error.message}",
+                source=scenario_qualifications.error.source,
+            )
     by_name = {item.name: item for item in definitions}
     contradiction = _direct_contradiction(tuple(assumptions), request)
     if contradiction is not None:
@@ -433,15 +447,17 @@ def _definition_domain_result(
     expression: Expression,
     request: AnalysisRequest,
     context: WorkContext,
+    source: SourceReference | None = None,
 ) -> str | AnalysisFailure | None:
     declaration = request.variables.get(variable)
     if declaration is None:
-        return _invalid(f"definition target {variable} is undeclared")
+        return _invalid(f"definition target {variable} is undeclared", source=source)
     references = _external_value_names(expression, set(), set()) - set(request.variables)
     if references:
         return _invalid(
             f"definition for {variable} references undeclared variables: "
-            + ", ".join(sorted(references))
+            + ", ".join(sorted(references)),
+            source=source,
         )
     value = _constant_value(expression)
     if value is not None:
@@ -457,7 +473,9 @@ def _definition_domain_result(
             and value < 0
         )
         if contradicts:
-            return _invalid(f"definition contradicts declared domain for {variable}")
+            return _invalid(
+                f"definition contradicts declared domain for {variable}", source=source
+            )
     proven = {
         MathematicalDomain.INTEGER: is_integer_expression(expression, context),
         MathematicalDomain.NONNEGATIVE_INTEGER: is_integer_expression(expression, context)
@@ -480,6 +498,7 @@ def _scenario_definition_qualifications(
     request: AnalysisRequest,
     context: WorkContext,
     base_replacements: dict[str, Expression] | None = None,
+    scenario_position: int | None = None,
 ) -> dict[str, str | None] | AnalysisFailure:
     names = set(expressions)
     graph = {
@@ -491,12 +510,24 @@ def _scenario_definition_qualifications(
         return _invalid("definitions contain a cycle")
 
     for name, value in scenario.fixed.items():
-        result = _definition_domain_result(name, _scenario_literal(value), request, context)
+        result = _definition_domain_result(
+            name,
+            _scenario_literal(value),
+            request,
+            context,
+            SourceReference(path=f"scenarios[{scenario_position}].fixed.{name}"),
+        )
         if isinstance(result, AnalysisFailure):
             return result
     for name, values in scenario.choices.items():
         for value in values:
-            result = _definition_domain_result(name, _scenario_literal(value), request, context)
+            result = _definition_domain_result(
+                name,
+                _scenario_literal(value),
+                request,
+                context,
+                SourceReference(path=f"scenarios[{scenario_position}].choices.{name}"),
+            )
             if isinstance(result, AnalysisFailure):
                 return result
 
@@ -1960,7 +1991,7 @@ def _scenario_domain_failure(
             return exact >= 0 and (not domain.is_integer or exact.denominator == 1)
         return not domain.is_integer or exact.denominator == 1
 
-    for scenario in request.scenarios:
+    for position, scenario in enumerate(request.scenarios):
         treatment_names = (
             set(scenario.fixed)
             | set(scenario.choices)
@@ -1970,9 +2001,26 @@ def _scenario_domain_failure(
         )
         missing = treatment_names - set(request.variables)
         if missing:
+            name = sorted(missing)[0]
+            if name in scenario.fixed:
+                path = f"scenarios[{position}].fixed.{name}"
+            elif name in scenario.choices:
+                path = f"scenarios[{position}].choices.{name}"
+            elif name in scenario.bounds:
+                path = f"scenarios[{position}].bounds.{name}"
+            elif name in scenario.asymptotic:
+                path = f"scenarios[{position}].asymptotic[{scenario.asymptotic.index(name)}]"
+            else:
+                definition_position = next(
+                    index
+                    for index, definition in enumerate(scenario.definitions)
+                    if definition.variable == name
+                )
+                path = f"scenarios[{position}].definitions[{definition_position}].variable"
             return _invalid(
                 f"scenario {scenario.name} treats undeclared variables: "
-                + ", ".join(sorted(missing))
+                + ", ".join(sorted(missing)),
+                source=SourceReference(path=path),
             )
         values_by_name = {
             **{name: (value,) for name, value in scenario.fixed.items()},
