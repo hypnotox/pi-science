@@ -9,9 +9,12 @@ from typing import Protocol
 from py_science.formula.expressions import (
     BinaryExpression,
     BinaryOperator,
+    Call,
     Expression,
     IntegerLiteral,
     RationalLiteral,
+    Relationship,
+    RelationshipOperator,
     Symbol,
     expression_children,
 )
@@ -45,9 +48,37 @@ def build_output_domains(
     lhs_order: tuple[str, ...],
     equation_position: int,
     declared_integer_symbols: frozenset[str],
+    constraints: tuple[tuple[str, str, Relationship], ...] = (),
 ) -> tuple[tuple[OutputDomain, ...], tuple[str, ...]] | DomainDiagnostic:
-    """Validate dependent bounds and return entries plus prerequisite-first order."""
+    """Validate base and normalized local bounds in prerequisite-first order.
+
+    Constraint parsing is deliberately here, rather than delegated to SymPy: this is
+    the single policy boundary that turns the approved unit-coefficient affine
+    relationship family into analyzer-owned effective domains.
+    """
     indices = frozenset(bounds)
+    effective = dict(bounds)
+    for name, target, relationship in constraints:
+        path = f"equations[{equation_position}].constraints[{name}].relationship"
+        if target not in indices:
+            return DomainDiagnostic(f"constraint target {target} is not an output index", path)
+        normalized = _normalize_constraint(relationship, target)
+        if normalized is None:
+            return DomainDiagnostic(
+                (
+                    "constraint must be an integer-affine relationship with "
+                    "target coefficient +1 or -1"
+                ),
+                path,
+            )
+        lowers, uppers = normalized
+        lower, upper = effective[target]
+        if lowers:
+            lower = _maximum((lower, *lowers))
+        if uppers:
+            upper = _minimum((upper, *uppers))
+        effective[target] = lower, upper
+    bounds = effective
     entries: dict[str, OutputDomain] = {}
     for index in lhs_order:
         lower, upper = bounds[index]
@@ -61,12 +92,14 @@ def build_output_domains(
                     f"output domain {index} cannot depend on itself", path
                 )
             form = affine_form(expression) if references else None
-            if references and form is None:
+            generated_extrema = _generated_extrema(expression)
+            if references and form is None and not generated_extrema:
                 return DomainDiagnostic(
                     "dependent output-domain bound must use the affine-integer grammar", path
                 )
-            if form is not None:
-                noninteger = set(form[0]) - indices - declared_integer_symbols
+            names = free_symbols(expression)
+            if form is not None or generated_extrema:
+                noninteger = names - indices - declared_integer_symbols
                 if noninteger:
                     return DomainDiagnostic(
                         "dependent output-domain bound references non-integer variables: "
@@ -95,6 +128,89 @@ def build_output_domains(
         completed.add(chosen)
         order.append(chosen)
     return tuple(entries[index] for index in lhs_order), tuple(order)
+
+
+def _generated_extrema(expression: Expression) -> bool:
+    return (
+        isinstance(expression, Call)
+        and expression.name in {"Min", "Max"}
+        and len(expression.arguments) >= 2
+        and all(
+            affine_form(argument) is not None or _generated_extrema(argument)
+            for argument in expression.arguments
+        )
+    )
+
+
+def _normalize_constraint(
+    relationship: Relationship, target: str
+) -> tuple[tuple[Expression, ...], tuple[Expression, ...]] | None:
+    """Solve the restricted integer-affine relation for its explicit target."""
+    # `Abs(E) <= R` is the one approved non-affine surface spelling: it is
+    # exactly the conjunction E <= R and -E <= R, not a backend solver call.
+    left, right, operator = relationship.left, relationship.right, relationship.operator
+    if isinstance(right, Call) and right.name == "Abs" and len(right.arguments) == 1:
+        reverse = {
+            RelationshipOperator.GREATER: RelationshipOperator.LESS,
+            RelationshipOperator.GREATER_EQUAL: RelationshipOperator.LESS_EQUAL,
+            RelationshipOperator.LESS: RelationshipOperator.GREATER,
+            RelationshipOperator.LESS_EQUAL: RelationshipOperator.GREATER_EQUAL,
+        }
+        if operator not in reverse:
+            return None
+        left, right, operator = right, left, reverse[operator]
+    if isinstance(left, Call) and left.name == "Abs" and len(left.arguments) == 1:
+        if operator not in {RelationshipOperator.LESS, RelationshipOperator.LESS_EQUAL}:
+            return None
+        first = _normalize_constraint(Relationship(operator, left.arguments[0], right), target)
+        second = _normalize_constraint(
+            Relationship(operator, _negate(left.arguments[0]), right), target
+        )
+        if first is None or second is None:
+            return None
+        return first[0] + second[0], first[1] + second[1]
+    relationship = Relationship(operator, left, right)
+    form = affine_form(_subtract(relationship.left, relationship.right))
+    if form is None:
+        return None
+    coefficients, constant = form
+    coefficient = coefficients.pop(target, Fraction(0))
+    if coefficient not in {Fraction(1), Fraction(-1)}:
+        return None
+    # All other variables survive as an affine expression on the opposite side.
+    remainder = _fraction_expression(constant)
+    for symbol, value in coefficients.items():
+        remainder = _add(remainder, _multiply(_fraction_expression(value), Symbol(symbol)))
+    # coefficient * target + remainder relation 0
+    if relationship.operator is RelationshipOperator.EQUAL:
+        bound = _negate(remainder) if coefficient == 1 else remainder
+        return (bound,), (bound,)
+    less = relationship.operator in {RelationshipOperator.LESS, RelationshipOperator.LESS_EQUAL}
+    strict = relationship.operator in {RelationshipOperator.LESS, RelationshipOperator.GREATER}
+    # Reverse >=/> into <=/< without changing the algebraic expression.
+    if not less:
+        coefficient, remainder = -coefficient, _negate(remainder)
+    if coefficient == 1:
+        upper = _negate(remainder)
+        if strict:
+            upper = _subtract(upper, IntegerLiteral(1))
+        return (), (upper,)
+    lower = remainder
+    if strict:
+        lower = _add(lower, IntegerLiteral(1))
+    return (lower,), ()
+
+
+def _minimum(values: tuple[Expression, ...]) -> Expression:
+    return values[0] if len(values) == 1 else Call("Min", values)
+
+
+def _maximum(values: tuple[Expression, ...]) -> Expression:
+    return values[0] if len(values) == 1 else Call("Max", values)
+
+
+def _negate(expression: Expression) -> Expression:
+    return _multiply(IntegerLiteral(-1), expression)
 
 
 def free_symbols(expression: Expression, bound: frozenset[str] = frozenset()) -> set[str]:

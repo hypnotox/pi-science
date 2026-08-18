@@ -42,7 +42,11 @@ from py_science.formula.models import (
     AsymptoticQuery,
     ClosedFormEvidence,
     ClosedFormResult,
+    ConstraintUse,
     DerivedTarget,
+    DomainConstraint,
+    EffectiveIndexDomain,
+    EquationEffectiveDomains,
     EquationReport,
     EquationRequest,
     EquivalenceQuery,
@@ -112,6 +116,7 @@ class ParsedEquation:
     request: EquationRequest
     formula: Equation
     domains: dict[str, tuple[Expression, Expression]]
+    constraints: tuple[tuple[str, str, Relationship], ...]
     output_domains: tuple[OutputDomain, ...]
     domain_order: tuple[str, ...]
 
@@ -1043,6 +1048,15 @@ def _analyze_system(
             tuple(sorted(edges[name])),
             work_render_budget,
             used,
+            equation.request.constraints,
+            tuple(
+                EffectiveIndexDomain(
+                    index=domain.index,
+                    lower=render(domain.lower).sympy,
+                    upper=render(domain.upper).sympy,
+                )
+                for domain in equation.output_domains
+            ),
         )
         all_extractions.extend(_extraction_opportunities(name, equation.formula.right, producers))
 
@@ -1105,7 +1119,7 @@ def _analyze_system(
         ) if blockers else (),
         system=system,
         scenarios=_scenario_results(
-            request, combined, work_render_budget, used_relationships, knowledge
+            request, combined, work_render_budget, used_relationships, knowledge, equations
         ),
     )
 
@@ -1126,6 +1140,12 @@ def _parse_equations(
             return lhs_indices_or_failure
         if set(item.domains) != set(lhs_indices_or_failure):
             return _invalid(f"equation {item.name} domains must exactly bind its output indices")
+        shadowed = set(lhs_indices_or_failure) & set(request.variables)
+        if shadowed:
+            return _invalid(
+                "output index cannot shadow a declared global variable: " + ", ".join(sorted(shadowed)),
+                source=SourceReference(path=f"equations[{equation_position}].expression"),
+            )
         domains: dict[str, tuple[Expression, Expression]] = {}
         for index, domain in item.domains.items():
             lower_path = f"equations[{equation_position}].domains.{index}.lower"
@@ -1153,6 +1173,23 @@ def _parse_equations(
                     supported_alternative="use a finite computational domain bound",
                 )
             domains[index] = (lower, upper)
+        constraints: list[tuple[str, str, Relationship]] = []
+        for constraint_position, constraint in enumerate(item.constraints):
+            path = f"equations[{equation_position}].constraints[{constraint_position}].relationship"
+            relationship = loader.parse(constraint.relationship, path)
+            if isinstance(relationship, AnalysisFailure):
+                return relationship
+            if not isinstance(relationship, Relationship):
+                return _invalid(
+                    "domain constraint must be a relationship",
+                    source=SourceReference(path=path),
+                )
+            if constraint.target not in lhs_indices_or_failure:
+                return _invalid(
+                    f"constraint target {constraint.target} is not an output index",
+                    source=SourceReference(path=f"equations[{equation_position}].constraints[{constraint_position}].target"),
+                )
+            constraints.append((str(constraint_position), constraint.target, relationship))
         built = build_output_domains(
             domains,
             lhs_indices_or_failure,
@@ -1161,6 +1198,7 @@ def _parse_equations(
                 name for name, declaration in request.variables.items()
                 if declaration.domain.is_integer
             ),
+            tuple(constraints),
         )
         if not isinstance(built, tuple):
             return _invalid(
@@ -1168,7 +1206,7 @@ def _parse_equations(
                 source=SourceReference(path=built.path),
             )
         output_domains, domain_order = built
-        result.append(ParsedEquation(item, parsed, domains, output_domains, domain_order))
+        result.append(ParsedEquation(item, parsed, domains, tuple(constraints), output_domains, domain_order))
     return tuple(result)
 
 
@@ -1740,6 +1778,7 @@ def _scenario_results(
     budget: WorkRenderBudget,
     general_relationships: tuple[RelationshipUse, ...],
     knowledge: Knowledge,
+    equations: tuple[ParsedEquation, ...] = (),
 ) -> tuple[ScenarioResult, ...]:
     results: list[ScenarioResult] = []
     global_replacements = _resolved_knowledge_definitions(knowledge)
@@ -1844,6 +1883,7 @@ def _scenario_results(
         relevant = _value_names(expression) & declared
         substituted_work = render_work(expression, budget)
         choice_work: dict[str, str] = {}
+        choice_replacements: dict[str, dict[str, Expression]] = {}
         if scenario.fixed and not (set(scenario.fixed) & indexed_values):
             qualifications.append("fixed values substituted exactly")
         choice_names = sorted(scenario.choices)
@@ -1860,6 +1900,10 @@ def _scenario_results(
                 )
                 key = ",".join(f"{name}={selected[name]}" for name in choice_names)
                 choice_work[key] = render_work(value, budget)
+                choice_replacements[key] = {
+                    **replacements,
+                    **{name: _scenario_literal(item) for name, item in selected.items()},
+                }
         if scenario.choices and not (set(scenario.choices) & indexed_values):
             qualifications.append("finite choices substituted exactly")
         asymptotic: str | None = None
@@ -1962,6 +2006,15 @@ def _scenario_results(
                     qualifications.append(
                         "interval endpoints use a proven nondecreasing univariate polynomial"
                     )
+        effective_domains = _specialized_effective_domains(equations, replacements)
+        choice_effective_domains: dict[str, tuple[EquationEffectiveDomains, ...]] = {}
+        if choice_work:
+            for key in choice_work:
+                # Choice keys are canonical and this result shape intentionally uses
+                # exactly the same key population as choice_work.
+                choice_effective_domains[key] = _specialized_effective_domains(
+                    equations, choice_replacements[key]
+                )
         results.append(
             ScenarioResult(
                 name=scenario.name,
@@ -1980,9 +2033,33 @@ def _scenario_results(
                 relationships_used=(*general_relationships, *relationships),
                 qualifications=tuple(qualifications),
                 unresolved=tuple(sorted(unresolved)),
+                effective_domains=() if choice_work else effective_domains,
+                choice_effective_domains=choice_effective_domains,
             )
         )
     return tuple(results)
+
+
+def _specialized_effective_domains(
+    equations: tuple[ParsedEquation, ...], replacements: dict[str, Expression]
+) -> tuple[EquationEffectiveDomains, ...]:
+    """Render scenario-specialized analyzer domains without reparsing input text."""
+    result: list[EquationEffectiveDomains] = []
+    for equation in equations:
+        result.append(
+            EquationEffectiveDomains(
+                equation=equation.request.name,
+                domains=tuple(
+                    EffectiveIndexDomain(
+                        index=domain.index,
+                        lower=render(substitute(domain.lower, replacements, max_nodes=MAX_WORK_NODES)).sympy,
+                        upper=render(substitute(domain.upper, replacements, max_nodes=MAX_WORK_NODES)).sympy,
+                    )
+                    for domain in equation.output_domains
+                ),
+            )
+        )
+    return tuple(result)
 
 
 def _equation_report(
@@ -1993,6 +2070,8 @@ def _equation_report(
     dependencies: tuple[str, ...],
     work_render_budget: WorkRenderBudget,
     relationships_used: tuple[RelationshipUse, ...] = (),
+    constraints: tuple[DomainConstraint, ...] = (),
+    effective_domains: tuple[EffectiveIndexDomain, ...] = (),
 ) -> EquationReport:
     blockers = tuple(sorted(analysis.direct_work_blockers))
     return EquationReport(
@@ -2008,6 +2087,17 @@ def _equation_report(
         unknown_costs=tuple(sorted(analysis.unknown_costs)),
         unresolved=tuple(sorted(analysis.unresolved)),
         relationships_used=relationships_used,
+        constraints=constraints,
+        effective_domains=effective_domains,
+        constraint_uses=tuple(
+            ConstraintUse(
+                equation=name,
+                name=constraint.name,
+                target=constraint.target,
+                relationship=constraint.relationship,
+            )
+            for constraint in constraints
+        ),
     )
 
 

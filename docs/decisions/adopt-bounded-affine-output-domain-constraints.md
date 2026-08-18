@@ -1,7 +1,7 @@
 ---
 format: current-state-v4
 slug: adopt-bounded-affine-output-domain-constraints
-status: Proposed
+status: Implementing
 date: 2026-08-18
 ---
 # ADR-adopt-bounded-affine-output-domain-constraints: Adopt bounded affine output-domain constraints
@@ -56,3 +56,6 @@ The chosen approach accepts coordination cost across validation, aggregation, sc
 ## Status history
 
 - 2026-08-18: Proposed
+- 2026-08-18: Accepted; content-sha256: fd71a6e5e08335c77f1835370cbf839a8fa89e395c4647a07b18cd535affab94
+- 2026-08-18: Implementing; content-sha256: fd71a6e5e08335c77f1835370cbf839a8fa89e395c4647a07b18cd535affab94
+- 2026-08-18: Applied; operations: update `product/mathematical-input-contract:compositional-indexed-equation-requests`, update `product/mathematical-analysis-model:ideal-equation-dependency-work`, update `product/mathematical-analysis-model:assumption-aware-query-reasoning`, update `product/analysis-report-contract:provenance-preserving-system-work`, update `product/analysis-report-contract:qualified-query-conclusions`

@@ -1,7 +1,7 @@
 import { TextDecoder } from "node:util";
 import { spawnIsolated, terminateTree } from "./process.js";
 
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 export const MAX_FORMULA_BYTES = 65_536;
 export const MAX_ENVELOPE_BYTES = 2_097_152;
 export const MAX_RESPONSE_BYTES = 262_400;
@@ -16,10 +16,16 @@ export type MathematicalDomain =
   | "nonnegative_real";
 export type IndexDomain = { lower: string; upper: string };
 export type VariableDeclaration = { domain: MathematicalDomain };
+export type DomainConstraint = {
+  name: string;
+  target: string;
+  relationship: string;
+};
 export type EquationRequest = {
   name: string;
   expression: string;
   domains?: Record<string, IndexDomain>;
+  constraints?: DomainConstraint[];
 };
 export type FunctionDefinition = {
   name: string;
@@ -193,6 +199,21 @@ export type SourceReference = {
   excerpt: string | null;
 };
 export type DirectWorkApplicability = "finite" | "not_finite";
+export type EffectiveIndexDomain = {
+  index: string;
+  lower: string;
+  upper: string;
+};
+export type ConstraintUse = {
+  equation: string;
+  name: string;
+  target: string;
+  relationship: string;
+};
+export type EquationEffectiveDomains = {
+  equation: string;
+  domains: EffectiveIndexDomain[];
+};
 export type EquationReport = {
   name: string;
   interpretation: Interpretation;
@@ -206,6 +227,9 @@ export type EquationReport = {
   unknown_costs: string[];
   unresolved: string[];
   relationships_used: RelationshipUse[];
+  constraints: DomainConstraint[];
+  effective_domains: EffectiveIndexDomain[];
+  constraint_uses: ConstraintUse[];
 };
 export type ScenarioResult = {
   name: string;
@@ -229,6 +253,8 @@ export type ScenarioResult = {
   relationships_used: RelationshipUse[];
   qualifications: string[];
   unresolved: string[];
+  effective_domains: EquationEffectiveDomains[];
+  choice_effective_domains: Record<string, EquationEffectiveDomains[]>;
 };
 export type SystemReport = {
   equations: EquationReport[];
@@ -282,6 +308,7 @@ export type QueryAnswer = {
   blockers: string[];
   evidence: Record<string, unknown> | null;
   derived_candidates: DerivedCandidate[];
+  constraint_uses: ConstraintUse[];
 };
 export type QueryResult = {
   name: string;
@@ -540,6 +567,59 @@ function validRelationshipUses(value: unknown): boolean {
     )
   );
 }
+function validDomainConstraints(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length <= 32 &&
+    value.every(
+      (item) =>
+        isRecord(item) &&
+        exactKeys(item, ["name", "target", "relationship"]) &&
+        [item.name, item.target, item.relationship].every(
+          (part) => typeof part === "string",
+        ),
+    )
+  );
+}
+function validEffectiveDomains(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length <= 32 &&
+    value.every(
+      (item) =>
+        isRecord(item) &&
+        exactKeys(item, ["index", "lower", "upper"]) &&
+        [item.index, item.lower, item.upper].every(
+          (part) => typeof part === "string",
+        ),
+    )
+  );
+}
+function validConstraintUses(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (item) =>
+        isRecord(item) &&
+        exactKeys(item, ["equation", "name", "target", "relationship"]) &&
+        [item.equation, item.name, item.target, item.relationship].every(
+          (part) => typeof part === "string",
+        ),
+    )
+  );
+}
+function validEquationEffectiveDomains(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (item) =>
+        isRecord(item) &&
+        exactKeys(item, ["equation", "domains"]) &&
+        typeof item.equation === "string" &&
+        validEffectiveDomains(item.domains),
+    )
+  );
+}
 function validEquationReport(value: unknown): boolean {
   return (
     isRecord(value) &&
@@ -556,6 +636,9 @@ function validEquationReport(value: unknown): boolean {
       "unknown_costs",
       "unresolved",
       "relationships_used",
+      "constraints",
+      "effective_domains",
+      "constraint_uses",
     ]) &&
     typeof value.name === "string" &&
     validInterpretation(value.interpretation) &&
@@ -578,7 +661,10 @@ function validEquationReport(value: unknown): boolean {
       validStringMap(value.primitive_invocations)) &&
     validStringArray(value.unknown_costs) &&
     validStringArray(value.unresolved) &&
-    validRelationshipUses(value.relationships_used)
+    validRelationshipUses(value.relationships_used) &&
+    validDomainConstraints(value.constraints) &&
+    validEffectiveDomains(value.effective_domains) &&
+    validConstraintUses(value.constraint_uses)
   );
 }
 function validIntervalResult(value: unknown): boolean {
@@ -623,6 +709,8 @@ function validScenarioResult(value: unknown): boolean {
     "relationships_used",
     "qualifications",
     "unresolved",
+    "effective_domains",
+    "choice_effective_domains",
   ];
   if ("asymptotic" in value) keys.push("asymptotic");
   if ("interval" in value) keys.push("interval");
@@ -636,7 +724,12 @@ function validScenarioResult(value: unknown): boolean {
     validStringMap(value.substitutions) &&
     validRelationshipUses(value.relationships_used) &&
     validStringArray(value.qualifications) &&
-    validStringArray(value.unresolved)
+    validStringArray(value.unresolved) &&
+    validEquationEffectiveDomains(value.effective_domains) &&
+    isRecord(value.choice_effective_domains) &&
+    Object.values(value.choice_effective_domains).every(
+      validEquationEffectiveDomains,
+    )
   );
 }
 function validSystemReport(value: unknown): boolean {
@@ -910,6 +1003,7 @@ function validQueryAnswer(value: unknown): boolean {
       "blockers",
       "evidence",
       "derived_candidates",
+      "constraint_uses",
     ]) ||
     ![
       "proved",
@@ -933,7 +1027,8 @@ function validQueryAnswer(value: unknown): boolean {
     !(value.evidence === null || validQueryEvidence(value.evidence)) ||
     !Array.isArray(value.derived_candidates) ||
     value.derived_candidates.length > 32 ||
-    !value.derived_candidates.every(validDerivedCandidate)
+    !value.derived_candidates.every(validDerivedCandidate) ||
+    !validConstraintUses(value.constraint_uses)
   )
     return false;
   return !(

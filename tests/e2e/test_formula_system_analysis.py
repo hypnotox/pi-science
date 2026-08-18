@@ -12,6 +12,7 @@ from py_science.formula import (
     AnalysisSuccess,
     Assumption,
     ClosedFormQuery,
+    DomainConstraint,
     EquationRequest,
     EquationTarget,
     EquivalenceQuery,
@@ -36,6 +37,34 @@ def variables(*names: str) -> dict[str, VariableDeclaration]:
     return {
         name: VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER) for name in names
     }
+
+
+def test_bounded_named_affine_constraints_produce_effective_minimum_domain() -> None:
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=(
+                EquationRequest(
+                    name="simplex",
+                    expression="Eq(A[i, j], i + j)",
+                    domains={
+                        "i": IndexDomain(lower="0", upper="N"),
+                        "j": IndexDomain(lower="0", upper="N"),
+                    },
+                    constraints=(
+                        DomainConstraint(name="diagonal", target="j", relationship="i + j <= N"),
+                        DomainConstraint(name="cap", target="j", relationship="j <= K"),
+                    ),
+                ),
+            ),
+            variables=variables("N", "K"),
+        )
+    )
+    assert isinstance(outcome, AnalysisSuccess) and outcome.system is not None
+    report = outcome.system.equations[0]
+    assert report.constraints[0].relationship == "i + j <= N"
+    assert report.effective_domains[1].upper == "Min(K, N, N - i)"
+    assert report.constraint_uses[0].equation == "simplex"
 
 
 def test_named_rhs_query_is_local_and_preserves_system_work() -> None:

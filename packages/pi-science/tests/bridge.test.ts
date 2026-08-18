@@ -131,6 +131,9 @@ const richSuccess = {
         unknown_costs: [],
         unresolved: [],
         relationships_used: [],
+        constraints: [],
+        effective_domains: [],
+        constraint_uses: [],
       },
     ],
     aggregate_operation_counts: {
@@ -177,6 +180,8 @@ const richSuccess = {
       ],
       qualifications: ["under declared positive integer domains"],
       unresolved: [],
+      effective_domains: [],
+      choice_effective_domains: {},
     },
   ],
 };
@@ -576,7 +581,7 @@ describe("private formula bridge", () => {
       await kind(invokeAdapter(node, responder(value), request()), "protocol");
   });
 
-  it("strictly validates populated protocol-v7 query result unions", async () => {
+  it("strictly validates populated protocol-v8 query result unions", async () => {
     const identityAnswer = {
       check: null,
       conclusion: "proved",
@@ -589,6 +594,7 @@ describe("private formula bridge", () => {
         statement: "normalized difference is zero",
       },
       derived_candidates: [],
+      constraint_uses: [],
     };
     const query = {
       name: "same",
@@ -913,6 +919,7 @@ describe("private formula bridge", () => {
       blockers: ["derived target source closed concluded unresolved"],
       evidence: null,
       derived_candidates: [],
+      constraint_uses: [],
     };
     const source = {
       name: "closed",
@@ -1019,6 +1026,7 @@ describe("private formula bridge", () => {
           blockers: ["unsupported"],
           evidence: null,
           derived_candidates: [],
+          constraint_uses: [],
         },
       ],
     };

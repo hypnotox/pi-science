@@ -114,7 +114,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 7, result: response }),
+            JSON.stringify({ version: 8, result: response }),
           )}))`,
         ],
       }),
@@ -367,6 +367,7 @@ describe("readiness gate", () => {
                   },
                 },
               ],
+              constraint_uses: [],
             },
           ],
         },
@@ -393,6 +394,7 @@ describe("readiness gate", () => {
                 intervals: [],
               },
               derived_candidates: [],
+              constraint_uses: [],
             },
             {
               check: { kind: "singularities", variable: "p" },
@@ -403,6 +405,7 @@ describe("readiness gate", () => {
               blockers: [],
               evidence: { kind: "property", value: "none", intervals: [] },
               derived_candidates: [],
+              constraint_uses: [],
             },
           ],
         },
@@ -416,7 +419,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 7, result: response }),
+            JSON.stringify({ version: 8, result: response }),
           )}))`,
         ],
       }),

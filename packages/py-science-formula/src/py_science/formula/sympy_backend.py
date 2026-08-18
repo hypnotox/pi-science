@@ -1448,6 +1448,8 @@ def _to_sympy(formula: Expression | Equation) -> SympyExpression:
         arguments = tuple(_to_sympy(argument) for argument in formula.arguments)
         if formula.name == "Max":
             constructor = cast(Callable[..., SympyExpression], sympy.Max)
+        elif formula.name == "Min":
+            constructor = cast(Callable[..., SympyExpression], sympy.Min)
         else:
             function_factory = cast(Callable[[str], Callable[..., SympyExpression]], sympy.Function)
             constructor = function_factory(formula.name)

@@ -22,6 +22,7 @@ MAX_GENERATED_SCENARIO_RESULTS = 256
 MAX_SCENARIO_INTEGER_BITS = 3_402
 type ExactScenarioScalar = str | int
 MAX_DOMAINS_PER_EQUATION = 32
+MAX_CONSTRAINTS_PER_EQUATION = 32
 MAX_PARAMETERS = 32
 _NAME_PATTERN = r"^[A-Za-z][A-Za-z0-9_]*$"
 
@@ -188,15 +189,25 @@ class Scenario(StructuredModel):
         return self
 
 
+class DomainConstraint(StructuredModel):
+    """One named, equation-local relationship tightening an output index."""
+
+    name: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
+    target: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
+    relationship: str = Field(min_length=1, max_length=MAX_FORMULA_BYTES)
+
+
 class EquationRequest(StructuredModel):
     name: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
     expression: str
     domains: dict[str, IndexDomain] = Field(default_factory=dict)
+    constraints: tuple[DomainConstraint, ...] = Field(default=(), max_length=MAX_CONSTRAINTS_PER_EQUATION)
 
     @model_validator(mode="after")
     def validate_domains(self) -> "EquationRequest":
         if len(self.domains) > MAX_DOMAINS_PER_EQUATION:
             raise ValueError("equation domain collection exceeds its bound")
+        _require_unique((constraint.name for constraint in self.constraints), "equation constraint names")
         if any(
             name == "oo"
             or len(name) > MAX_NAME_LENGTH
@@ -465,6 +476,7 @@ class QueryAnswer(StructuredModel):
     blockers: tuple[str, ...] = Field(default=(), max_length=128)
     evidence: QueryEvidence | None = None
     derived_candidates: tuple[DerivedCandidate, ...] = Field(default=(), max_length=32)
+    constraint_uses: tuple["ConstraintUse", ...] = ()
 
     @model_validator(mode="after")
     def terminal_shape(self) -> "QueryAnswer":
@@ -740,6 +752,24 @@ def _validate_direct_work_variant(
         raise ValueError("non-finite direct work requires null values and blockers")
 
 
+class EffectiveIndexDomain(StructuredModel):
+    index: str
+    lower: str = Field(min_length=1, max_length=4096)
+    upper: str = Field(min_length=1, max_length=4096)
+
+
+class ConstraintUse(StructuredModel):
+    equation: str
+    name: str
+    target: str
+    relationship: str
+
+
+class EquationEffectiveDomains(StructuredModel):
+    equation: str
+    domains: tuple[EffectiveIndexDomain, ...] = Field(max_length=MAX_DOMAINS_PER_EQUATION)
+
+
 class EquationReport(StructuredModel):
     name: str
     interpretation: Interpretation
@@ -753,6 +783,9 @@ class EquationReport(StructuredModel):
     unknown_costs: tuple[str, ...] = ()
     unresolved: tuple[str, ...] = ()
     relationships_used: tuple["RelationshipUse", ...] = ()
+    constraints: tuple[DomainConstraint, ...] = ()
+    effective_domains: tuple[EffectiveIndexDomain, ...] = ()
+    constraint_uses: tuple[ConstraintUse, ...] = ()
 
     @model_validator(mode="after")
     def validate_direct_work(self) -> "EquationReport":
@@ -797,6 +830,8 @@ class ScenarioResult(StructuredModel):
     relationships_used: tuple[RelationshipUse, ...] = ()
     qualifications: tuple[str, ...] = ()
     unresolved: tuple[str, ...] = ()
+    effective_domains: tuple["EquationEffectiveDomains", ...] = ()
+    choice_effective_domains: dict[str, tuple["EquationEffectiveDomains", ...]] = Field(default_factory=dict)
 
 
 class ReuseReport(StructuredModel):
