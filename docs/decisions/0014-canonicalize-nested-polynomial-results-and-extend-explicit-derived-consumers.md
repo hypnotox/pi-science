@@ -42,9 +42,10 @@ Performance and numerical trade-offs remain empirical questions. The symbolic AP
 | Implicitly replace nested sums for every downstream query | It makes query behaviour less inspectable and silently broadens direct `Sum` support. |
 | Permit unrestricted SymPy simplification and downstream evaluation | Backend heuristics and resource use would define public policy without stable preflight, verification, or domain qualification. |
 | Add only presentation normalization | It would not let sign or asymptotic queries reuse the already-proved operand. |
-| Expand explicit consumers without canonicalizing the candidate | It improves reuse but leaves deterministic compact presentation—the other observed usability gap—unsolved. |
+| Expand explicit consumers without canonicalizing the candidate | It improves reuse but leaves deterministic compact presentation, the other observed usability gap, unsolved. |
 
 ## Status history
 
 - 2026-08-18: Proposed
 - 2026-08-18: Accepted; content-sha256: cb69cfdb87684c778657de0f44693bf7239d7c6c57f6481e46775d3f96ca2eda
+- 2026-08-18: Amended; content-sha256: b0b3a288afd80c8f4b800d637bb2f385c416959304a98fcbb7171d53e179028d
