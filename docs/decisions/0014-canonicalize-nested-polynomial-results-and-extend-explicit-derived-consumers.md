@@ -1,7 +1,7 @@
 ---
 format: current-state-v4
 slug: canonicalize-nested-polynomial-results-and-extend-explicit-derived-consumers
-status: Proposed
+status: Accepted
 date: 2026-08-18
 ---
 # ADR-0014: Canonicalize Nested Polynomial Results and Extend Explicit Derived Consumers
@@ -47,3 +47,4 @@ Performance and numerical trade-offs remain empirical questions. The symbolic AP
 ## Status history
 
 - 2026-08-18: Proposed
+- 2026-08-18: Accepted; content-sha256: cb69cfdb87684c778657de0f44693bf7239d7c6c57f6481e46775d3f96ca2eda
