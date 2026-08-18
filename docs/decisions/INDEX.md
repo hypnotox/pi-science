@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-- [ADR-0014: Canonicalize Nested Polynomial Results and Extend Explicit Derived Consumers](0014-canonicalize-nested-polynomial-results-and-extend-explicit-derived-consumers.md) (Implementing)
+_No decisions are in flight._
 
 ## History
 
@@ -19,3 +19,4 @@
 - [ADR-0011: Adopt explicit reusable verified query candidates](0011-adopt-explicit-reusable-verified-query-candidates.md) (Implemented)
 - [ADR-0012: Adopt bounded nested finite polynomial closed forms](0012-adopt-bounded-nested-finite-polynomial-closed-forms.md) (Implemented)
 - [ADR-0013: Adopt bounded affine output-domain constraints](0013-adopt-bounded-affine-output-domain-constraints.md) (Implemented)
+- [ADR-0014: Canonicalize Nested Polynomial Results and Extend Explicit Derived Consumers](0014-canonicalize-nested-polynomial-results-and-extend-explicit-derived-consumers.md) (Implemented)
