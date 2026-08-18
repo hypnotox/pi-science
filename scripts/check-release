@@ -146,8 +146,12 @@ project="$tmp/pi-project"
 agent="$tmp/pi-agent"
 mkdir -p "$project/.pi" "$agent"
 printf '{"defaultProjectTrust":"always","enableInstallTelemetry":false}\n' >"$agent/settings.json"
+PI_BIN="$root/node_modules/.bin/pi"
+[[ -x $PI_BIN ]] || {
+  printf 'project-local Pi binary is missing; run npm install first: %s\n' "$PI_BIN" >&2
+  exit 1
+}
 export PI_BIN
-PI_BIN=$(command -v pi)
 (
   cd "$project"
   PI_CODING_AGENT_DIR="$agent" PI_SKIP_VERSION_CHECK=1 PI_TELEMETRY=0 \
