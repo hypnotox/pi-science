@@ -300,10 +300,11 @@ managed_checkout=$(find "$project/.pi/git" -type d -name .git -print -quit | xar
 # diagnostics and the verifier, withholding the analysis tool and product skill.
 no_uv="$tmp/no-uv-bin"
 mkdir "$no_uv"
-for command in node npm git pi python; do
+for command in node npm git python; do
   target=$(command -v "$command")
   ln -s "$target" "$no_uv/$command"
 done
+ln -s "$PI_BIN" "$no_uv/pi"
 PATH="$no_uv" XDG_CACHE_HOME="$tmp/pi-disabled-cache" \
   "$no_uv/python" "$rpc_probe" "$project" "$agent" "$verifier" disabled
 

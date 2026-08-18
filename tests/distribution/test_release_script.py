@@ -54,6 +54,9 @@ def test_release_snapshot_accepts_clean_worktree(tmp_path: Path) -> None:
 
 
 def test_release_uses_project_local_pi_without_global_install(tmp_path: Path) -> None:
+    script = (REPOSITORY_ROOT / "scripts" / "check-release").read_text()
+    assert "for command in node npm git pi python" not in script
+
     checkout = tmp_path / "checkout"
     subprocess.run(
         ["git", "clone", "--quiet", "--no-local", str(REPOSITORY_ROOT), str(checkout)],
