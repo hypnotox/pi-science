@@ -313,6 +313,142 @@ describe("readiness gate", () => {
     });
   });
 
+  it("projects closed-form candidates and variable-qualified property checks", async () => {
+    const current = host();
+    const response = {
+      status: "success" as const,
+      interpretation: { normalized_sympy: "f(q)", normalized_latex: "f(q)" },
+      operation_counts: {
+        additions: 0,
+        subtractions: 0,
+        multiplications: 0,
+        divisions: 0,
+        powers: 0,
+      },
+      abstract_work: 0,
+      direct_work_applicability: "finite" as const,
+      direct_work_blockers: [],
+      scenarios: [],
+      queries: [
+        {
+          name: "tail",
+          kind: "closed_form" as const,
+          target: { kind: "expression" as const },
+          normalized_target: {
+            normalized_sympy: "f(q)",
+            normalized_latex: "f(q)",
+          },
+          summary: "tail closed form",
+          answers: [
+            {
+              check: null,
+              conclusion: "proved_under_assumptions",
+              conditions: [],
+              assumptions_used: [],
+              relevant_unsupported_assumptions: [],
+              blockers: [],
+              evidence: {
+                kind: "closed_form",
+                verification: "infinite_partial_sum",
+                statement: "verified",
+              },
+              derived_candidates: [
+                {
+                  interpretation: {
+                    normalized_sympy: "q**p/(1 - q)",
+                    normalized_latex: "\\\\frac{q^p}{1-q}",
+                  },
+                  operation_counts: {
+                    additions: 0,
+                    subtractions: 1,
+                    multiplications: 1,
+                    divisions: 1,
+                    powers: 1,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+        {
+          name: "shape",
+          kind: "properties" as const,
+          target: { kind: "expression" as const },
+          normalized_target: {
+            normalized_sympy: "f(q)",
+            normalized_latex: "f(q)",
+          },
+          summary: "properties",
+          answers: [
+            {
+              check: { kind: "monotonicity", variable: "q" },
+              conclusion: "proved",
+              conditions: [],
+              assumptions_used: [],
+              relevant_unsupported_assumptions: [],
+              blockers: [],
+              evidence: {
+                kind: "property",
+                value: "increasing",
+                intervals: [],
+              },
+              derived_candidates: [],
+            },
+            {
+              check: { kind: "singularities", variable: "p" },
+              conclusion: "proved_under_assumptions",
+              conditions: [],
+              assumptions_used: [],
+              relevant_unsupported_assumptions: [],
+              blockers: [],
+              evidence: { kind: "property", value: "none", intervals: [] },
+              derived_candidates: [],
+            },
+          ],
+        },
+      ],
+    };
+    await start(
+      current.api,
+      Promise.resolve({
+        ready: true,
+        command: process.execPath,
+        args: [
+          "-e",
+          `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
+            JSON.stringify({ version: 6, result: response }),
+          )}))`,
+        ],
+      }),
+    );
+
+    const result = await current.tools[0]!.execute("id", {
+      expression: "f(q)",
+      queries: [
+        { name: "tail", kind: "closed_form" },
+        {
+          name: "shape",
+          kind: "properties",
+          checks: [
+            { kind: "monotonicity", variable: "q" },
+            { kind: "singularities", variable: "p" },
+          ],
+        },
+      ],
+    });
+
+    expect(result.content[0]!.text).toContain(
+      "- tail (closed_form): proved_under_assumptions; derived: q**p/(1 - q)",
+    );
+    expect(result.content[0]!.text).toContain(
+      "- shape (properties; monotonicity (q)): proved",
+    );
+    expect(result.content[0]!.text).toContain(
+      "- shape (properties; singularities (p)): proved_under_assumptions",
+    );
+    expect(result.details).toEqual(response);
+  });
+
   it("round trips an AFMM-like system through the registered tool callback", async () => {
     const current = host();
     const adapter = fileURLToPath(

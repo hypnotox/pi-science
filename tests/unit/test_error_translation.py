@@ -143,6 +143,19 @@ def test_parse_errors_identify_the_nested_request_source() -> None:
             AnalysisRequest(
                 syntax=FormulaSyntax.SYMPY,
                 expression="x",
+                scenarios=(
+                    Scenario(
+                        name="not_an_expression",
+                        definitions=(DirectedDefinition(variable="y", expression="Eq(y, x)"),),
+                    ),
+                ),
+            ),
+            "scenarios[0].definitions[0].expression",
+        ),
+        (
+            AnalysisRequest(
+                syntax=FormulaSyntax.SYMPY,
+                expression="x",
                 scenarios=(Scenario(name="unknown", fixed={"y": 1}),),
             ),
             "scenarios[0].fixed.y",

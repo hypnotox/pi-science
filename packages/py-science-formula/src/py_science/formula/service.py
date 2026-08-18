@@ -271,7 +271,7 @@ def _parse_knowledge(
                 source=SourceReference(path=f"assumptions[{position}].relationship"),
             )
         assumptions.append(NamedRelationship(item.name, item.relationship, parsed))
-    parsed_definitions: list[tuple[str, str, Expression]] = []
+    parsed_definitions: list[tuple[int, str, str, Expression]] = []
     for position, item in enumerate(request.definitions):
         parsed = loader.parse(item.expression, f"definitions[{position}].expression")
         if isinstance(parsed, AnalysisFailure):
@@ -281,23 +281,31 @@ def _parse_knowledge(
                 f"definition {item.variable} must be an expression",
                 source=SourceReference(path=f"definitions[{position}].expression"),
             )
-        parsed_definitions.append((item.variable, item.expression, parsed))
+        parsed_definitions.append((position, item.variable, item.expression, parsed))
     graph = {
-        name: _symbol_names(expression) & {other[0] for other in parsed_definitions}
-        for name, _, expression in parsed_definitions
+        name: _symbol_names(expression) & {other[1] for other in parsed_definitions}
+        for _, name, _, expression in parsed_definitions
     }
     order = _topological(graph)
     if order is None:
         return _invalid("directed definitions contain a cycle")
     parsed_by_name = {
-        name: (source, expression) for name, source, expression in parsed_definitions
+        name: (position, source, expression)
+        for position, name, source, expression in parsed_definitions
     }
     resolved_definitions: dict[str, Expression] = {}
     definitions: list[NamedDefinition] = []
     for name in order:
-        source, expression = parsed_by_name[name]
+        position, source, expression = parsed_by_name[name]
         resolved = substitute(expression, resolved_definitions, max_nodes=MAX_WORK_NODES)
-        domain_result = _definition_domain_result(name, resolved, request, context)
+        domain_result = _definition_domain_result(
+            name,
+            resolved,
+            request,
+            context,
+            SourceReference(path=f"definitions[{position}].expression"),
+            SourceReference(path=f"definitions[{position}].variable"),
+        )
         if isinstance(domain_result, AnalysisFailure):
             return domain_result
         resolved_definitions[name] = resolved
@@ -316,7 +324,8 @@ def _parse_knowledge(
             if isinstance(parsed, (Equation, Relationship)):
                 return _invalid(
                     f"scenario {scenario.name} definition "
-                    f"{definition.variable} must be an expression"
+                    f"{definition.variable} must be an expression",
+                    source=SourceReference(path=definition_path),
                 )
             if _contains_infinity(parsed):
                 return _invalid(
@@ -448,10 +457,14 @@ def _definition_domain_result(
     request: AnalysisRequest,
     context: WorkContext,
     source: SourceReference | None = None,
+    target_source: SourceReference | None = None,
 ) -> str | AnalysisFailure | None:
     declaration = request.variables.get(variable)
     if declaration is None:
-        return _invalid(f"definition target {variable} is undeclared", source=source)
+        return _invalid(
+            f"definition target {variable} is undeclared",
+            source=target_source or source,
+        )
     references = _external_value_names(expression, set(), set()) - set(request.variables)
     if references:
         return _invalid(

@@ -51,6 +51,15 @@ export function resolvePinnedRevision(
   return resolvePinnedSource(repositoryRoot, git)?.revision;
 }
 
+const MAX_COMPACT_DERIVED_CANDIDATES = 3;
+const MAX_COMPACT_EXPRESSION_LENGTH = 512;
+
+function compactExpression(expression: string): string {
+  return expression.length <= MAX_COMPACT_EXPRESSION_LENGTH
+    ? expression
+    : `${expression.slice(0, MAX_COMPACT_EXPRESSION_LENGTH - 1)}…`;
+}
+
 function compactToolText(result: BridgeResult): string {
   if (result.status === "failure")
     return [
@@ -65,10 +74,22 @@ function compactToolText(result: BridgeResult): string {
     ].join("\n");
 
   const queryConclusions = result.queries.flatMap((query) =>
-    query.answers.map(
-      (answer) =>
-        `- ${query.name} (${query.kind}): ${answer.conclusion}${answer.check ? ` (${answer.check.kind})` : ""}`,
-    ),
+    query.answers.map((answer) => {
+      const check = answer.check
+        ? `; ${answer.check.kind}${"variable" in answer.check ? ` (${answer.check.variable})` : ""}`
+        : "";
+      const derived =
+        query.kind === "closed_form" &&
+        (answer.conclusion === "proved" ||
+          answer.conclusion === "proved_under_assumptions")
+          ? answer.derived_candidates
+              .slice(0, MAX_COMPACT_DERIVED_CANDIDATES)
+              .map((candidate) =>
+                compactExpression(candidate.interpretation.normalized_sympy),
+              )
+          : [];
+      return `- ${query.name} (${query.kind}${check}): ${answer.conclusion}${derived.length === 0 ? "" : `; derived: ${derived.join(", ")}`}`;
+    }),
   );
   const generalWork = result.system?.total_work ?? result.abstract_work;
   const work = [

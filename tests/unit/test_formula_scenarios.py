@@ -484,6 +484,14 @@ def test_definitions_validate_declared_domains_globally_and_per_scenario() -> No
             definitions=(DirectedDefinition(variable="p", expression="q + 1"),),
         )
     )
+    undeclared_target = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="p",
+            variables={"p": declared()},
+            definitions=(DirectedDefinition(variable="q", expression="1"),),
+        )
+    )
     global_unproved = analyze(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
@@ -516,12 +524,30 @@ def test_definitions_validate_declared_domains_globally_and_per_scenario() -> No
 
     assert global_contradiction.status == "failure"
     assert "contradicts declared domain for p" in global_contradiction.error.message
+    assert global_contradiction.error.source is not None
+    assert global_contradiction.error.source.path == "definitions[0].expression"
+    assert global_contradiction.error.location is None
+    assert global_contradiction.error.source.span is None
     assert nonintegral_contradiction.status == "failure"
     assert "contradicts declared domain for p" in nonintegral_contradiction.error.message
+    assert nonintegral_contradiction.error.source is not None
+    assert nonintegral_contradiction.error.source.path == "definitions[0].expression"
+    assert nonintegral_contradiction.error.location is None
+    assert nonintegral_contradiction.error.source.span is None
     assert scenario_contradiction.status == "failure"
     assert "contradicts declared domain for p" in scenario_contradiction.error.message
     assert undeclared_reference.status == "failure"
     assert "undeclared variables: q" in undeclared_reference.error.message
+    assert undeclared_reference.error.source is not None
+    assert undeclared_reference.error.source.path == "definitions[0].expression"
+    assert undeclared_reference.error.location is None
+    assert undeclared_reference.error.source.span is None
+    assert undeclared_target.status == "failure"
+    assert "definition target q is undeclared" in undeclared_target.error.message
+    assert undeclared_target.error.source is not None
+    assert undeclared_target.error.source.path == "definitions[0].variable"
+    assert undeclared_target.error.location is None
+    assert undeclared_target.error.source.span is None
     assert global_unproved.status == "success"
     assert global_unproved.system is not None
     assert "domain preservation is unproved" in " ".join(global_unproved.system.unresolved)
