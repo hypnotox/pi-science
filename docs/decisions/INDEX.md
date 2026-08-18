@@ -2,8 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-- [ADR-0011: Adopt explicit reusable verified query candidates](0011-adopt-explicit-reusable-verified-query-candidates.md) (Implementing)
-- [ADR-0012: Adopt bounded nested finite polynomial closed forms](0012-adopt-bounded-nested-finite-polynomial-closed-forms.md) (Implementing)
+_No decisions are in flight._
 
 ## History
 
@@ -17,3 +16,5 @@
 - [ADR-0008: Keep rewrite guidance deferred until implemented](0008-keep-rewrite-guidance-deferred-until-implemented.md) (Implemented)
 - [ADR-0009: Correct nested finite-work current-state claims](0009-correct-nested-finite-work-current-state-claims.md) (Implemented)
 - [ADR-0010: Adopt acyclic dependent output domains](0010-adopt-acyclic-dependent-output-domains.md) (Implemented)
+- [ADR-0011: Adopt explicit reusable verified query candidates](0011-adopt-explicit-reusable-verified-query-candidates.md) (Implemented)
+- [ADR-0012: Adopt bounded nested finite polynomial closed forms](0012-adopt-bounded-nested-finite-polynomial-closed-forms.md) (Implemented)

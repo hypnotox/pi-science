@@ -3,7 +3,7 @@ format: plan-v2
 date: 2026-08-18
 adrs:
   - adopt-explicit-reusable-verified-query-candidates
-status: Proposed
+status: Implemented
 ---
 # Plan: Implement reusable verified query candidates
 

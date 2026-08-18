@@ -1,7 +1,7 @@
 ---
 format: current-state-v4
 slug: adopt-bounded-nested-finite-polynomial-closed-forms
-status: Implementing
+status: Implemented
 date: 2026-08-18
 ---
 # ADR-0012: Adopt bounded nested finite polynomial closed forms
@@ -52,3 +52,4 @@ The family is intentionally partial. It does not solve general nested sums, inli
 - 2026-08-18: Accepted; content-sha256: 683347b327078f284f615a5cfcad60a15ba64263073e6bcc35d2e230b7639059
 - 2026-08-18: Implementing; content-sha256: 683347b327078f284f615a5cfcad60a15ba64263073e6bcc35d2e230b7639059
 - 2026-08-18: Applied; operations: update `product/mathematical-analysis-model:assumption-aware-query-reasoning`, update `product/analysis-report-contract:qualified-query-conclusions`
+- 2026-08-18: Implemented; content-sha256: 683347b327078f284f615a5cfcad60a15ba64263073e6bcc35d2e230b7639059

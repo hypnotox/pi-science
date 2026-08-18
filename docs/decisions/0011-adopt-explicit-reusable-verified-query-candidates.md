@@ -1,7 +1,7 @@
 ---
 format: current-state-v4
 slug: adopt-explicit-reusable-verified-query-candidates
-status: Implementing
+status: Implemented
 date: 2026-08-18
 ---
 # ADR-0011: Adopt explicit reusable verified query candidates
@@ -53,3 +53,4 @@ Some otherwise meaningful compositions remain intentionally unavailable. Propert
 - 2026-08-18: Accepted; content-sha256: 34eb5968159301c622645c186afcbb2fa36fe9fab46c6f74897d56a94fce367b
 - 2026-08-18: Implementing; content-sha256: 34eb5968159301c622645c186afcbb2fa36fe9fab46c6f74897d56a94fce367b
 - 2026-08-18: Applied; operations: update `product/mathematical-input-contract:explicit-mathematical-queries`, update `product/mathematical-analysis-model:assumption-aware-query-reasoning`, update `product/analysis-report-contract:qualified-query-conclusions`
+- 2026-08-18: Implemented; content-sha256: 34eb5968159301c622645c186afcbb2fa36fe9fab46c6f74897d56a94fce367b
