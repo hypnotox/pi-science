@@ -501,6 +501,39 @@ def test_rational_bound_refusals_report_observed_degree_and_recovery():
     )
 
 
+def test_rational_shape_reasoning_refusal_remains_actionable(monkeypatch):
+    def refuse(_self, _expression):
+        raise RuntimeError("injected bounded reasoning refusal")
+
+    monkeypatch.setattr(properties.ReasoningContext, "apply", refuse)
+    properties_outcome = query(
+        "x",
+        {
+            "name": "p",
+            "kind": "properties",
+            "checks": ({"kind": "valid_domain", "variable": "x"},),
+        },
+    )
+    assert properties_outcome.queries[0].answers[0].blockers == (
+        "properties target cannot be prepared by bounded query reasoning; "
+        "use a smaller univariate rational target",
+    )
+    limit_outcome = query(
+        "x",
+        {
+            "name": "l",
+            "kind": "limit",
+            "variable": "x",
+            "point": "0",
+            "direction": "both",
+        },
+    )
+    assert limit_outcome.queries[0].answers[0].blockers == (
+        "limit target cannot be prepared by bounded query reasoning; "
+        "use a smaller univariate rational target",
+    )
+
+
 def test_rational_shape_backend_refusals_remain_categorical(monkeypatch):
     def blocker() -> str:
         outcome = query(
