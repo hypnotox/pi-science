@@ -8,13 +8,13 @@ date: 2026-08-18
 
 ## Context
 
-The shipped analyzer reports submitted work, normalized interpretation, named dependencies and ideal reuse, scenario specializations, and qualified bounded mathematical queries. It does not yet suggest local rewrites, compare candidate formulations, identify common-subexpression extraction or invariant-hoisting opportunities, or claim that one formulation improves another.
+The shipped analyzer reports submitted work, normalized interpretation, named dependencies and ideal reuse, repeated-expression extraction diagnostics, scenario specializations, and qualified bounded mathematical queries. It does not yet suggest local rewrites, estimate invariant-hoisting effects, compare candidate formulations, or claim that one formulation improves another.
 
-Two active claims inherited from the original product direction nevertheless list improvement opportunities and conditional rewrites as current report behavior. The vision now describes shipped MVP behavior accurately, and the roadmap retains rewrite, extraction, comparison, crossover, and dominance work as uncommitted direction.
+Two active claims inherited from the original product direction nevertheless list improvement opportunities and conditional rewrites as current report behavior. The vision now describes shipped MVP behavior accurately, and the roadmap retains rewrite, hoisting-effect, comparison, crossover, and dominance work as uncommitted direction.
 
 ## Decision
 
-1. `decision: expose-rewrite-guidance-only-when-implemented` Describe current reports without rewrite or improvement-opportunity guarantees. Keep local rewrites, extraction suggestions, candidate comparison, and related improvement guidance deferred until they have explicit bounded semantics, qualification rules, tests, and documentation.
+1. `decision: expose-rewrite-guidance-only-when-implemented` Preserve qualified repeated-expression extraction diagnostics, but describe current reports without local-rewrite, hoisting-effect, candidate-comparison, or improvement-ranking guarantees. Keep those unimplemented capabilities as roadmap work.
 
 ## State changes
 
@@ -25,14 +25,14 @@ Two active claims inherited from the original product direction nevertheless lis
 
 Current authority no longer promises results the analyzer does not produce. Agents continue to receive inspectable qualified analysis and may reason about changes themselves without treating absent rewrite guidance as a shipped feature.
 
-Future rewrite or comparison support must define how candidates are generated, qualified, bounded, and separated from submitted work before current guidance advertises it.
+Rewrite, hoisting-effect, candidate-comparison, and improvement-ranking support remain roadmap work rather than current guidance.
 
 ## Alternatives Considered
 
 | Alternative | Why not chosen |
 |---|---|
 | Keep the claims aspirational | Current-state documentation must describe available behavior rather than roadmap intent. |
-| Add unbounded SymPy rewrite suggestions immediately | General CAS output would not provide the required resource, qualification, or submitted-work guarantees. |
+| Implement bounded rewrite or comparison support now | That is separate product work; this decision corrects current authority while retaining implementation as uncommitted roadmap direction. |
 | Remove rewrite and comparison from the roadmap | They remain valid future product directions once bounded contracts exist. |
 
 ## Status history
