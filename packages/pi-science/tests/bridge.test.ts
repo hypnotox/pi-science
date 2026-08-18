@@ -873,6 +873,78 @@ describe("private formula bridge", () => {
       );
   });
 
+  it("enforces derived-result nullability and request correlation", async () => {
+    const unavailableAnswer = {
+      check: null,
+      conclusion: "inapplicable",
+      conditions: [],
+      assumptions_used: [],
+      relevant_unsupported_assumptions: [],
+      blockers: ["derived target source closed concluded unresolved"],
+      evidence: null,
+      derived_candidates: [],
+    };
+    const source = {
+      name: "closed",
+      kind: "closed_form",
+      target: { kind: "expression" },
+      normalized_target: success.interpretation,
+      summary: "closed",
+      answers: [
+        {
+          ...unavailableAnswer,
+          conclusion: "unresolved",
+          blockers: ["unsupported"],
+        },
+      ],
+    };
+    const dependent = {
+      name: "dependent",
+      kind: "equivalence",
+      target: { kind: "derived", query: "closed" },
+      normalized_target: null,
+      summary: "unavailable",
+      answers: [unavailableAnswer],
+    };
+    const derivedRequest = {
+      ...request(),
+      queries: [
+        { name: "closed", kind: "closed_form" as const },
+        {
+          name: "dependent",
+          kind: "equivalence" as const,
+          target: { kind: "derived" as const, query: "closed" },
+          comparison: "x",
+        },
+      ],
+    };
+    await expect(
+      invokeAdapter(
+        node,
+        responder({ ...success, queries: [source, dependent] }),
+        derivedRequest,
+      ),
+    ).resolves.toMatchObject({ queries: [source, dependent] });
+    for (const malformed of [
+      { ...dependent, normalized_target: success.interpretation },
+      {
+        ...dependent,
+        answers: [{ ...unavailableAnswer, conclusion: "unresolved" }],
+      },
+      { ...dependent, kind: "properties" },
+      { ...source, normalized_target: null },
+      { ...source, normalized_target: { normalized_sympy: "x" } },
+    ])
+      await kind(
+        invokeAdapter(
+          node,
+          responder({ ...success, queries: [source, malformed] }),
+          derivedRequest,
+        ),
+        "protocol",
+      );
+  });
+
   it("correlates query responses with the submitted query request", async () => {
     const query = {
       name: "domain",

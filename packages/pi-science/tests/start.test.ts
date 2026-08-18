@@ -791,6 +791,66 @@ describe("readiness gate", () => {
     });
   });
 
+  it("feeds a verified closed form into later registered-tool queries", async () => {
+    const current = host();
+    const adapter = fileURLToPath(
+      new URL("../bridge/formula_adapter.py", import.meta.url),
+    );
+    await start(
+      current.api,
+      Promise.resolve({
+        ready: true,
+        command: "uv",
+        args: ["run", "--locked", "python", adapter],
+      }),
+    );
+    const result = await current.tools[0]!.execute("id", {
+      expression: "Sum(k * 2**k, (k, 0, 3))",
+      queries: [
+        { name: "closed", kind: "closed_form" },
+        {
+          name: "same",
+          kind: "equivalence",
+          target: { kind: "derived", query: "closed" },
+          comparison: "34",
+        },
+        {
+          name: "constant_limit",
+          kind: "limit",
+          target: { kind: "derived", query: "closed" },
+          variable: "x",
+          point: "oo",
+        },
+      ],
+    });
+    expect(result.details).toMatchObject({
+      status: "success",
+      queries: [
+        { name: "closed", kind: "closed_form" },
+        {
+          name: "same",
+          kind: "equivalence",
+          target: { kind: "derived", query: "closed" },
+          normalized_target: { normalized_sympy: "34" },
+          answers: [{ conclusion: "proved_under_assumptions" }],
+        },
+        {
+          name: "constant_limit",
+          kind: "limit",
+          target: { kind: "derived", query: "closed" },
+          normalized_target: { normalized_sympy: "34" },
+          answers: [{ conclusion: "proved_under_assumptions" }],
+        },
+      ],
+    });
+    expect(result.content[0]?.text).toContain(
+      "- same (equivalence): proved_under_assumptions",
+    );
+    expect(result.content[0]?.text).toContain(
+      "- constant_limit (limit): proved_under_assumptions",
+    );
+  });
+
   it("surfaces Python request diagnostics through the registered tool", async () => {
     const current = host();
     const adapter = fileURLToPath(

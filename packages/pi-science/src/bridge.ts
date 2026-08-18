@@ -96,9 +96,52 @@ type QueryCore =
       order: number;
     };
 export type ExpressionQueryRequest = QueryCore;
-export type SystemQueryRequest = QueryCore & {
-  target: EquationTarget | DerivedTarget;
-};
+export type SystemQueryRequest =
+  | {
+      name: string;
+      kind: "equivalence";
+      comparison: string;
+      target: EquationTarget | DerivedTarget;
+    }
+  | { name: string; kind: "closed_form"; target: EquationTarget }
+  | {
+      name: string;
+      kind: "properties";
+      checks: PropertyCheckRequest[];
+      target: EquationTarget;
+    }
+  | {
+      name: string;
+      kind: "limit";
+      variable: string;
+      point: ExactScenarioScalar;
+      direction: "left" | "right" | "both";
+      target: EquationTarget | DerivedTarget;
+    }
+  | {
+      name: string;
+      kind: "limit";
+      variable: string;
+      point: "oo" | "-oo";
+      target: EquationTarget | DerivedTarget;
+    }
+  | {
+      name: string;
+      kind: "asymptotic";
+      variable: string;
+      point: ExactScenarioScalar;
+      direction: "left" | "right" | "both";
+      order: number;
+      target: EquationTarget;
+    }
+  | {
+      name: string;
+      kind: "asymptotic";
+      variable: string;
+      point: "oo" | "-oo";
+      order: number;
+      target: EquationTarget;
+    };
 export type QueryRequest = ExpressionQueryRequest | SystemQueryRequest;
 
 type RequestMetadata<Query extends QueryRequest> = {
@@ -918,18 +961,28 @@ function validQueryResult(value: unknown): boolean {
       "asymptotic",
     ].includes(String(value.kind)) ||
     !validResolvedTarget(value.target) ||
-    !(
-      validInterpretation(value.normalized_target) ||
-      (isRecord(value.target) &&
-        value.target.kind === "derived" &&
-        value.normalized_target === null)
-    ) ||
     !boundedQueryText(value.summary) ||
     !Array.isArray(value.answers) ||
     !value.answers.every(validQueryAnswer)
   )
     return false;
   const answers = value.answers as QueryAnswer[];
+  const derivedUnavailable =
+    isRecord(value.target) &&
+    value.target.kind === "derived" &&
+    answers.length === 1 &&
+    answers[0]?.conclusion === "inapplicable" &&
+    answers[0].blockers.some((blocker) =>
+      blocker.startsWith("derived target source "),
+    );
+  if (
+    (value.normalized_target === null) !== derivedUnavailable ||
+    (!derivedUnavailable && !validInterpretation(value.normalized_target)) ||
+    (isRecord(value.target) &&
+      value.target.kind === "derived" &&
+      !["equivalence", "limit"].includes(String(value.kind)))
+  )
+    return false;
   if (value.kind === "properties") {
     const checks = answers.map((answer) => JSON.stringify(answer.check));
     return (

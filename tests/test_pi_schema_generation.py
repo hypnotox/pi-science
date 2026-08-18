@@ -137,6 +137,20 @@ def test_generated_pi_schema_preserves_query_and_population_bounds() -> None:
     }
     assert derived_consumers == {"equivalence", "limit"}
     assert all("target" in variant["required"] for variant in system_queries)
+    def target_kinds(variant: dict[str, Any]) -> set[str]:
+        target = variant["properties"]["target"]
+        options = target.get("anyOf", [target])
+        return {option["properties"]["kind"]["enum"][0] for option in options}
+
+    system_target_kinds = {
+        variant["properties"]["kind"]["enum"][0]: target_kinds(variant)
+        for variant in system_queries
+    }
+    assert system_target_kinds["equivalence"] == {"equation", "derived"}
+    assert system_target_kinds["limit"] == {"equation", "derived"}
+    assert system_target_kinds["closed_form"] == {"equation"}
+    assert system_target_kinds["properties"] == {"equation"}
+    assert system_target_kinds["asymptotic"] == {"equation"}
     assert all("kind" in variant["required"] for variant in expression_queries)
     property_query = next(
         variant

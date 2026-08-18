@@ -108,11 +108,21 @@ def _query_variants(
         properties = variant["properties"]
         required = list(variant.get("required", []))
         target = properties.get("target")
+        kind = properties["kind"]["enum"][0]
         if system:
             if target is not None and "target" not in required:
                 required.append("target")
+            # Only equivalence and limit may consume a derived target; every
+            # other system query retains its submitted equation target.
+            if target is not None and kind not in {"equivalence", "limit"}:
+                options = target.get("anyOf") if isinstance(target, dict) else None
+                if isinstance(options, list):
+                    equation = [
+                        item for item in options
+                        if item.get("properties", {}).get("kind", {}).get("enum") == ["equation"]
+                    ]
+                    properties["target"] = {"anyOf": equation}
         elif target is not None:
-            kind = properties["kind"]["enum"][0]
             if kind not in {"equivalence", "limit"}:
                 properties.pop("target")
                 variant["required"] = [field for field in required if field != "target"]

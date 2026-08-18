@@ -490,6 +490,18 @@ class QueryResultCommon(StructuredModel):
     summary: str = Field(min_length=1, max_length=4096)
     answers: tuple[QueryAnswer, ...]
 
+    @model_validator(mode="after")
+    def derived_target_nullability(self) -> "QueryResultCommon":
+        unavailable = (
+            isinstance(self.target, DerivedTarget)
+            and len(self.answers) == 1
+            and self.answers[0].conclusion == "inapplicable"
+            and any(item.startswith("derived target source ") for item in self.answers[0].blockers)
+        )
+        if (self.normalized_target is None) != unavailable:
+            raise ValueError("normalized target is null only for an unavailable derived target")
+        return self
+
 
 class EquivalenceResult(QueryResultCommon):
     kind: Literal["equivalence"] = "equivalence"

@@ -2,13 +2,16 @@
 # pyright: basic, reportArgumentType=false, reportOptionalMemberAccess=false
 import py_science.formula.query as formula_query
 import py_science.formula.series as formula_series
+import py_science.formula.service as formula_query_service
 import py_science.formula.sympy_backend as formula_sympy
 import py_science.formula.sympy_backend as sympy_backend
 import pytest
 from py_science.formula import (
     AnalysisRequest,
     Assumption,
+    ClosedFormResult,
     CounterexampleEvidence,
+    DerivedTarget,
     DirectedDefinition,
     EquationRequest,
     EquationTarget,
@@ -838,3 +841,105 @@ def test_derived_target_reuses_earlier_verified_candidate():
     assert outcome.queries[1].target.kind == "derived"
     assert outcome.queries[1].normalized_target is not None
     assert outcome.queries[1].answers[0].conclusion == "proved_under_assumptions"
+
+
+def test_derived_target_uses_its_non_adjacent_named_source_qualification():
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="Sum(k*q**k, (k, 0, 2))",
+        assumptions=(Assumption(name="q_lt_one", relationship="q < 1"),),
+        queries=(
+            {"name": "closed", "kind": "closed_form"},
+            {"name": "middle", "kind": "equivalence", "comparison": "Sum(k*q**k, (k, 0, 2))"},
+            {"name": "dependent", "kind": "equivalence", "target": {"kind": "derived", "query": "closed"}, "comparison": "q + 2*q**2"},
+        ),
+    ))
+    assert outcome.status == "success"
+    answer = outcome.queries[2].answers[0]
+    assert answer.conditions == ("q != 1",)
+    assert tuple(use.name for use in answer.assumptions_used) == ("q_lt_one",)
+
+
+def test_derived_results_inherit_the_named_source_qualification_and_preserve_terminal_details():
+    interpretation = Interpretation(normalized_sympy="34", normalized_latex="34")
+    source = ClosedFormResult(
+        name="closed", target={"kind": "expression"}, normalized_target=interpretation,
+        summary="closed", answers=(QueryAnswer(
+            conclusion="unresolved", conditions=("source condition",),
+            assumptions_used=({"name": "source", "relationship": "q < 1"},),
+            relevant_unsupported_assumptions=("source unsupported",), blockers=("source blocker",),
+        ),),
+    )
+    dependent = EquivalenceResult(
+        name="dependent", target=DerivedTarget(query="closed"), normalized_target=None,
+        summary="unavailable", answers=(QueryAnswer(
+            conclusion="inapplicable", blockers=("derived target source closed concluded unresolved",),
+        ),),
+    )
+    composed = formula_query_service._compose_derived_qualification(dependent, source)
+    answer = composed.answers[0]
+    assert answer.conclusion == "inapplicable"
+    assert answer.conditions == ("source condition",)
+    assert tuple(use.name for use in answer.assumptions_used) == ("source",)
+    assert answer.relevant_unsupported_assumptions == ("source unsupported",)
+    assert answer.blockers == ("derived target source closed concluded unresolved",)
+
+
+def test_derived_qualification_overflow_is_unresolved_without_losing_existing_details():
+    interpretation = Interpretation(normalized_sympy="34", normalized_latex="34")
+    source = ClosedFormResult(
+        name="closed", target={"kind": "expression"}, normalized_target=interpretation,
+        summary="closed", answers=(QueryAnswer(
+            conclusion="unresolved",
+            relevant_unsupported_assumptions=tuple(f"source-{index}" for index in range(128)),
+            blockers=("source blocker",),
+        ),),
+    )
+    dependent = EquivalenceResult(
+        name="dependent", target=DerivedTarget(query="closed"), normalized_target=None,
+        summary="unavailable", answers=(QueryAnswer(
+            conclusion="inapplicable", relevant_unsupported_assumptions=("dependent",),
+            blockers=("derived target source closed concluded unresolved",),
+        ),),
+    )
+    answer = formula_query_service._compose_derived_qualification(dependent, source).answers[0]
+    assert answer.conclusion == "unresolved"
+    assert answer.blockers == (
+        "derived target source closed concluded unresolved",
+        "derived target qualification exceeds its bound",
+    )
+    assert answer.relevant_unsupported_assumptions == ("dependent",)
+
+
+def test_derived_request_structure_rejects_non_earlier_sources_and_forbidden_consumers():
+    invalid_queries = (
+        ({"name": "later", "kind": "equivalence", "target": {"kind": "derived", "query": "missing"}, "comparison": "x"},),
+        (
+            {"name": "dependent", "kind": "equivalence", "target": {"kind": "derived", "query": "closed"}, "comparison": "x"},
+            {"name": "closed", "kind": "closed_form"},
+        ),
+        (
+            {"name": "self", "kind": "equivalence", "target": {"kind": "derived", "query": "self"}, "comparison": "x"},
+        ),
+        (
+            {"name": "not_closed", "kind": "equivalence", "comparison": "x"},
+            {"name": "dependent", "kind": "equivalence", "target": {"kind": "derived", "query": "not_closed"}, "comparison": "x"},
+        ),
+        ({"name": "closed", "kind": "closed_form", "target": {"kind": "derived", "query": "other"}},),
+        ({"name": "properties", "kind": "properties", "target": {"kind": "derived", "query": "other"}, "checks": ({"kind": "sign"},)},),
+        ({"name": "asymptotic", "kind": "asymptotic", "target": {"kind": "derived", "query": "other"}, "variable": "x", "point": "oo", "order": 1},),
+    )
+    for queries in invalid_queries:
+        with pytest.raises(ValidationError):
+            request(queries=queries)
+
+
+def test_query_result_models_reject_invalid_derived_target_nullability():
+    interpretation = Interpretation(normalized_sympy="x", normalized_latex="x")
+    answer = QueryAnswer(conclusion="proved", evidence=IdentityEvidence(statement="same"))
+    with pytest.raises(ValidationError):
+        EquivalenceResult(name="submitted", target={"kind": "expression"}, normalized_target=None, summary="bad", answers=(answer,))
+    with pytest.raises(ValidationError):
+        EquivalenceResult(name="derived", target={"kind": "derived", "query": "closed"}, normalized_target=None, summary="bad", answers=(answer,))
+    with pytest.raises(ValidationError):
+        EquivalenceResult(name="unavailable", target={"kind": "derived", "query": "closed"}, normalized_target=interpretation, summary="bad", answers=(QueryAnswer(conclusion="inapplicable", blockers=("derived target source closed concluded unresolved",)),))

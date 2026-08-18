@@ -110,6 +110,27 @@ def test_named_rhs_closed_form_query_is_local_to_the_selected_equation() -> None
     assert outcome.system is not None and outcome.system.equations[0].aggregate_work is not None
 
 
+def test_system_derived_target_reuses_named_closed_form_without_changing_work() -> None:
+    base = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(EquationRequest(name="tail", expression="Eq(y, Sum(k * 2**k, (k, 0, 3)))"),),
+    )
+    baseline = analyze(base)
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY, equations=base.equations,
+        queries=(
+            {"name": "closed", "kind": "closed_form", "target": {"kind": "equation", "name": "tail"}},
+            {"name": "same", "kind": "equivalence", "target": {"kind": "derived", "query": "closed"}, "comparison": "34"},
+            {"name": "limit", "kind": "limit", "target": {"kind": "derived", "query": "closed"}, "variable": "x", "point": "oo"},
+        ),
+    ))
+    assert isinstance(baseline, AnalysisSuccess) and isinstance(outcome, AnalysisSuccess)
+    assert baseline.system == outcome.system
+    assert outcome.queries[1].normalized_target is not None
+    assert outcome.queries[1].answers[0].conclusion == "proved_under_assumptions"
+    assert outcome.queries[2].normalized_target is not None
+
+
 def test_named_indexed_equations_reuse_producer_and_sum_work() -> None:
     outcome = analyze(
         AnalysisRequest(

@@ -241,12 +241,13 @@ def _attach_queries(
     except (ExpressionTooComplex, RuntimeError):
         reasoning = None
     for position, query in enumerate(request.queries):
+        source: QueryResult | None = None
         if isinstance(query.target, DerivedTarget):
             assert isinstance(query, (EquivalenceQuery, LimitQuery))
             source = next(result for result in results if result.name == query.target.query)
             target_or_none = _derived_target(query.target, source)
             if target_or_none is None:
-                results.append(_unavailable_derived_result(query, source))
+                results.append(_compose_derived_qualification(_unavailable_derived_result(query, source), source))
                 continue
             target = target_or_none
         elif request.expression is not None:
@@ -267,7 +268,8 @@ def _attach_queries(
             return evaluated
         result = evaluated[0]
         if isinstance(query.target, DerivedTarget):
-            result = _compose_derived_qualification(result, results[-1])
+            assert source is not None
+            result = _compose_derived_qualification(result, source)
         results.append(result)
     return outcome.model_copy(update={"queries": tuple(results)})
 
@@ -299,19 +301,23 @@ def _unavailable_derived_result(query: EquivalenceQuery | LimitQuery, source: Qu
 
 
 def _compose_derived_qualification(result: QueryResult, source: QueryResult) -> QueryResult:
+    """Carry source qualifications into every correlated dependent result."""
     answer = result.answers[0]
     source_answer = source.answers[0]
-    if answer.conclusion not in {"proved", "proved_under_assumptions"}:
-        return result
     conditions = tuple(dict.fromkeys((*answer.conditions, *source_answer.conditions)))
     uses = tuple({(item.name, item.relationship): item for item in (*answer.assumptions_used, *source_answer.assumptions_used)}.values())
-    if len(conditions) > 256 or len(uses) > 128:
-        unresolved = QueryAnswer(conclusion="unresolved", blockers=("derived target qualification exceeds its bound",))
-        return result.model_copy(update={"answers": (unresolved,)})
+    unsupported = tuple(dict.fromkeys((*answer.relevant_unsupported_assumptions, *source_answer.relevant_unsupported_assumptions)))
+    if len(conditions) > 256 or len(uses) > 128 or len(unsupported) > 128:
+        return result.model_copy(update={"answers": (answer.model_copy(update={
+            "conclusion": "unresolved",
+            "blockers": tuple(dict.fromkeys((*answer.blockers, "derived target qualification exceeds its bound"))),
+        }),)})
     return result.model_copy(update={"answers": (answer.model_copy(update={
-        "conclusion": "proved_under_assumptions" if conditions or uses else answer.conclusion,
-        "conditions": conditions, "assumptions_used": uses,
-        "relevant_unsupported_assumptions": tuple(dict.fromkeys((*answer.relevant_unsupported_assumptions, *source_answer.relevant_unsupported_assumptions))),
+        "conclusion": "proved_under_assumptions"
+        if answer.conclusion == "proved" and (conditions or uses) else answer.conclusion,
+        "conditions": conditions,
+        "assumptions_used": uses,
+        "relevant_unsupported_assumptions": unsupported,
     }),)})
 
 def _parse_knowledge(

@@ -103,6 +103,40 @@ def test_closed_form_query_preserves_submitted_nonfinite_work() -> None:
     assert outcome.queries[0].answers[0].derived_candidates
 
 
+def test_expression_derived_target_feeds_equivalence_and_limit_without_changing_work() -> None:
+    baseline = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="Sum(k * 2**k, (k, 0, 3))",
+    ))
+    queried = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="Sum(k * 2**k, (k, 0, 3))",
+        queries=(
+            {"name": "closed", "kind": "closed_form"},
+            {
+                "name": "same",
+                "kind": "equivalence",
+                "target": {"kind": "derived", "query": "closed"},
+                "comparison": "34",
+            },
+            {
+                "name": "constant_limit",
+                "kind": "limit",
+                "target": {"kind": "derived", "query": "closed"},
+                "variable": "x",
+                "point": "oo",
+            },
+        ),
+    ))
+    assert isinstance(baseline, AnalysisSuccess) and isinstance(queried, AnalysisSuccess)
+    assert queried.operation_counts == baseline.operation_counts
+    assert queried.abstract_work == baseline.abstract_work
+    assert queried.queries[1].normalized_target is not None
+    assert queried.queries[1].normalized_target.normalized_sympy == "34"
+    assert queried.queries[1].answers[0].conclusion == "proved_under_assumptions"
+    assert queried.queries[2].answers[0].conclusion == "proved_under_assumptions"
+
+
 def test_closed_form_e2e_uses_global_bounds_without_changing_nonfinite_work() -> None:
     outcome = analyze(AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,
