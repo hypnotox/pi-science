@@ -138,6 +138,23 @@ def test_asymptotic_reports_each_public_family_refusal():
         assert blocker(expression, variables=variables) == expected
 
 
+def test_asymptotic_preflight_does_not_misidentify_an_oversized_rational_target():
+    terms = ["x"] * 257
+    while len(terms) > 1:
+        terms = [
+            f"({terms[index]} + {terms[index + 1]})"
+            if index + 1 < len(terms)
+            else terms[index]
+            for index in range(0, len(terms), 2)
+        ]
+    answer = _answer(terms[0], "oo")
+    assert answer.conclusion == "unresolved"
+    assert answer.blockers == (
+        "asymptotic rational target exceeds bounded rational node limit: observed 513, "
+        "configured 512; use a smaller bounded rational target",
+    )
+
+
 def test_asymptotic_linear_exponential_backend_refusals_are_reason_specific(monkeypatch):
     # Inject each backend seam after recognition so no public expression has to
     # accidentally reach a particular resource or reconstruction branch.

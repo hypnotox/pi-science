@@ -770,9 +770,6 @@ def bounded_exponential_decomposition(
     """Recognize and independently reconstruct finite linear-exponential terms."""
     if point not in {"oo", "-oo"}:
         return BoundedFamilyNoMatch()
-    nodes = expression_node_count(expression)
-    if nodes > 512:
-        return BoundedFamilyFailure("nodes", nodes, 512)
     terms = _exp_add_terms(expression)
     decoded: list[tuple[Any, Any, Expression]] = []
     for term in terms:
@@ -789,6 +786,9 @@ def bounded_exponential_decomposition(
             return BoundedFamilyNoMatch()
         slope, intercept = linear
         decoded.append((slope, intercept, base))
+    nodes = expression_node_count(expression)
+    if nodes > 512:
+        return BoundedFamilyFailure("nodes", nodes, 512)
     # Each submitted additive term must reconstruct exactly; do not merge bases.
     rendered_terms: list[tuple[int, str]] = []
     bases: list[Expression] = []
