@@ -504,9 +504,14 @@ def aggregate_analysis(
                 value, index, lower, clamped_upper, count
             ),
         ), ordering_unresolved
+    close_sum = unresolved is None and not (
+        isinstance(count, Call) and count.name == "Max"
+    )
     return map_analysis(
         analysis,
-        lambda value: _aggregate_value(value, index, lower, upper, count),
+        lambda value: _aggregate_value(
+            value, index, lower, upper, count, close_sum=close_sum
+        ),
     ), unresolved
 
 
@@ -516,9 +521,12 @@ def _aggregate_value(
     lower: Expression,
     upper: Expression,
     count: Expression,
+    *,
+    close_sum: bool,
 ) -> Expression:
     if index in _free_symbol_names(value):
-        return _close_affine_sum(factor_independent(Sum(value, index, lower, upper), index))
+        bounded = factor_independent(Sum(value, index, lower, upper), index)
+        return _close_affine_sum(bounded) if close_sum else bounded
     return _multiply(count, value)
 
 
@@ -795,6 +803,8 @@ def _analyze_sum(expression: Sum, context: WorkContext) -> WorkAnalysis:
             expression.lower,
             expression.upper,
             count,
+            close_sum=unresolved is None
+            and not (isinstance(count, Call) and count.name == "Max"),
         ),
     )
     reduction = (

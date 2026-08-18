@@ -553,6 +553,33 @@ def test_domain_bounds_localize_free_symbol_and_shadowing_diagnostics() -> None:
     assert "shadows an existing index" in shadowed.error.message
 
 
+def test_unproved_independent_domain_closure_clamps_fixed_empty_work() -> None:
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=(
+                EquationRequest(
+                    name="empty_after_substitution",
+                    expression="Eq(A[i], primitive(i))",
+                    domains={"i": IndexDomain(lower="2", upper="N")},
+                ),
+            ),
+            variables={
+                "N": VariableDeclaration(domain=MathematicalDomain.INTEGER),
+            },
+            primitive_costs=(
+                PrimitiveCost(name="primitive", parameters=("value",), work="value"),
+            ),
+            scenarios=(Scenario(name="empty", fixed={"N": 0}),),
+        )
+    )
+
+    assert outcome.status == "success" and outcome.system is not None
+    assert "Sum(i, (i, 2, N))" in outcome.system.total_work
+    assert outcome.scenarios[0].substituted_work == "0"
+    assert all("-1" not in value for value in outcome.scenarios[0].choice_work.values())
+
+
 def test_harmonic_style_system_closes_dependent_domain_work_without_special_semantics() -> None:
     positive_real = VariableDeclaration(domain=MathematicalDomain.POSITIVE_REAL)
     request = AnalysisRequest(
