@@ -1,7 +1,7 @@
 ---
 format: current-state-v4
 slug: keep-rewrite-guidance-deferred-until-implemented
-status: Proposed
+status: Implemented
 date: 2026-08-18
 ---
 # ADR-0008: Keep rewrite guidance deferred until implemented
@@ -38,3 +38,4 @@ Rewrite, hoisting-effect, candidate-comparison, and improvement-ranking support 
 ## Status history
 
 - 2026-08-18: Proposed
+- 2026-08-18: Implemented; content-sha256: 930685c1eebd6343307678bec22037b6853c512f3208d9072c695d615a03580b

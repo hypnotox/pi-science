@@ -11,7 +11,7 @@ The tool reports information such as:
 - symbolic operation counts and work expressions;
 - qualified bounded properties, limits, asymptotics, equivalence, and closed forms;
 - scenario specializations and conservative parameter bounds;
-- named equation dependencies and ideal reuse;
+- named equation dependencies, ideal reuse, and repeated-expression extraction diagnostics;
 - unknown costs, assumptions, or evaluator limits that prevent a tighter conclusion.
 
 The goal is not to replace agent reasoning. It is to make the mathematical structure behind that reasoning testable before it becomes code.
@@ -57,7 +57,7 @@ The MVP provides:
 2. symbolic counts for arithmetic, powers, roots, function calls, terms, and declared primitives;
 3. exact or qualified work-complexity analysis under supplied assumptions;
 4. scenario evaluation for fixed values, intervals, finite choices, definitions, and retained asymptotic variables;
-5. dependency and ideal-reuse analysis for named equation systems;
+5. dependency, ideal-reuse, and repeated-expression extraction diagnostics for named equation systems;
 6. explicit bounded general-context mathematical queries with qualified evidence.
 
 The tooling includes a concise agent skill for formulating analyzable requests and inspecting the normalized result. [Analysis Model](analysis-model.md) defines the request and report contract.
@@ -85,7 +85,7 @@ The MVP succeeds when an agent can:
 - derive aggregate symbolic work across declared domains;
 - fix some parameters while retaining others as scaling dimensions;
 - evaluate intervals and finite choices with correctly qualified results;
-- inspect named dependencies and ideal reuse;
+- inspect named dependencies, ideal reuse, and repeated-expression extraction diagnostics;
 - ask supported bounded mathematical questions and inspect their evidence and qualifications;
 - see exactly which unknowns or evaluator limits prevent a tighter answer;
 - revise an algorithm plan using the analysis before producing implementation code.

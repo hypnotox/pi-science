@@ -6,9 +6,9 @@ Add optional stage metadata without weakening the normalized mathematical model 
 
 Report piecewise dominance, scaling variables, and terms that remain relevant over concrete ranges.
 
-### Dependency extraction and comparison
+### Hoisting and comparison
 
-Identify repeated subexpressions and invariant work, and estimate the symbolic effect of common-subexpression extraction or hoisting. Compare candidate formulations under shared metadata, including symbolic differences, concrete winners, crossover conditions, and unresolved trade-offs.
+Estimate the symbolic effect of extracting reported repeated expressions or hoisting invariant work. Compare candidate formulations under shared metadata, including symbolic differences, concrete winners, crossover conditions, and unresolved trade-offs.
 
 ### Local mathematical rewrites
 
