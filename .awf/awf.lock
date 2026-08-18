@@ -456,7 +456,7 @@
       "templateId": "docs/local.md.tmpl",
       "templateHash": "sha256:f09ab3b6e84fa2d6a10c6f2ac2a6e1552ad8cada8855c9e378f432a96b7c733d",
       "configHash": "sha256:576779d655d5fdd2c1b6d77a84fc15a9ea9000c1fb229501b15a6401c1d5d3e9",
-      "outputHash": "sha256:4b840f579bbbfbad33c9e7fe2614cfa2500d9042e01b0d045f889e64509ce231",
+      "outputHash": "sha256:a99373a2e49af328fac6a97acdd048e06e26bfb7042333598853f70850acefbe",
       "regenChecked": true
     },
     "docs/architecture.md": {
@@ -567,8 +567,8 @@
     "docs/testing.md": {
       "templateId": "docs/testing.md.tmpl",
       "templateHash": "sha256:a57a68e1550ff6762ec8021fb14948cf40b221bc228459e70af8e8be4ea16c51",
-      "configHash": "sha256:ced09b2ce0075e84b1e1be7f7b97387c847bb435f89a9fcd012ebd848d435bcc",
-      "outputHash": "sha256:da249a87156814f37a501a9309356a9572da9a7bf10851e9191216e8b0a4aed2"
+      "configHash": "sha256:10d3c71225127d78948a9bad02b2b8b8dcaf42b89f162cdc720aba7a342df3a0",
+      "outputHash": "sha256:591fb1928d9bedbb89b79cb8146b2ac952c2ac75abbe2f2a8cac76d6acbefa21"
     },
     "docs/topics/product/analysis-report-contract.md": {
       "templateId": "topics/topic.md.tmpl",

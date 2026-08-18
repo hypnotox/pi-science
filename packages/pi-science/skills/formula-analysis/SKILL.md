@@ -67,6 +67,8 @@ Represent vectors and tensors as indexed scalar algebra, for example `x[i, d]`. 
 }
 ```
 
+Named equation-local constraints may tighten a required finite base domain with the supported integer-affine or absolute upper-bound family; use `constraints: [{name, target, relationship}]`, inspect submitted constraints, effective domains, and equation-qualified constraint uses, and expect scenario domains to specialize per choice. Constraints govern only their owning equation and targeted queries, never other equations or expression queries.
+
 Nested finite sums and dependent output domains preserve exact direct work with each iterator lexically bound in symbolic operation counts, opaque work, and primitive invocations. Domains aggregate in reverse stable dependency order; bounded affine sums close from intrinsic, submitted, and predecessor-domain facts with relationship provenance. A symbolic `Sum` remains an exact populated fallback, while unproved cardinality, ordering, or finiteness stays explicitly unresolved. This direct-work behavior is distinct from the partial nested mathematical closed-form family described below and does not itself prove a candidate. Scenarios may select fixed exact values, finite choices, finite bounds, directed definitions, or asymptotic variables without changing the general report. Exact scalars use JavaScript-safe JSON integers or strings such as `1/2` and `1.20`.
 
 ## Ask bounded mathematical queries

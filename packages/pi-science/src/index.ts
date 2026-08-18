@@ -182,7 +182,7 @@ export async function start(
     name: "analyze_formula",
     label: "Analyze formula",
     description:
-      "Analyze one restricted SymPy expression or named equation system with bounded nested finite-work and acyclic affine output-domain analysis",
+      "Analyze one restricted SymPy expression or named equation system with bounded nested finite-work, acyclic affine output domains, and equation-local affine constraint intersections",
     promptSnippet:
       "Analyze restricted-SymPy formulas for normalized interpretation, qualified symbolic work, and partial Python-owned closed-form candidates",
     promptGuidelines: [
