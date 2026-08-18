@@ -89,7 +89,7 @@ def asymptotic_answer(
             ).render()
         )
     if isinstance(rational, BoundedFamilyFailure):
-        if isinstance(exponential, BoundedFamilyFailure) and exponential.kind != "resource":
+        if isinstance(exponential, BoundedFamilyFailure):
             return _unresolved(_exponential_failure_blocker(exponential))
         return _unresolved(_rational_failure_blocker(rational))
     uses = reasoning.application_uses(rational.symbols)
@@ -132,6 +132,12 @@ def _exponential_failure_blocker(failure: BoundedFamilyFailure) -> str:
             failure.observed,
             failure.configured,
             "simplify the linear-exponential target",
+        ).render()
+    if failure.kind == "resource":
+        return QueryDiagnostic(
+            "asymptotic linear-exponential target",
+            "exceeds its bounded resource limits",
+            recovery="simplify the linear-exponential target",
         ).render()
     return QueryDiagnostic(
         "asymptotic linear-exponential reconstruction",

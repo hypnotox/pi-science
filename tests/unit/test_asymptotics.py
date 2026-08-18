@@ -93,12 +93,22 @@ def test_rational_real_parameter_coefficients_are_verified_and_retained():
 
 def test_exponential_checker_rejects_corrupted_or_oversized_intermediates(monkeypatch):
     monkeypatch.setattr(sympy_backend, "_exponential_value_is_bounded", lambda *_args: False)
-    assert _answer("(x + 1)*2**x", "oo", order=1).conclusion == "unresolved"
+    answer = _answer("(x + 1)*2**x", "oo", order=1)
+    assert answer.conclusion == "unresolved"
+    assert answer.blockers == (
+        "asymptotic linear-exponential target exceeds its bounded resource limits; "
+        "simplify the linear-exponential target",
+    )
 
 
 def test_exponential_checker_enforces_the_1024_bit_base_cap():
     oversized_base = 1 << 1024
-    assert _answer(f"{oversized_base}**x", "oo", order=1).conclusion == "unresolved"
+    answer = _answer(f"{oversized_base}**x", "oo", order=1)
+    assert answer.conclusion == "unresolved"
+    assert answer.blockers == (
+        "asymptotic linear-exponential target exceeds its bounded resource limits; "
+        "simplify the linear-exponential target",
+    )
 
 
 def test_asymptotic_reports_each_public_family_refusal():
