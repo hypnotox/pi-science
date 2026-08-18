@@ -247,6 +247,7 @@ def _attach_queries(
         reasoning = None
     for position, query in enumerate(request.queries):
         source: QueryResult | None = None
+        report: EquationReport | None = None
         if isinstance(query.target, DerivedTarget):
             assert isinstance(query, (EquivalenceQuery, LimitQuery))
             source = next(result for result in results if result.name == query.target.query)
@@ -273,10 +274,11 @@ def _attach_queries(
         if request.expression is None and not isinstance(query.target, DerivedTarget):
             assert query.target is not None
             owning = next(item for item in request.equations if item.name == query.target.name)
+            assert report is not None
             # Equation-local facts are deliberately constructed only for this
             # target. They augment the bounded scalar reasoner; they are never
             # request-wide solver facts and cannot leak to another equation.
-            query_reasoning = _equation_query_reasoning(request, knowledge, owning)
+            query_reasoning = _equation_query_reasoning(request, knowledge, owning, report)
         evaluated = evaluate_queries((query,), target, query_reasoning)
         if isinstance(evaluated, AnalysisFailure):
             return evaluated
@@ -303,14 +305,21 @@ def _attach_queries(
             if consumed:
                 result = result.model_copy(update={
                     "answers": tuple(
-                        answer.model_copy(update={"constraint_uses": tuple(
-                            use for use in consumed
-                            if any(
-                                relationship.name == use.name and
-                                relationship.relationship == use.relationship
+                        answer.model_copy(update={
+                            "assumptions_used": tuple(
+                                relationship
                                 for relationship in answer.assumptions_used
-                            )
-                        )})
+                                if (relationship.name, relationship.relationship) not in local_uses
+                            ),
+                            "constraint_uses": tuple(
+                                use for use in consumed
+                                if any(
+                                    relationship.name == use.name and
+                                    relationship.relationship == use.relationship
+                                    for relationship in answer.assumptions_used
+                                )
+                            ),
+                        })
                         for answer in result.answers
                     )
                 })
@@ -322,18 +331,27 @@ def _attach_queries(
 
 
 def _equation_query_reasoning(
-    request: AnalysisRequest, knowledge: Knowledge, equation: EquationRequest,
+    request: AnalysisRequest,
+    knowledge: Knowledge,
+    equation: EquationRequest,
+    report: EquationReport,
 ) -> ReasoningContext | None:
-    """Build the supported scalar context for one equation-qualified query.
+    """Build one equation's scalar context from analyzer-normalized bounds.
 
-    Base output intervals and submitted local relations are separate from global
-    assumptions.  The bounded reasoner may consume only affine facts it already
-    supports; unsupported coupled relations remain qualifications, not solver facts.
+    Local constraints are accepted and normalized exclusively by the output-domain
+    policy.  Reintroducing their raw text here would make supported scalar proofs
+    depend on a second, narrower relationship parser (notably excluding ``Abs``).
+    The normalized bound facts retain each submitted constraint as their source so
+    query provenance can report the original request spelling.
     """
     domains = {name: declaration.domain for name, declaration in request.variables.items()}
     domains.update({name: MathematicalDomain.INTEGER for name in equation.domains})
     local: list[NamedRelationship] = []
-    for name, domain in equation.domains.items():
+    effective = {domain.index: domain for domain in report.effective_domains}
+    constrained_targets = {constraint.target for constraint in equation.constraints}
+    for name, domain in effective.items():
+        if name in constrained_targets:
+            continue
         lower = parse_expression(domain.lower)
         upper = parse_expression(domain.upper)
         if isinstance(lower, (ParseFailure, Equation, Relationship)) or isinstance(upper, (ParseFailure, Equation, Relationship)):
@@ -343,10 +361,25 @@ def _equation_query_reasoning(
             NamedRelationship(f"{equation.name}:{name}:upper", f"{name} <= {domain.upper}", Relationship(RelationshipOperator.LESS_EQUAL, Symbol(name), upper)),
         ))
     for constraint in equation.constraints:
-        parsed = parse_expression(constraint.relationship)
-        if not isinstance(parsed, Relationship):
+        domain = effective.get(constraint.target)
+        if domain is None:
             return None
-        local.append(NamedRelationship(constraint.name, constraint.relationship, parsed))
+        lower = parse_expression(domain.lower)
+        upper = parse_expression(domain.upper)
+        if isinstance(lower, (ParseFailure, Equation, Relationship)) or isinstance(upper, (ParseFailure, Equation, Relationship)):
+            return None
+        local.extend((
+            NamedRelationship(
+                constraint.name,
+                constraint.relationship,
+                Relationship(RelationshipOperator.GREATER_EQUAL, Symbol(constraint.target), lower),
+            ),
+            NamedRelationship(
+                constraint.name,
+                constraint.relationship,
+                Relationship(RelationshipOperator.LESS_EQUAL, Symbol(constraint.target), upper),
+            ),
+        ))
     try:
         return ReasoningContext.build(domains, knowledge.definitions, (*knowledge.assumptions, *local))
     except (ExpressionTooComplex, RuntimeError):

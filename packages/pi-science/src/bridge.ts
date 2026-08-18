@@ -1185,7 +1185,13 @@ function validQueryConstraintUses(
   index: number,
 ): boolean {
   const uses = result.answers.flatMap((answer) => answer.constraint_uses);
-  if (uses.length !== new Set(uses.map((use) => JSON.stringify(use))).size)
+  if (
+    result.answers.some(
+      (answer) =>
+        answer.constraint_uses.length !==
+        new Set(answer.constraint_uses.map((use) => JSON.stringify(use))).size,
+    )
+  )
     return false;
   if (isExpressionRequest(request)) return uses.length === 0;
   const target = "target" in query ? query.target : undefined;
@@ -1280,6 +1286,25 @@ function validQueryCorrelation(
   });
 }
 
+function validEffectiveDomainPopulation(
+  value: unknown,
+  submittedDomains: Record<string, unknown>,
+): boolean {
+  if (
+    !Array.isArray(value) ||
+    value.length !== Object.keys(submittedDomains).length
+  )
+    return false;
+  const reported = value.map((domain) =>
+    isRecord(domain) && typeof domain.index === "string" ? domain.index : null,
+  );
+  return (
+    reported.every((index) => index !== null) &&
+    new Set(reported).size === reported.length &&
+    reported.every((index) => index in submittedDomains)
+  );
+}
+
 function validEffectiveDomainCorrelation(
   value: unknown,
   equations: EquationRequest[],
@@ -1292,14 +1317,9 @@ function validEffectiveDomainCorrelation(
       (entry, equationIndex) =>
         isRecord(entry) &&
         entry.equation === submitted[equationIndex]?.name &&
-        Array.isArray(entry.domains) &&
-        entry.domains.length ===
-          Object.keys(submitted[equationIndex]?.domains ?? {}).length &&
-        entry.domains.every(
-          (domain, domainIndex) =>
-            isRecord(domain) &&
-            domain.index ===
-              Object.keys(submitted[equationIndex]?.domains ?? {})[domainIndex],
+        validEffectiveDomainPopulation(
+          entry.domains,
+          submitted[equationIndex]?.domains ?? {},
         ),
     )
   );
@@ -1323,14 +1343,9 @@ function validSystemCorrelation(
         equation.name === request.equations[index]?.name &&
         JSON.stringify(equation.constraints) ===
           JSON.stringify(request.equations[index]?.constraints ?? []) &&
-        Array.isArray(equation.effective_domains) &&
-        equation.effective_domains.length ===
-          Object.keys(request.equations[index]?.domains ?? {}).length &&
-        equation.effective_domains.every(
-          (domain, domainIndex) =>
-            isRecord(domain) &&
-            domain.index ===
-              Object.keys(request.equations[index]?.domains ?? {})[domainIndex],
+        validEffectiveDomainPopulation(
+          equation.effective_domains,
+          request.equations[index]?.domains ?? {},
         ),
     )
   );

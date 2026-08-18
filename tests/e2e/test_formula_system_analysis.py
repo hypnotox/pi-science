@@ -231,7 +231,31 @@ def test_equation_targeted_query_reports_only_its_consumed_local_constraints() -
     assert outcome.queries[1].answers[0].constraint_uses == ()
 
 
-def test_equation_targeted_query_uses_local_constraint_for_its_mathematical_proof() -> None:
+def test_equation_targeted_query_uses_normalized_absolute_constraint_bounds() -> None:
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(
+            EquationRequest(
+                name="bounded",
+                expression="Eq(A[i], 1 / (i - 2))",
+                domains={"i": IndexDomain(lower="-5", upper="5")},
+                constraints=(DomainConstraint(name="unit", target="i", relationship="Abs(i) <= 1"),),
+            ),
+        ),
+        queries=(
+            EquivalenceQuery(name="bounded_domain", target=EquationTarget(name="bounded"), comparison="1 / (i - 2)"),
+        ),
+    ))
+    assert isinstance(outcome, AnalysisSuccess)
+    answer = outcome.queries[0].answers[0]
+    assert answer.conclusion == "proved_under_assumptions"
+    assert answer.evidence is not None
+    assert answer.evidence.statement == "normalized difference is zero"
+    assert answer.assumptions_used == ()
+    assert [(use.name, use.relationship) for use in answer.constraint_uses] == [("unit", "Abs(i) <= 1")]
+
+
+def test_equation_targeted_query_maps_local_constraint_uses_without_removing_global_uses() -> None:
     outcome = analyze(AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,
         equations=(
@@ -243,14 +267,17 @@ def test_equation_targeted_query_uses_local_constraint_for_its_mathematical_proo
             ),
             EquationRequest(name="other", expression="Eq(B[j], 1 / j)", domains={"j": IndexDomain(lower="0", upper="2")}),
         ),
+        assumptions=(Assumption(name="global_one", relationship="i >= 1"),),
         queries=(
-            PropertiesQuery(name="bounded_domain", target=EquationTarget(name="bounded"), checks=(VariablePropertyCheck(kind="valid_domain", variable="i"),)),
+            EquivalenceQuery(name="bounded_domain", target=EquationTarget(name="bounded"), comparison="1 / i"),
             PropertiesQuery(name="other_domain", target=EquationTarget(name="other"), checks=(VariablePropertyCheck(kind="valid_domain", variable="j"),)),
         ),
     ))
     assert isinstance(outcome, AnalysisSuccess)
-    assert outcome.queries[0].answers[0].conclusion == "proved_under_assumptions"
-    assert [use.name for use in outcome.queries[0].answers[0].constraint_uses] == ["one"]
+    answer = outcome.queries[0].answers[0]
+    assert answer.conclusion == "proved_under_assumptions"
+    assert [use.name for use in answer.assumptions_used] == ["global_one"]
+    assert [use.name for use in answer.constraint_uses] == ["one"]
     assert outcome.queries[1].answers[0].constraint_uses == ()
 
 

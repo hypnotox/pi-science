@@ -1237,6 +1237,127 @@ describe("private formula bridge", () => {
       await kind(invokeAdapter(node, responder(invalid), request), "protocol");
   });
 
+  it("accepts effective domains in LHS order despite reversed submitted domain keys", async () => {
+    const domains = [
+      { index: "i", lower: "0", upper: "1" },
+      { index: "j", lower: "0", upper: "1" },
+    ];
+    const equation = {
+      ...richSuccess.system.equations[0],
+      name: "stage",
+      effective_domains: domains,
+    };
+    const result = {
+      ...richSuccess,
+      system: { ...richSuccess.system, equations: [equation] },
+      scenarios: [
+        {
+          ...richSuccess.scenarios[0],
+          choice_work: {},
+          choice_effective_domains: {},
+          effective_domains: [{ equation: "stage", domains }],
+        },
+      ],
+    };
+    const request = {
+      syntax: "sympy" as const,
+      equations: [
+        {
+          name: "stage",
+          expression: "Eq(A[i, j], i + j)",
+          domains: {
+            j: { lower: "0", upper: "1" },
+            i: { lower: "0", upper: "1" },
+          },
+        },
+      ],
+      scenarios: [{ name: "bounded", fixed: {} }],
+    };
+    await expect(
+      invokeAdapter(node, responder(result), request),
+    ).resolves.toMatchObject({
+      system: result.system,
+    });
+  });
+
+  it("permits one local constraint use in each property answer", async () => {
+    const constraint = { name: "cap", target: "i", relationship: "i <= 1" };
+    const domain = { index: "i", lower: "0", upper: "1" };
+    const equation = {
+      ...richSuccess.system.equations[0],
+      name: "stage",
+      constraints: [constraint],
+      effective_domains: [domain],
+      constraint_uses: [{ equation: "stage", ...constraint }],
+    };
+    const answer = {
+      check: { kind: "valid_domain" as const, variable: "i" },
+      conclusion: "proved_under_assumptions" as const,
+      conditions: [],
+      assumptions_used: [],
+      relevant_unsupported_assumptions: [],
+      blockers: [],
+      evidence: { kind: "property" as const, value: "valid", intervals: [] },
+      derived_candidates: [],
+      constraint_uses: [{ equation: "stage", ...constraint }],
+    };
+    const result = {
+      ...richSuccess,
+      system: { ...richSuccess.system, equations: [equation] },
+      scenarios: [
+        {
+          ...richSuccess.scenarios[0],
+          choice_work: {},
+          choice_effective_domains: {},
+          effective_domains: [{ equation: "stage", domains: [domain] }],
+        },
+      ],
+      queries: [
+        {
+          name: "local",
+          kind: "properties" as const,
+          target: { kind: "equation" as const, name: "stage" },
+          normalized_target: success.interpretation,
+          summary: "local",
+          answers: [
+            answer,
+            {
+              ...answer,
+              check: { kind: "singularities" as const, variable: "i" },
+            },
+          ],
+        },
+      ],
+    };
+    const request = {
+      syntax: "sympy" as const,
+      equations: [
+        {
+          name: "stage",
+          expression: "Eq(A[i], i)",
+          domains: { i: { lower: "0", upper: "1" } },
+          constraints: [constraint],
+        },
+      ],
+      queries: [
+        {
+          name: "local",
+          kind: "properties" as const,
+          target: { kind: "equation" as const, name: "stage" },
+          checks: [
+            { kind: "valid_domain" as const, variable: "i" },
+            { kind: "singularities" as const, variable: "i" },
+          ],
+        },
+      ],
+    };
+    await expect(
+      invokeAdapter(node, responder(result), request),
+    ).resolves.toMatchObject({
+      queries: result.queries,
+    });
+  });
+
   it("strictly correlates finite and non-finite direct-work variants", async () => {
     const invalid = [
       { ...success, abstract_work: null },
