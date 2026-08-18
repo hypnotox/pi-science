@@ -22,6 +22,9 @@ describe("npm package boundary", () => {
     expect(skill).toContain("proof qualifications");
     expect(skill).toMatch(/unresolved query blocker[\s\S]+recovery hint/);
     expect(skill).toMatch(/Recovery hints[\s\S]+do not certify equivalence/);
+    expect(skill).toMatch(
+      /Recovery hints[\s\S]+do not[\s\S]+promise wider evaluator support/,
+    );
     expect(skill).toContain("py_science.formula");
     expect(skill).toContain("PEP 723");
     expect(skill).not.toContain("pi_science");
