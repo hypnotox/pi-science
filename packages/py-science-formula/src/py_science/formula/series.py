@@ -292,11 +292,7 @@ def _derive_nested_node(
     outer: tuple[str, ...],
     outer_ranges: dict[str, tuple[Expression, Expression]],
 ) -> SeriesRule | QueryAnswer:
-    if (
-        isinstance(item.upper, InfinityLiteral)
-        or _contains_index(item.lower, item.index)
-        or _contains_index(item.upper, item.index)
-    ):
+    if isinstance(item.upper, InfinityLiteral):
         return _unresolved(
             "nested polynomial bounds must be finite and independent of their binder"
         )
@@ -436,8 +432,8 @@ def _nested_expand_for_limits(
         return Sum(
             _nested_expand_for_limits(value.body, reasoning, scoped, budget),
             value.index,
-            _nested_expand_for_limits(value.lower, reasoning, scoped, budget),
-            _nested_expand_for_limits(value.upper, reasoning, scoped, budget),
+            _nested_expand_for_limits(value.lower, reasoning, bound, budget),
+            _nested_expand_for_limits(value.upper, reasoning, bound, budget),
         )
     if isinstance(value, BinaryExpression):
         return BinaryExpression(

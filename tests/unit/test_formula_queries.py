@@ -421,6 +421,14 @@ def test_nested_polynomial_binders_shadow_declared_definitions():
     assert safe_sibling.conclusion == "proved_under_assumptions"
     assert safe_sibling.derived_candidates
 
+    free_limit = _nested_answer(
+        "Sum(Sum(1, (l, l, 1)), (k, 0, 1))",
+        variables={"l": VariableDeclaration(domain=MathematicalDomain.INTEGER)},
+        definitions=(DirectedDefinition(variable="l", expression="0"),),
+    )
+    assert free_limit.conclusion == "proved_under_assumptions"
+    assert free_limit.derived_candidates[0].interpretation.normalized_sympy == "4"
+
 
 def test_nested_reasoning_expansion_has_a_shared_budget(monkeypatch):
     target_terms = ["x"] * 100
