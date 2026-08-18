@@ -603,10 +603,46 @@ def test_cross_coefficient_growth_is_rejected_before_backend_calls(monkeypatch):
 
 
 def test_equivalence_resource_refusals_are_localized_unresolved():
-    for comparison in ("x**9", "x**33", f"{1 << 1024}*x"):
+    for comparison, blocker in (
+        (
+            "x**9",
+            "equivalence operand exceeds bounded rational degree limit: observed 9, "
+            "configured 8; use bounded rational operands",
+        ),
+        (
+            "x**33",
+            "equivalence operand exceeds bounded rational exponent limit: observed 33, "
+            "configured 32; use bounded rational operands",
+        ),
+        (
+            f"{1 << 1024}*x",
+            "equivalence operand exceeds bounded rational coefficient-bit limit: observed 1025, "
+            "configured 1024; use bounded rational operands",
+        ),
+    ):
         outcome = analyze(request(queries=({"name":"q", "kind":"equivalence", "comparison":comparison},)))
         assert outcome.status == "success"
-        assert outcome.queries[0].answers[0].conclusion == "unresolved"
+        answer = outcome.queries[0].answers[0]
+        assert answer.conclusion == "unresolved"
+        assert answer.blockers == (blocker,)
+
+    expanded = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="y",
+            variables={
+                "x": VariableDeclaration(domain=MathematicalDomain.REAL),
+                "y": VariableDeclaration(domain=MathematicalDomain.REAL),
+            },
+            definitions=(DirectedDefinition(variable="y", expression="x**9"),),
+            queries=({"name": "q", "kind": "equivalence", "comparison": "y"},),
+        )
+    )
+    assert expanded.status == "success"
+    assert expanded.queries[0].answers[0].blockers == (
+        "equivalence expansion exceeds bounded rational degree limit: observed 9, configured 8; "
+        "use bounded rational operands",
+    )
 
     nonlinear = analyze(request(
         assumptions=(Assumption(name="nonlinear", relationship="(x + 1)**8 > 0"),),
@@ -616,6 +652,36 @@ def test_equivalence_resource_refusals_are_localized_unresolved():
     answer = nonlinear.queries[0].answers[0]
     assert answer.conclusion == "proved"
     assert answer.relevant_unsupported_assumptions == ("nonlinear",)
+
+
+def test_rational_measure_failures_are_closed_and_report_first_bounded_fact():
+    cases = (
+        ("sin(x)", "unsupported_form", None, None),
+        ("x**33", "exponent", 33, 32),
+        ("x**9", "degree", 9, 8),
+        (f"{1 << 1024}", "coefficient_bits", 1025, 1024),
+        (f"({' + '.join('abcdefghij')})**8", "expanded_terms", 100_000_000, 4096),
+    )
+    for source, kind, observed, configured in cases:
+        parsed = parse_expression(source)
+        assert not isinstance(parsed, tuple)
+        failure = formula_sympy.rational_ir_measure(parsed)  # pyright: ignore[reportArgumentType]
+        assert isinstance(failure, formula_sympy.RationalMeasureFailure)
+        assert (failure.kind, failure.observed, failure.configured) == (
+            kind,
+            observed,
+            configured,
+        )
+
+    nodes = parse_expression("x + y")
+    assert not isinstance(nodes, tuple)
+    node_failure = formula_sympy.rational_ir_measure(nodes, max_nodes=2)  # pyright: ignore[reportArgumentType]
+    assert isinstance(node_failure, formula_sympy.RationalMeasureFailure)
+    assert (node_failure.kind, node_failure.observed, node_failure.configured) == (
+        "nodes",
+        3,
+        2,
+    )
 
 
 def test_equivalence_reports_operand_expansion_and_normalization_refusals(monkeypatch):

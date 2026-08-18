@@ -24,6 +24,7 @@ from py_science.formula.expressions import (
     expression_children,
     expression_node_count,
 )
+from py_science.formula.query_diagnostics import RationalFailureKind
 
 
 class SympyExpression(Protocol):
@@ -70,7 +71,7 @@ class BoundedRationalDifference:
 class RationalMeasureFailure:
     """A safe first failure from bounded rational IR inspection."""
 
-    kind: str
+    kind: RationalFailureKind
     observed: int | None = None
     configured: int | None = None
 
@@ -304,16 +305,21 @@ def rational_ir_measure(
 
     def measure(value: Expression) -> RationalMeasure | RationalMeasureFailure:
         if isinstance(value, IntegerLiteral):
-            return 0, 0, max(1, abs(value.value).bit_length()), 1, 1, 1
+            bits = max(1, abs(value.value).bit_length())
+            if bits > max_coefficient_bits:
+                return RationalMeasureFailure(
+                    "coefficient_bits", bits, max_coefficient_bits
+                )
+            return 0, 0, bits, 1, 1, 1
         if isinstance(value, RationalLiteral):
-            return (
-                0,
-                0,
-                max(1, abs(value.numerator).bit_length()),
-                value.positive_denominator.bit_length(),
-                1,
-                1,
-            )
+            numerator_bits = max(1, abs(value.numerator).bit_length())
+            denominator_bits = value.positive_denominator.bit_length()
+            bits = max(numerator_bits, denominator_bits)
+            if bits > max_coefficient_bits:
+                return RationalMeasureFailure(
+                    "coefficient_bits", bits, max_coefficient_bits
+                )
+            return 0, 0, numerator_bits, denominator_bits, 1, 1
         if isinstance(value, Symbol):
             return 1, 0, 1, 1, 1, 1
         if not isinstance(value, BinaryExpression):

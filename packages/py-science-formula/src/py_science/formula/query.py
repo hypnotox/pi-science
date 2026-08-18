@@ -11,18 +11,13 @@ import sympy
 from py_science.formula.asymptotics import asymptotic_answer
 from py_science.formula.exact_values import ExactRational, render_exact
 from py_science.formula.expressions import (
-    BinaryExpression,
-    BinaryOperator,
     Equation,
     Expression,
-    InfinityLiteral,
     IntegerLiteral,
-    RationalLiteral,
     Relationship,
     Sum,
     Symbol,
     expression_children,
-    expression_node_count,
 )
 from py_science.formula.models import (
     AnalysisError,
@@ -50,16 +45,17 @@ from py_science.formula.models import (
 )
 from py_science.formula.parser import ParseFailure, parse_expression
 from py_science.formula.properties import afmm_tail_property_answer, limit_answer, property_answer
-from py_science.formula.query_diagnostics import QueryDiagnostic
+from py_science.formula.query_diagnostics import RATIONAL_FAILURE_REASONS, QueryDiagnostic
 from py_science.formula.reasoning import ReasoningContext, collect_denominators
 from py_science.formula.series import derive_closed_form
-from py_science.formula.sympy_backend import bounded_rational_difference, render
+from py_science.formula.sympy_backend import (
+    RationalMeasureFailure,
+    bounded_rational_difference,
+    rational_ir_measure,
+    render,
+)
 
 UNIMPLEMENTED = "query kind is not implemented in this release slice"
-MAX_TARGET_NODES = 512
-MAX_SIBLING_SUMS = 8
-MAX_EXPONENT = 32
-MAX_COEFFICIENT_BITS = 1024
 MAX_COUNTEREXAMPLE_STEPS = 256
 
 
@@ -229,28 +225,22 @@ def _equivalence(
         return _failure("equivalence comparison must be an expression", f"queries[{position}].comparison", query.comparison)
     if reasoning is None:
         return _unresolved_with("query reasoning exceeds its bound")
-    if not _allowed_rational(expression) or not _allowed_rational(parsed):
-        return _unresolved_with(
-            QueryDiagnostic(
-                "equivalence operand",
-                "is outside the bounded rational family",
-                recovery="use bounded rational operands",
-            ).render()
-        )
+    operand_failure = _rational_diagnostic(expression, "equivalence operand")
+    if operand_failure is None:
+        operand_failure = _rational_diagnostic(parsed, "equivalence operand")
+    if operand_failure is not None:
+        return _unresolved_with(operand_failure.render())
     original_symbols = _symbol_names(expression) | _symbol_names(parsed)
     try:
         left = reasoning.apply(expression)
         right = reasoning.apply(parsed)
     except Exception:
         return _unresolved_with("query reasoning exceeds its bound")
-    if not _allowed_rational(left) or not _allowed_rational(right):
-        return _unresolved_with(
-            QueryDiagnostic(
-                "equivalence expansion",
-                "is outside the bounded rational family",
-                recovery="use bounded rational operands",
-            ).render()
-        )
+    expansion_failure = _rational_diagnostic(left, "equivalence expansion")
+    if expansion_failure is None:
+        expansion_failure = _rational_diagnostic(right, "equivalence expansion")
+    if expansion_failure is not None:
+        return _unresolved_with(expansion_failure.render())
     symbols = _symbol_names(left) | _symbol_names(right)
     relevant_symbols = symbols | original_symbols
     unsupported = reasoning.relevant_unsupported(relevant_symbols)
@@ -361,30 +351,19 @@ def _equivalence(
     return _unresolved_with("no bounded counterexample satisfies the supported assumptions", unsupported)
 
 
-def _allowed_rational(expression: Expression) -> bool:
-    if expression_node_count(expression) > MAX_TARGET_NODES:
-        return False
-    sibling_sums = sum(isinstance(child, Sum) for child in expression_children(expression))
-    if sibling_sums > MAX_SIBLING_SUMS:
-        return False
-    if isinstance(expression, (InfinityLiteral, Sum)):
-        return False
-    if isinstance(expression, IntegerLiteral):
-        return expression.value.bit_length() <= MAX_COEFFICIENT_BITS
-    if isinstance(expression, RationalLiteral):
-        return max(abs(expression.numerator).bit_length(), expression.positive_denominator.bit_length()) <= MAX_COEFFICIENT_BITS
-    if isinstance(expression, Symbol):
-        return True
-    if not isinstance(expression, BinaryExpression):
-        return False
-    if expression.operator is BinaryOperator.POWER:
-        exponent = expression.right
-        if not isinstance(exponent, (IntegerLiteral, RationalLiteral)):
-            return False
-        value = exponent.value if isinstance(exponent, IntegerLiteral) else (exponent.numerator if exponent.positive_denominator == 1 else MAX_EXPONENT + 1)
-        if abs(value) > MAX_EXPONENT:
-            return False
-    return all(_allowed_rational(child) for child in expression_children(expression))
+def _rational_diagnostic(
+    expression: Expression, subject: str
+) -> QueryDiagnostic | None:
+    measurement = rational_ir_measure(expression)
+    if not isinstance(measurement, RationalMeasureFailure):
+        return None
+    return QueryDiagnostic(
+        subject,
+        RATIONAL_FAILURE_REASONS[measurement.kind],
+        measurement.observed,
+        measurement.configured,
+        "use bounded rational operands",
+    )
 
 
 def _symbol_names(expression: Expression) -> set[str]:

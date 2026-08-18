@@ -29,7 +29,7 @@ from py_science.formula.models import (
     QueryAnswer,
     RelationshipUse,
 )
-from py_science.formula.query_diagnostics import QueryDiagnostic
+from py_science.formula.query_diagnostics import RATIONAL_FAILURE_REASONS, QueryDiagnostic
 from py_science.formula.reasoning import DomainFact, ReasoningContext, collect_denominators
 from py_science.formula.sympy_backend import (
     RationalMeasureFailure,
@@ -314,17 +314,9 @@ def _shape(
         )
     measurement = rational_ir_measure(applied)
     if isinstance(measurement, RationalMeasureFailure):
-        reason = {
-            "nodes": "exceeds bounded rational node limit",
-            "degree": "exceeds bounded rational degree limit",
-            "exponent": "exceeds bounded rational exponent limit",
-            "coefficient_bits": "exceeds bounded rational coefficient-bit limit",
-            "expanded_terms": "exceeds bounded rational expanded-term limit",
-            "unsupported_form": "is outside the bounded rational family",
-        }[measurement.kind]
         return QueryDiagnostic(
             subject,
-            reason,
+            RATIONAL_FAILURE_REASONS[measurement.kind],
             measurement.observed,
             measurement.configured,
             recovery,

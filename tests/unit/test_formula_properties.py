@@ -501,6 +501,39 @@ def test_rational_bound_refusals_report_observed_degree_and_recovery():
     )
 
 
+def test_rational_shape_backend_refusals_remain_categorical(monkeypatch):
+    def blocker() -> str:
+        outcome = query(
+            "x",
+            {
+                "name": "p",
+                "kind": "properties",
+                "checks": ({"kind": "valid_domain", "variable": "x"},),
+            },
+        )
+        return outcome.queries[0].answers[0].blockers[0]
+
+    monkeypatch.setattr(properties, "property_value", lambda _expression: None)
+    assert blocker() == (
+        "properties target cannot be translated by the bounded rational backend; "
+        "use a smaller univariate rational target"
+    )
+    monkeypatch.undo()
+
+    monkeypatch.setattr(properties, "property_cancel", lambda _value: None)
+    assert blocker() == (
+        "properties target cannot be cancelled by the bounded rational backend; "
+        "use a smaller univariate rational target"
+    )
+    monkeypatch.undo()
+
+    monkeypatch.setattr(properties, "property_fraction", lambda _value: None)
+    assert blocker() == (
+        "properties target cannot be split into a bounded rational fraction; "
+        "use a smaller univariate rational target"
+    )
+
+
 def test_sign_property_axis_ambiguity_recommends_one_variable_reduction():
     outcome = analyze(
         AnalysisRequest(
