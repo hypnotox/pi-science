@@ -504,13 +504,19 @@ def aggregate_analysis(
                 value, index, lower, clamped_upper, count
             ),
         ), ordering_unresolved
-    close_sum = unresolved is None and not (
-        isinstance(count, Call) and count.name == "Max"
+    count_is_clamped = isinstance(count, Call) and count.name == "Max"
+    aggregate_upper = (
+        _subtract(_add(lower, count), _ONE) if count_is_clamped else upper
     )
     return map_analysis(
         analysis,
         lambda value: _aggregate_value(
-            value, index, lower, upper, count, close_sum=close_sum
+            value,
+            index,
+            lower,
+            aggregate_upper,
+            count,
+            close_sum=unresolved is None and not count_is_clamped,
         ),
     ), unresolved
 
@@ -795,16 +801,21 @@ def _analyze_sum(expression: Sum, context: WorkContext) -> WorkAnalysis:
         context,
         f"sum index {expression.index}",
     )
+    count_is_clamped = isinstance(count, Call) and count.name == "Max"
+    aggregate_upper = (
+        _subtract(_add(expression.lower, count), _ONE)
+        if count_is_clamped
+        else expression.upper
+    )
     result = map_analysis(
         body,
         lambda value: _aggregate_value(
             value,
             expression.index,
             expression.lower,
-            expression.upper,
+            aggregate_upper,
             count,
-            close_sum=unresolved is None
-            and not (isinstance(count, Call) and count.name == "Max"),
+            close_sum=unresolved is None and not count_is_clamped,
         ),
     )
     reduction = (

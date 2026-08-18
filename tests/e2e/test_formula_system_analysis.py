@@ -553,6 +553,44 @@ def test_domain_bounds_localize_free_symbol_and_shadowing_diagnostics() -> None:
     assert "shadows an existing index" in shadowed.error.message
 
 
+def test_same_named_predecessor_domains_keep_equation_specific_provenance() -> None:
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(
+            EquationRequest(
+                name="a",
+                expression="Eq(A[n, m], x)",
+                domains={
+                    "n": IndexDomain(lower="0", upper="p"),
+                    "m": IndexDomain(lower="-n", upper="n"),
+                },
+            ),
+            EquationRequest(
+                name="b",
+                expression="Eq(B[n, m], x)",
+                domains={
+                    "n": IndexDomain(lower="1", upper="q"),
+                    "m": IndexDomain(lower="-n", upper="n"),
+                },
+            ),
+        ),
+        variables=variables("p", "q", "x"),
+    ))
+
+    assert outcome.status == "success" and outcome.system is not None
+    assert [(item.name, item.relationship) for item in outcome.system.relationships_used] == [
+        ("domain:n", "0 <= n <= p"),
+        ("domain:n", "1 <= n <= q"),
+    ]
+    assert [
+        [(item.name, item.relationship) for item in report.relationships_used]
+        for report in outcome.system.equations
+    ] == [
+        [("domain:n", "0 <= n <= p")],
+        [("domain:n", "1 <= n <= q")],
+    ]
+
+
 def test_unproved_independent_domain_closure_clamps_fixed_empty_work() -> None:
     outcome = analyze(
         AnalysisRequest(
@@ -575,7 +613,9 @@ def test_unproved_independent_domain_closure_clamps_fixed_empty_work() -> None:
     )
 
     assert outcome.status == "success" and outcome.system is not None
-    assert "Sum(i, (i, 2, N))" in outcome.system.total_work
+    assert "Sum(i, (i, 2, Max(0, N - 1) + 1))" in outcome.system.total_work
+    n_value = sympify("n_value")
+    assert sympify(outcome.system.total_work, locals={"N": n_value}).subs(n_value, 0).doit() == 0
     assert outcome.scenarios[0].substituted_work == "0"
     assert all("-1" not in value for value in outcome.scenarios[0].choice_work.values())
 

@@ -848,7 +848,7 @@ def _analyze_system(
     work_render_budget = WorkRenderBudget()
     reports: dict[str, EquationReport] = {}
     analyses: dict[str, WorkAnalysis] = {}
-    relationship_uses: dict[str, RelationshipUse] = {}
+    relationship_uses: dict[tuple[str, str], RelationshipUse] = {}
     try:
         domain_reasoning = ReasoningContext.build(
             {name: declaration.domain for name, declaration in request.variables.items()},
@@ -923,7 +923,7 @@ def _analyze_system(
             item for item in analysis.unresolved
             if not any(item.startswith(f"assumption {used_name}:") for used_name in domain_use_names)
         }
-        relationship_uses.update({item.name: item for item in used})
+        relationship_uses.update({(item.name, item.relationship): item for item in used})
         analyses[name] = analysis
         tally = count_operations(equation.formula.right)
         reports[name] = _equation_report(
@@ -940,8 +940,9 @@ def _analyze_system(
     combined = WorkAnalysis()
     for name in order:
         combined = combined.combine(analyses[name])
+    assumption_names = {item.name for item in knowledge.assumptions}
     used_assumption_names = {
-        name for name in relationship_uses if name in {item.name for item in knowledge.assumptions}
+        item.name for item in relationship_uses.values() if item.name in assumption_names
     }
     for assumption in knowledge.assumptions:
         if (
@@ -962,7 +963,7 @@ def _analyze_system(
     system_interpretation = render_budget.accept(system_rendering)
     if isinstance(system_interpretation, AnalysisFailure):
         return system_interpretation
-    used_relationships = tuple(relationship_uses[name] for name in sorted(relationship_uses))
+    used_relationships = tuple(relationship_uses[key] for key in sorted(relationship_uses))
     system = _system_report(
         tuple(reports[name] for name in order),
         combined,
@@ -971,7 +972,7 @@ def _analyze_system(
         tuple(sorted(set(all_extractions))),
         work_render_budget,
         used_relationships,
-        tuple(item.name for item in knowledge.assumptions if item.name not in relationship_uses),
+        tuple(item.name for item in knowledge.assumptions if item.name not in used_assumption_names),
     )
     submitted = OperationTally()
     for name in order:
