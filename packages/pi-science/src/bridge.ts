@@ -1228,12 +1228,28 @@ function validQueryConstraintUses(
       sourceIndex >= 0 && sourceIndex < index
         ? results[sourceIndex]
         : undefined;
+    const sourceQuery =
+      sourceIndex >= 0 && sourceIndex < index
+        ? request.queries?.[sourceIndex]
+        : undefined;
     const sourceUses =
       source?.answers.flatMap((answer) => answer.constraint_uses) ?? [];
-    return uses.every((use) =>
-      sourceUses.some(
-        (sourceUse) => JSON.stringify(use) === JSON.stringify(sourceUse),
-      ),
+    const sourceTarget =
+      sourceQuery !== undefined && "target" in sourceQuery
+        ? sourceQuery.target
+        : undefined;
+    const sourceEquation =
+      sourceTarget?.kind === "equation"
+        ? request.equations.find((item) => item.name === sourceTarget.name)
+        : undefined;
+    return uses.every(
+      (use) =>
+        sourceUses.some(
+          (sourceUse) => JSON.stringify(use) === JSON.stringify(sourceUse),
+        ) ||
+        (sourceEquation?.constraints ?? []).some((constraint) =>
+          sameConstraintUse(use, constraint, sourceEquation!.name),
+        ),
     );
   }
   return uses.length === 0;

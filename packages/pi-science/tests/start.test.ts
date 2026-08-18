@@ -939,6 +939,76 @@ describe("readiness gate", () => {
     expect(result.content[0]?.text).toContain("(p + 1)**2");
   });
 
+  it("accepts equation-local constraint uses introduced by a derived consumer", async () => {
+    const current = host();
+    const adapter = fileURLToPath(
+      new URL("../bridge/formula_adapter.py", import.meta.url),
+    );
+    await start(
+      current.api,
+      Promise.resolve({
+        ready: true,
+        command: "uv",
+        args: ["run", "--locked", "python", adapter],
+      }),
+    );
+    const result = await current.tools[0]!.execute("id", {
+      equations: [
+        {
+          name: "count",
+          expression: "Eq(C[p], Sum(Sum(p, (l, 0, 0)), (k, 0, 3)))",
+          domains: { p: { lower: "-5", upper: "5" } },
+          constraints: [
+            {
+              name: "nonnegative",
+              relationship: "p >= 0",
+              target: "p",
+            },
+          ],
+        },
+      ],
+      queries: [
+        {
+          name: "closed",
+          kind: "closed_form",
+          target: { kind: "equation", name: "count" },
+        },
+        {
+          name: "sign",
+          kind: "properties",
+          target: { kind: "derived", query: "closed" },
+          checks: [{ kind: "sign" }],
+        },
+      ],
+    });
+    expect(result.details).toMatchObject({
+      status: "success",
+      queries: [
+        {
+          name: "closed",
+          answers: [{ conclusion: "proved", constraint_uses: [] }],
+        },
+        {
+          name: "sign",
+          target: { kind: "derived", query: "closed" },
+          answers: [
+            {
+              conclusion: "proved_under_assumptions",
+              constraint_uses: [
+                {
+                  equation: "count",
+                  name: "nonnegative",
+                  target: "p",
+                  relationship: "p >= 0",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+  });
+
   it("surfaces Python request diagnostics through the registered tool", async () => {
     const current = host();
     const adapter = fileURLToPath(
