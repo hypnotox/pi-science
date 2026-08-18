@@ -67,6 +67,18 @@ class BoundedRationalDifference:
 
 
 @dataclass(frozen=True, slots=True)
+class RationalMeasureFailure:
+    """A safe first failure from bounded rational IR inspection."""
+
+    kind: str
+    observed: int | None = None
+    configured: int | None = None
+
+
+RationalMeasure = tuple[int, int, int, int, int, int]
+
+
+@dataclass(frozen=True, slots=True)
 class BoundedAsymptoticRational:
     statement: str
     local_parameter: str
@@ -284,12 +296,13 @@ def rational_ir_measure(
     max_exponent: int = 32,
     max_coefficient_bits: int = 1024,
     max_terms: int = 4096,
-) -> tuple[int, int, int, int, int, int] | None:
-    """Bound rational polynomial degrees, coefficient bits, and expanded terms."""
-    if expression_node_count(expression) > max_nodes:
-        return None
+) -> RationalMeasure | RationalMeasureFailure:
+    """Bound rational IR and return its stable first refusal when it does not fit."""
+    nodes = expression_node_count(expression)
+    if nodes > max_nodes:
+        return RationalMeasureFailure("nodes", nodes, max_nodes)
 
-    def measure(value: Expression) -> tuple[int, int, int, int, int, int] | None:
+    def measure(value: Expression) -> RationalMeasure | RationalMeasureFailure:
         if isinstance(value, IntegerLiteral):
             return 0, 0, max(1, abs(value.value).bit_length()), 1, 1, 1
         if isinstance(value, RationalLiteral):
@@ -304,11 +317,13 @@ def rational_ir_measure(
         if isinstance(value, Symbol):
             return 1, 0, 1, 1, 1, 1
         if not isinstance(value, BinaryExpression):
-            return None
+            return RationalMeasureFailure("unsupported_form")
         left_measure = measure(value.left)
+        if isinstance(left_measure, RationalMeasureFailure):
+            return left_measure
         right_measure = measure(value.right)
-        if left_measure is None or right_measure is None:
-            return None
+        if isinstance(right_measure, RationalMeasureFailure):
+            return right_measure
         (
             left_num,
             left_den,
@@ -329,11 +344,7 @@ def rational_ir_measure(
             result = (
                 max(left_num + right_den, right_num + left_den),
                 left_den + right_den,
-                max(
-                    left_num_bits + right_den_bits,
-                    right_num_bits + left_den_bits,
-                )
-                + 1,
+                max(left_num_bits + right_den_bits, right_num_bits + left_den_bits) + 1,
                 left_den_bits + right_den_bits,
                 left_num_terms * right_den_terms + right_num_terms * left_den_terms,
                 left_den_terms * right_den_terms,
@@ -365,8 +376,10 @@ def rational_ir_measure(
                 and value.right.positive_denominator == 1
                 else None
             )
-            if exponent is None or abs(exponent) > max_exponent:
-                return None
+            if exponent is None:
+                return RationalMeasureFailure("unsupported_form")
+            if abs(exponent) > max_exponent:
+                return RationalMeasureFailure("exponent", abs(exponent), max_exponent)
             if exponent >= 0:
                 result = (
                     left_num * exponent,
@@ -385,12 +398,17 @@ def rational_ir_measure(
                     left_den_terms**-exponent,
                     left_num_terms**-exponent,
                 )
-        if (
-            max(result[:2]) > max_degree
-            or max(result[2:4]) > max_coefficient_bits
-            or max(result[4:]) > max_terms
-        ):
-            return None
+        degree = max(result[:2])
+        if degree > max_degree:
+            return RationalMeasureFailure("degree", degree, max_degree)
+        coefficient_bits = max(result[2:4])
+        if coefficient_bits > max_coefficient_bits:
+            return RationalMeasureFailure(
+                "coefficient_bits", coefficient_bits, max_coefficient_bits
+            )
+        terms = max(result[4:])
+        if terms > max_terms:
+            return RationalMeasureFailure("expanded_terms", terms, max_terms)
         return result
 
     return measure(expression)
@@ -404,15 +422,15 @@ def rational_ir_preflight(
     max_exponent: int = 32,
     max_coefficient_bits: int = 1024,
 ) -> bool:
-    return (
+    return not isinstance(
         rational_ir_measure(
             expression,
             max_nodes=max_nodes,
             max_degree=max_degree,
             max_exponent=max_exponent,
             max_coefficient_bits=max_coefficient_bits,
-        )
-        is not None
+        ),
+        RationalMeasureFailure,
     )
 
 
@@ -438,7 +456,9 @@ def bounded_rational_difference(
         max_exponent=max_exponent,
         max_coefficient_bits=max_coefficient_bits,
     )
-    if left_measure is None or right_measure is None:
+    if isinstance(left_measure, RationalMeasureFailure) or isinstance(
+        right_measure, RationalMeasureFailure
+    ):
         return None
     (
         left_num,

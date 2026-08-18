@@ -50,6 +50,7 @@ from py_science.formula.models import (
 )
 from py_science.formula.parser import ParseFailure, parse_expression
 from py_science.formula.properties import afmm_tail_property_answer, limit_answer, property_answer
+from py_science.formula.query_diagnostics import QueryDiagnostic
 from py_science.formula.reasoning import ReasoningContext, collect_denominators
 from py_science.formula.series import derive_closed_form
 from py_science.formula.sympy_backend import bounded_rational_difference, render
@@ -229,7 +230,13 @@ def _equivalence(
     if reasoning is None:
         return _unresolved_with("query reasoning exceeds its bound")
     if not _allowed_rational(expression) or not _allowed_rational(parsed):
-        return _unresolved_with("query family is unsupported")
+        return _unresolved_with(
+            QueryDiagnostic(
+                "equivalence operand",
+                "is outside the bounded rational family",
+                recovery="use bounded rational operands",
+            ).render()
+        )
     original_symbols = _symbol_names(expression) | _symbol_names(parsed)
     try:
         left = reasoning.apply(expression)
@@ -237,7 +244,13 @@ def _equivalence(
     except Exception:
         return _unresolved_with("query reasoning exceeds its bound")
     if not _allowed_rational(left) or not _allowed_rational(right):
-        return _unresolved_with("query family is unsupported")
+        return _unresolved_with(
+            QueryDiagnostic(
+                "equivalence expansion",
+                "is outside the bounded rational family",
+                recovery="use bounded rational operands",
+            ).render()
+        )
     symbols = _symbol_names(left) | _symbol_names(right)
     relevant_symbols = symbols | original_symbols
     unsupported = reasoning.relevant_unsupported(relevant_symbols)

@@ -618,6 +618,40 @@ def test_equivalence_resource_refusals_are_localized_unresolved():
     assert answer.relevant_unsupported_assumptions == ("nonlinear",)
 
 
+def test_equivalence_reports_operand_expansion_and_normalization_refusals(monkeypatch):
+    operand = analyze(request(queries=({"name": "q", "kind": "equivalence", "comparison": "sin(x)"},)))
+    assert operand.status == "success"
+    operand_answer = operand.queries[0].answers[0]
+    assert operand_answer.conclusion == "unresolved"
+    assert operand_answer.blockers == (
+        "equivalence operand is outside the bounded rational family; use bounded rational operands",
+    )
+
+    expanded = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="y",
+        variables={
+            "x": VariableDeclaration(domain=MathematicalDomain.REAL),
+            "y": VariableDeclaration(domain=MathematicalDomain.REAL),
+        },
+        definitions=(DirectedDefinition(variable="y", expression="sin(x)"),),
+        queries=({"name": "q", "kind": "equivalence", "comparison": "y"},),
+    ))
+    assert expanded.status == "success"
+    expanded_answer = expanded.queries[0].answers[0]
+    assert expanded_answer.conclusion == "unresolved"
+    assert expanded_answer.blockers == (
+        "equivalence expansion is outside the bounded rational family; use bounded rational operands",
+    )
+
+    monkeypatch.setattr(formula_query, "bounded_rational_difference", lambda *_args: None)
+    normalization = analyze(request(queries=({"name": "q", "kind": "equivalence", "comparison": "x"},)))
+    assert normalization.status == "success"
+    normalization_answer = normalization.queries[0].answers[0]
+    assert normalization_answer.conclusion == "unresolved"
+    assert normalization_answer.blockers == ("query rational normalization exceeds its bound",)
+
+
 def test_query_sources_participate_in_whole_request_byte_accounting():
     functions = tuple(
         FunctionDefinition(name=f"f{index}", parameters=(), body="x" * 65_000)

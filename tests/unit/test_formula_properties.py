@@ -456,6 +456,70 @@ def test_backend_post_transform_bound_and_work_immutability(monkeypatch):
     assert backend.property_cancel(x + 1) is None
 
 
+def test_rational_bound_refusals_report_observed_degree_and_recovery():
+    properties = query(
+        "x**9",
+        {"name": "p", "kind": "properties", "checks": ({"kind": "valid_domain", "variable": "x"},)},
+    )
+    properties_answer = properties.queries[0].answers[0]
+    assert properties_answer.conclusion == "unresolved"
+    assert properties_answer.blockers == (
+        "properties target exceeds bounded rational degree limit: observed 9, configured 8; "
+        "use a smaller univariate rational target",
+    )
+
+    fixed_order = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="q**12 * (13 - 12*q) / (1 - q)**2",
+            variables={"q": VariableDeclaration(domain=MathematicalDomain.REAL)},
+            queries=(
+                {
+                    "name": "p",
+                    "kind": "properties",
+                    "checks": ({"kind": "valid_domain", "variable": "q"},),
+                },
+            ),
+        )
+    )
+    fixed_order_answer = fixed_order.queries[0].answers[0]
+    assert fixed_order_answer.conclusion == "unresolved"
+    assert fixed_order_answer.blockers == (
+        "properties target exceeds bounded rational degree limit: observed 12, configured 8; "
+        "use a smaller univariate rational target",
+    )
+
+    limit = query(
+        "x**9",
+        {"name": "l", "kind": "limit", "variable": "x", "point": "0", "direction": "both"},
+    )
+    limit_answer = limit.queries[0].answers[0]
+    assert limit_answer.conclusion == "unresolved"
+    assert limit_answer.blockers == (
+        "limit target exceeds bounded rational degree limit: observed 9, configured 8; "
+        "use a smaller univariate rational target",
+    )
+
+
+def test_sign_property_axis_ambiguity_recommends_one_variable_reduction():
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="x + y",
+            variables={
+                "x": VariableDeclaration(domain=MathematicalDomain.REAL),
+                "y": VariableDeclaration(domain=MathematicalDomain.REAL),
+            },
+            queries=({"name": "p", "kind": "properties", "checks": ({"kind": "sign"},)},),
+        )
+    )
+    answer = outcome.queries[0].answers[0]
+    assert answer.conclusion == "unresolved"
+    assert answer.blockers == (
+        "sign property axis is ambiguous; reduce to one unambiguous variable",
+    )
+
+
 def test_unsupported_and_inapplicable_remain_distinct():
     opaque = query(
         "f(x)",

@@ -29,8 +29,10 @@ from py_science.formula.models import (
     QueryAnswer,
     RelationshipUse,
 )
+from py_science.formula.query_diagnostics import QueryDiagnostic
 from py_science.formula.reasoning import DomainFact, ReasoningContext, collect_denominators
 from py_science.formula.sympy_backend import (
+    RationalMeasureFailure,
     property_affine_coefficients,
     property_cancel,
     property_derivative,
@@ -43,7 +45,7 @@ from py_science.formula.sympy_backend import (
     property_render,
     property_substitute,
     property_value,
-    rational_ir_preflight,
+    rational_ir_measure,
 )
 
 
@@ -110,9 +112,14 @@ def property_answer(
 ) -> QueryAnswer:
     if reasoning is None:
         return _unresolved("query reasoning exceeds its bound", check)
-    shape = _shape(expression, check.variable if check.kind != "sign" else None, reasoning)
-    if shape is None:
-        return _unresolved("query family is unsupported", check)
+    shape = _shape(
+        expression,
+        check.variable if check.kind != "sign" else None,
+        reasoning,
+        subject="properties target",
+    )
+    if isinstance(shape, QueryDiagnostic):
+        return _unresolved(shape.render(), check)
     obligation = _parameter_denominator_obligations(shape, reasoning)
     if obligation is None:
         return _unresolved("original denominator is not proved nonzero", check)
@@ -229,9 +236,9 @@ def limit_answer(
 ) -> QueryAnswer:
     if reasoning is None:
         return _unresolved("query reasoning exceeds its bound")
-    shape = _shape(expression, query.variable, reasoning)
-    if shape is None:
-        return _unresolved("query family is unsupported")
+    shape = _shape(expression, query.variable, reasoning, subject="limit target")
+    if isinstance(shape, QueryDiagnostic):
+        return _unresolved(shape.render())
     obligation = _parameter_denominator_obligations(shape, reasoning)
     if obligation is None:
         return _unresolved("original denominator is not proved nonzero")
@@ -292,18 +299,46 @@ def limit_answer(
 
 
 def _shape(
-    expression: Expression, variable_name: str | None, reasoning: ReasoningContext
-) -> RationalShape | None:
+    expression: Expression,
+    variable_name: str | None,
+    reasoning: ReasoningContext,
+    *,
+    subject: str,
+) -> RationalShape | QueryDiagnostic:
+    recovery = "use a smaller univariate rational target"
     try:
         applied = reasoning.apply(expression)
     except Exception:
-        return None
-    if not rational_ir_preflight(applied):
-        return None
+        return QueryDiagnostic(
+            subject, "cannot be prepared by bounded query reasoning", recovery=recovery
+        )
+    measurement = rational_ir_measure(applied)
+    if isinstance(measurement, RationalMeasureFailure):
+        reason = {
+            "nodes": "exceeds bounded rational node limit",
+            "degree": "exceeds bounded rational degree limit",
+            "exponent": "exceeds bounded rational exponent limit",
+            "coefficient_bits": "exceeds bounded rational coefficient-bit limit",
+            "expanded_terms": "exceeds bounded rational expanded-term limit",
+            "unsupported_form": "is outside the bounded rational family",
+        }[measurement.kind]
+        return QueryDiagnostic(
+            subject,
+            reason,
+            measurement.observed,
+            measurement.configured,
+            recovery,
+        )
     raw = property_value(applied)
-    cancelled = property_cancel(raw) if raw is not None else None
-    if raw is None or cancelled is None:
-        return None
+    if raw is None:
+        return QueryDiagnostic(
+            subject, "cannot be translated by the bounded rational backend", recovery=recovery
+        )
+    cancelled = property_cancel(raw)
+    if cancelled is None:
+        return QueryDiagnostic(
+            subject, "cannot be cancelled by the bounded rational backend", recovery=recovery
+        )
     symbols = tuple(cancelled.free_symbols)
     if variable_name is None:
         # A denominator that is independent of the chart axis is an obligation,
@@ -327,7 +362,11 @@ def _shape(
             ]
         )
         if len(axes) != 1:
-            return None
+            return QueryDiagnostic(
+                "sign property axis",
+                "is ambiguous",
+                recovery="reduce to one unambiguous variable",
+            )
         variable = axes[0]
     else:
         variable = sympy.Symbol(variable_name)
@@ -344,7 +383,14 @@ def _shape(
     # Shape records only replacements. Domain and sign facts belong to the proof
     # operation that consumes them, never to normalization.
     uses = reasoning.application_uses(participating)
-    return _shape_value(cancelled, variable, originals, original_expressions, uses)
+    shape = _shape_value(cancelled, variable, originals, original_expressions, uses)
+    if shape is None:
+        return QueryDiagnostic(
+            subject,
+            "cannot be split into a bounded rational fraction",
+            recovery=recovery,
+        )
+    return shape
 
 
 def _parameter_denominator_obligations(
