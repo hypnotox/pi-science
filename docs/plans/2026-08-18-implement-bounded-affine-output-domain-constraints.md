@@ -3,7 +3,7 @@ format: plan-v2
 date: 2026-08-18
 adrs:
   - adopt-bounded-affine-output-domain-constraints
-status: Proposed
+status: Implemented
 ---
 # Plan: Implement bounded affine output-domain constraints
 
