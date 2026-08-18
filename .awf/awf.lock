@@ -610,7 +610,7 @@
       "templateId": "docs/local.md.tmpl",
       "templateHash": "sha256:f09ab3b6e84fa2d6a10c6f2ac2a6e1552ad8cada8855c9e378f432a96b7c733d",
       "configHash": "sha256:66ff8f3f1d7630b01d8c19b8e22984cb5531fa71b124cf560912ab6ff4279069",
-      "outputHash": "sha256:8766ae283b444b916bf321081d7c68ff4ee1b03e66617177125956b607af0ca5",
+      "outputHash": "sha256:14c1425b479d096c49aef3beab691c3082049d4a174e0628f7ae18a896f5f8a7",
       "regenChecked": true
     },
     "docs/workflow.md": {

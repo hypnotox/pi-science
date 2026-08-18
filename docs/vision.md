@@ -39,7 +39,7 @@ The expression describes the computation. A small JSON envelope supplies what or
 
 ### Deterministic analysis and explicit uncertainty
 
-Every result distinguishes exact derivation, assumption-dependent derivation, conservative bound, conditional optimization, and unresolved quantity. The analyzer does not silently invent a missing cost, treat a scaling variable as constant, or label a sampled estimate as a mathematical bound.
+Reported conclusions distinguish exact derivation, assumption-dependent derivation, conservative bound, and unresolved quantity. The analyzer does not silently invent a missing cost, treat a scaling variable as constant, or label a sampled estimate as a mathematical bound.
 
 ### Progressive detail
 
@@ -47,7 +47,7 @@ Unknown functions and costs remain symbolic until the agent defines them. An opa
 
 ### Inspectable interpretation
 
-Every response includes normalized SymPy and LaTeX renderings of what the tool actually analyzed, with warnings for ambiguity or unsupported constructs.
+Successful reports include normalized SymPy and LaTeX renderings of what the tool actually analyzed. Invalid requests return localized diagnostics; valid unsupported queries return qualified blockers rather than invented conclusions.
 
 ## MVP capabilities
 
