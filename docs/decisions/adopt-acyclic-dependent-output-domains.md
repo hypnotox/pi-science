@@ -1,7 +1,7 @@
 ---
 format: current-state-v4
 slug: adopt-acyclic-dependent-output-domains
-status: Proposed
+status: Accepted
 date: 2026-08-18
 ---
 # ADR-adopt-acyclic-dependent-output-domains: Adopt acyclic dependent output domains
@@ -50,3 +50,4 @@ Inferring a bounded dependency graph costs more cross-cutting validation, aggreg
 ## Status history
 
 - 2026-08-18: Proposed
+- 2026-08-18: Accepted; content-sha256: 06938c0953bf78f9def41acfb21d4a86891c35dba07ec24c802e05e94c053fd9
