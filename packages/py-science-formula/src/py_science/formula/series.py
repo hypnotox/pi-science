@@ -23,6 +23,7 @@ from py_science.formula.expressions import (
     Symbol,
     expression_children,
     expression_node_count,
+    substitute,
 )
 from py_science.formula.models import (
     ClosedFormEvidence,
@@ -208,6 +209,9 @@ def _derive_nested_polynomial(expression: Expression, reasoning: ReasoningContex
     if not _series_preflight(expression) or not _supported_shell(expression):
         return _unresolved("nested polynomial family exceeds its bounded preconditions")
     root = roots[0]
+    structural_blocker = _nested_tree_preflight(root, reasoning, ())
+    if structural_blocker is not None:
+        return _unresolved(structural_blocker)
     rule = _derive_nested_node(root, reasoning, (), {})
     if isinstance(rule, QueryAnswer):
         return rule
@@ -276,10 +280,16 @@ def _derive_nested_node(
             "nested polynomial bounds must be finite and independent of their binder"
         )
     try:
-        lower, upper = reasoning.apply(item.lower), reasoning.apply(item.upper)
-        body = reasoning.apply(item.body)
+        bound = (*outer, item.index)
+        lower = _nested_apply(reasoning, item.lower, bound)
+        upper = _nested_apply(reasoning, item.upper, bound)
+        body = _nested_apply(reasoning, item.body, bound)
     except Exception:
         return _unresolved("query reasoning exceeds its bound")
+    if _contains_index(lower, item.index) or _contains_index(upper, item.index):
+        return _unresolved(
+            "nested polynomial bounds must be finite and independent of their binder"
+        )
     if not _nested_affine_integral(lower, outer, reasoning) or not _nested_affine_integral(
         upper, outer, reasoning
     ):
@@ -300,8 +310,9 @@ def _derive_nested_node(
             reasoning.relevant_unsupported(_names(item)),
         )
 
+    free_input_names = _names(item) - set(outer) - {item.index}
     uses = _unique(
-        (*reasoning.application_uses(tuple(_names(item))), *order_uses)
+        (*reasoning.application_uses(tuple(free_input_names)), *order_uses)
     )
     conditions: tuple[str, ...] = ()
     child_ranges = {**outer_ranges, item.index: (lower, upper)}
@@ -318,12 +329,7 @@ def _derive_nested_node(
     allowed = set(reasoning.domains) | set(outer) | {item.index}
     if not _names(body) <= allowed or _contains_forbidden(body):
         return _unresolved("nested polynomial summand contains forbidden or undeclared names")
-    polynomial_names = tuple(
-        dict.fromkeys((*sorted(reasoning.domains), *outer, item.index))
-    )
-    degrees = bounded_polynomial_degrees(body, polynomial_names)
-    active_positions = tuple(polynomial_names.index(name) for name in (*outer, item.index))
-    if degrees is None or any(degrees[position] > 8 for position in active_positions):
+    if not _nested_degree_ok(body, (*outer, item.index), reasoning):
         return _unresolved(
             "nested polynomial summand is not an exact rational polynomial of degree at most eight"
         )
@@ -338,6 +344,66 @@ def _derive_nested_node(
     ):
         return _unresolved("nested polynomial candidate escapes its restricted names or bounds")
     return SeriesRule(candidate, "finite_antidifference", conditions, uses)
+
+
+def _nested_tree_preflight(
+    item: Sum, reasoning: ReasoningContext, outer: tuple[str, ...]
+) -> str | None:
+    if isinstance(item.upper, InfinityLiteral):
+        return "nested polynomial bounds must be finite and independent of their binder"
+    try:
+        bound = (*outer, item.index)
+        lower = _nested_apply(reasoning, item.lower, bound)
+        upper = _nested_apply(reasoning, item.upper, bound)
+        body = _nested_apply(reasoning, item.body, bound)
+    except Exception:
+        return "query reasoning exceeds its bound"
+    if _contains_index(lower, item.index) or _contains_index(upper, item.index):
+        return "nested polynomial bounds must be finite and independent of their binder"
+    if not _nested_affine_integral(lower, outer, reasoning) or not _nested_affine_integral(
+        upper, outer, reasoning
+    ):
+        return "nested polynomial bounds must use proved affine integers"
+    for child in _direct_sums(body):
+        blocker = _nested_tree_preflight(child, reasoning, (*outer, item.index))
+        if blocker is not None:
+            return blocker
+        body = _replace(body, child, IntegerLiteral(0))
+    allowed = set(reasoning.domains) | set(outer) | {item.index}
+    if not _names(body) <= allowed or _contains_forbidden(body):
+        return "nested polynomial summand contains forbidden or undeclared names"
+    if not _nested_degree_ok(body, (*outer, item.index), reasoning):
+        return (
+            "nested polynomial summand is not an exact rational polynomial "
+            "of degree at most eight"
+        )
+    return None
+
+
+def _nested_apply(
+    reasoning: ReasoningContext, value: Expression, bound: tuple[str, ...]
+) -> Expression:
+    replacements = {
+        name: replacement
+        for name, replacement in reasoning.replacements.items()
+        if name not in bound
+    }
+    resolved = value
+    for _ in range(len(replacements) + 1):
+        updated = substitute(resolved, replacements, max_nodes=MAX_INTERMEDIATE_NODES)
+        if updated == resolved:
+            return resolved
+        resolved = updated
+    return resolved
+
+
+def _nested_degree_ok(
+    body: Expression, active: tuple[str, ...], reasoning: ReasoningContext
+) -> bool:
+    polynomial_names = tuple(dict.fromkeys((*sorted(reasoning.domains), *active)))
+    degrees = bounded_polynomial_degrees(body, polynomial_names)
+    active_positions = tuple(polynomial_names.index(name) for name in active)
+    return degrees is not None and all(degrees[position] <= 8 for position in active_positions)
 
 
 def _nested_affine_integral(

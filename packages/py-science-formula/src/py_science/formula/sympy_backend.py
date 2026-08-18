@@ -712,7 +712,9 @@ def bounded_polynomial_sum_candidate(
     body: Expression, index: str, lower: Expression, upper: Expression
 ) -> Any | None:
     """Generate one bounded finite-polynomial candidate; policy remains in series.py."""
-    if not all(rational_ir_preflight(item, max_degree=8) for item in (body, lower, upper)):
+    if not rational_ir_preflight(body, max_degree=32) or not all(
+        rational_ir_preflight(item, max_degree=8) for item in (lower, upper)
+    ):
         return None
     try:
         value, lo, hi = (_to_query_sympy(item) for item in (body, lower, upper))

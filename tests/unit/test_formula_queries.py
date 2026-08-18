@@ -155,6 +155,10 @@ def test_nested_polynomial_shell_topology_and_resource_boundaries():
         "(h, 0, 1))"
     )
     assert branching.conclusion == "proved"  # eight nodes, depth four
+    per_binder = _nested_answer(
+        "Sum(Sum(k**8*l**8, (l, 0, 1)), (k, 0, 1))"
+    )
+    assert per_binder.conclusion == "proved"
 
     for expression, blocker in (
         ("Sum(Sum(Sum(Sum(Sum(1, (a, 0, 1)), (b, 0, 1)), (c, 0, 1)), (d, 0, 1)), (e, 0, 1))", "one tree of at most depth four and eight sums"),
@@ -193,6 +197,15 @@ def test_nested_polynomial_affine_integral_order_and_degree_contract():
 
     empty = _nested_answer("Sum(Sum(1, (l, 2, 1)), (k, 0, 1))")
     assert empty.derived_candidates[0].interpretation.normalized_sympy == "0"
+    for excluded in (
+        "Sum(Sum(1, (l, 0, oo)), (k, 1, 0))",
+        "Sum(Sum(2**l, (l, 0, 1)), (k, 1, 0))",
+        "Sum(Sum(1, (l, k**2, k**2)), (k, 1, 0))",
+        "Sum(Sum(1, (l, l, 1)), (k, 1, 0))",
+    ):
+        excluded_answer = _nested_answer(excluded)
+        assert excluded_answer.conclusion == "unresolved"
+        assert not excluded_answer.derived_candidates
     changing = _nested_answer("Sum(Sum(1, (l, -k, k)), (k, -1, 1))")
     assert changing.conclusion == "unresolved"
     assert changing.blockers == ("nested polynomial range ordering is unresolved",)
@@ -200,6 +213,12 @@ def test_nested_polynomial_affine_integral_order_and_degree_contract():
 
 def test_nested_polynomial_backend_generation_is_never_proof(monkeypatch):
     expression = "Sum(Sum(1, (l, 0, k)), (k, 0, 2))"
+    monkeypatch.setattr(formula_series, "bounded_polynomial_sum_candidate", lambda *args: None)
+    missing = _nested_answer(expression)
+    assert missing.conclusion == "unresolved" and missing.evidence is None
+    assert missing.blockers == ("nested polynomial antidifference verification failed",)
+
+    monkeypatch.undo()
     monkeypatch.setattr(formula_series, "bounded_polynomial_sum_verify", lambda *args: False)
     answer = _nested_answer(expression)
     assert answer.conclusion == "unresolved" and answer.evidence is None
@@ -226,6 +245,68 @@ def test_nested_polynomial_backend_generation_is_never_proof(monkeypatch):
     unparsable = _nested_answer(expression)
     assert unparsable.conclusion == "unresolved" and unparsable.evidence is None
 
+    monkeypatch.undo()
+    monkeypatch.setattr(formula_series, "bounded_polynomial_sum_verify", lambda *args: True)
+    monkeypatch.setattr(
+        formula_series,
+        "bounded_polynomial_sum_candidate",
+        lambda *args: formula_sympy.sympy.Integer(0),
+    )
+    zero = _nested_answer(expression)
+    assert zero.conclusion == "proved"
+    assert zero.derived_candidates[0].interpretation.normalized_sympy == "0"
+
+    monkeypatch.undo()
+    monkeypatch.setattr(formula_series, "bounded_polynomial_sum_verify", lambda *args: True)
+
+    def negative_candidate(_body, index, *_bounds):
+        return -formula_sympy.sympy.Symbol("k") if index == "l" else formula_sympy.sympy.Integer(-1)
+
+    monkeypatch.setattr(formula_series, "bounded_polynomial_sum_candidate", negative_candidate)
+    negative = _nested_answer(expression)
+    assert negative.conclusion == "proved"
+    assert negative.derived_candidates[0].interpretation.normalized_sympy == "-1"
+
+
+def test_nested_polynomial_candidate_and_rendering_overflow_fail_closed(monkeypatch):
+    target_terms = ["x"] * 257
+    while len(target_terms) > 1:
+        target_terms = [
+            f"({target_terms[index]} + {target_terms[index + 1]})"
+            if index + 1 < len(target_terms)
+            else target_terms[index]
+            for index in range(0, len(target_terms), 2)
+        ]
+    oversized_target = _nested_answer(
+        f"Sum(Sum({target_terms[0]}, (l, 0, 1)), (k, 0, 1))"
+    )
+    assert oversized_target.conclusion == "unresolved"
+    assert "closed-form target exceeds its bounded node limit" in oversized_target.blockers[0]
+
+    expression = "Sum(Sum(1, (l, 0, k)), (k, 0, 2))"
+    huge = formula_sympy.sympy.Add(
+        *(formula_sympy.sympy.Symbol(f"x{index}") for index in range(4100)),
+        evaluate=False,
+    )
+    monkeypatch.setattr(formula_series, "bounded_polynomial_sum_candidate", lambda *args: huge)
+    monkeypatch.setattr(formula_series, "bounded_polynomial_sum_verify", lambda *args: True)
+    bounded = _nested_answer(expression)
+    assert bounded.conclusion == "unresolved" and bounded.evidence is None
+
+    monkeypatch.undo()
+    original_render = formula_series.render
+
+    def oversized_render(value):
+        rendered = original_render(value)
+        if not isinstance(value, formula_series.Sum):
+            return rendered.__class__("x" * 4097, "x" * 4097)
+        return rendered
+
+    monkeypatch.setattr(formula_series, "render", oversized_render)
+    oversized = _nested_answer(expression)
+    assert oversized.conclusion == "unresolved"
+    assert oversized.blockers == ("query candidate rendering exceeds its bound",)
+
 
 def test_nested_polynomial_backend_independently_checks_step_boundary_and_bounds(monkeypatch):
     body = parse_expression("k")
@@ -241,15 +322,28 @@ def test_nested_polynomial_backend_independently_checks_step_boundary_and_bounds
     assert not formula_sympy.bounded_polynomial_sum_verify(body, "k", lower, upper, candidate)
     monkeypatch.undo()
     original_bound = formula_sympy._series_value_is_bounded
-    calls = 0
+    for rejected_call in range(1, 9):
+        calls = 0
 
-    def reject_intermediate(value, **kwargs):
-        nonlocal calls
-        calls += 1
-        return False if calls == 2 else original_bound(value, **kwargs)
+        def reject_intermediate(value, rejected=rejected_call, **kwargs):
+            nonlocal calls
+            calls += 1
+            return False if calls == rejected else original_bound(value, **kwargs)
 
-    monkeypatch.setattr(formula_sympy, "_series_value_is_bounded", reject_intermediate)
-    assert not formula_sympy.bounded_polynomial_sum_verify(body, "k", lower, upper, candidate)
+        monkeypatch.setattr(formula_sympy, "_series_value_is_bounded", reject_intermediate)
+        assert not formula_sympy.bounded_polynomial_sum_verify(body, "k", lower, upper, candidate)
+        monkeypatch.undo()
+
+
+def test_nested_polynomial_binders_shadow_declared_definitions():
+    answer = _nested_answer(
+        "Sum(Sum(1, (l, -k, k)), (k, 0, 1))",
+        variables={"k": VariableDeclaration(domain=MathematicalDomain.INTEGER)},
+        definitions=(DirectedDefinition(variable="k", expression="100"),),
+    )
+    assert answer.conclusion == "proved"
+    assert answer.derived_candidates[0].interpretation.normalized_sympy == "4"
+    assert answer.assumptions_used == ()
 
 
 def test_nested_polynomial_direct_consumers_and_explicit_derived_reuse():
