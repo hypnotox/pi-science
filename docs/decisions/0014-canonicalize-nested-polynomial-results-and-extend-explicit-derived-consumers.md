@@ -18,10 +18,11 @@ The existing safety boundary remains necessary. SymPy may construct an algebraic
 
 ## Decision
 
-1. `decision: canonical-explicit-nested-polynomial-operands` A proved bounded nested-polynomial closed form exposes a resource-checked, independently identity-verified canonical factored-polynomial candidate while preserving the submitted sum as its proof source and direct-work subject. That checked candidate may be selected explicitly as a derived operand by equivalence, properties, limit, and asymptotic queries, with its source qualifications and normalized interpretation retained. Direct equivalence, properties, limits, and asymptotics over the nested `Sum` remain unsupported, and no symbolic result claims runtime, cache behaviour, numerical quality, or an optimal implementation parameter.
+1. `decision: canonical-explicit-nested-polynomial-operands` A proved bounded nested-polynomial closed form exposes a resource-checked canonical factored-polynomial candidate while preserving the submitted sum as its proof source and direct-work subject. Canonicalization separates exact rational content and sign, collects factor multiplicities, and orders factors through the restricted canonical renderer; it publishes no candidate unless the result stays within the polynomial, resource, parse, name, and rendering bounds and an independent exact polynomial-identity check verifies it against the proved candidate. That checked candidate may be selected explicitly as a derived operand by equivalence, properties, limit, and asymptotic queries, with its source qualifications and normalized interpretation retained. Direct equivalence, properties, limits, and asymptotics over the nested `Sum` remain unsupported, and no symbolic result claims runtime, cache behaviour, numerical quality, or an optimal implementation parameter.
 
 ## State changes
 
+- update `product/mathematical-input-contract:explicit-mathematical-queries`
 - update `product/mathematical-analysis-model:assumption-aware-query-reasoning`
 - update `product/analysis-report-contract:qualified-query-conclusions`
 
@@ -41,6 +42,7 @@ Performance and numerical trade-offs remain empirical questions. The symbolic AP
 | Implicitly replace nested sums for every downstream query | It makes query behaviour less inspectable and silently broadens direct `Sum` support. |
 | Permit unrestricted SymPy simplification and downstream evaluation | Backend heuristics and resource use would define public policy without stable preflight, verification, or domain qualification. |
 | Add only presentation normalization | It would not let sign or asymptotic queries reuse the already-proved operand. |
+| Expand explicit consumers without canonicalizing the candidate | It improves reuse but leaves deterministic compact presentation—the other observed usability gap—unsolved. |
 
 ## Status history
 
