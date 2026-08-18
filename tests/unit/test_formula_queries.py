@@ -160,6 +160,33 @@ def test_nested_polynomial_shell_topology_and_resource_boundaries():
     )
     assert per_binder.conclusion == "proved"
 
+    introduced_depth = _nested_answer(
+        "Sum(Sum(x, (l, 0, 1)), (k, 0, 1))",
+        variables={"x": VariableDeclaration(domain=MathematicalDomain.INTEGER)},
+        definitions=(
+            DirectedDefinition(
+                variable="x",
+                expression="Sum(Sum(Sum(1, (a, 0, 1)), (b, 0, 1)), (c, 0, 1))",
+            ),
+        ),
+    )
+    assert introduced_depth.conclusion == "unresolved"
+    assert "depth four and eight sums" in introduced_depth.blockers[0]
+    introduced_count = _nested_answer(
+        "Sum(Sum(x, (l, 0, 1)), (k, 0, 1))",
+        variables={"x": VariableDeclaration(domain=MathematicalDomain.INTEGER)},
+        definitions=(
+            DirectedDefinition(
+                variable="x",
+                expression=" + ".join(
+                    f"Sum(1, (i{index}, 0, 1))" for index in range(7)
+                ),
+            ),
+        ),
+    )
+    assert introduced_count.conclusion == "unresolved"
+    assert "depth four and eight sums" in introduced_count.blockers[0]
+
     for expression, blocker in (
         ("Sum(Sum(Sum(Sum(Sum(1, (a, 0, 1)), (b, 0, 1)), (c, 0, 1)), (d, 0, 1)), (e, 0, 1))", "one tree of at most depth four and eight sums"),
         ("Sum(Sum(Sum(1, (a, 0, 1)) + Sum(1, (b, 0, 1)), (c, 0, 1)) + Sum(Sum(1, (d, 0, 1)) + Sum(1, (e, 0, 1)) + Sum(1, (f, 0, 1)) + Sum(1, (g, 0, 1)), (h, 0, 1)), (i, 0, 1))", "one tree of at most depth four and eight sums"),
@@ -188,7 +215,7 @@ def test_nested_polynomial_affine_integral_order_and_degree_contract():
         ("Sum(Sum(1, (l, k/2, k/2)), (k, 0, p))", "affine integers", {"variables": integer}),
         ("Sum(Sum(1/(k + 1), (l, 0, 1)), (k, 0, p))", "exact rational polynomial", {"variables": integer}),
         ("Sum(Sum(k**9, (l, 0, 1)), (k, 0, p))", "degree at most eight", {"variables": integer}),
-        ("Sum(Sum(y, (l, 0, 1)), (k, 0, p))", "degree at most eight", {"variables": {**integer, "k": VariableDeclaration(domain=MathematicalDomain.INTEGER), "y": VariableDeclaration(domain=MathematicalDomain.INTEGER)}, "definitions": (DirectedDefinition(variable="y", expression="k**9"),)}),
+        ("Sum(Sum(y, (l, 0, 1)), (k, 0, p))", "capture a bound", {"variables": {**integer, "k": VariableDeclaration(domain=MathematicalDomain.INTEGER), "y": VariableDeclaration(domain=MathematicalDomain.INTEGER)}, "definitions": (DirectedDefinition(variable="y", expression="k**9"),)}),
         ("Sum(Sum(k**8, (l, 0, k)), (k, 0, p))", "degree at most eight", {"variables": integer}),
     ):
         answer = _nested_answer(expression, **extra)
@@ -344,6 +371,20 @@ def test_nested_polynomial_binders_shadow_declared_definitions():
     assert answer.conclusion == "proved"
     assert answer.derived_candidates[0].interpretation.normalized_sympy == "4"
     assert answer.assumptions_used == ()
+
+    captured = _nested_answer(
+        "Sum(Sum(x, (l, 0, 1)), (k, 0, 1))",
+        variables={
+            "x": VariableDeclaration(domain=MathematicalDomain.INTEGER),
+            "k": VariableDeclaration(domain=MathematicalDomain.INTEGER),
+        },
+        definitions=(DirectedDefinition(variable="x", expression="k"),),
+    )
+    assert captured.conclusion == "unresolved"
+    assert captured.blockers == (
+        "nested polynomial reasoning would capture a bound name",
+    )
+    assert not captured.derived_candidates
 
 
 def test_nested_polynomial_direct_consumers_and_explicit_derived_reuse():
