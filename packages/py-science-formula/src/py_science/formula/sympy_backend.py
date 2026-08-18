@@ -629,7 +629,9 @@ def bounded_rational_difference(
         return None
 
 
-def _series_value_is_bounded(value: Any, *, max_nodes: int = 4096) -> bool:
+def _series_value_is_bounded(
+    value: Any, *, max_nodes: int = 4096, max_degree: int = 8
+) -> bool:
     """Check every family-specific series intermediate before it is reused."""
     try:
         if sum(1 for _ in sympy.preorder_traversal(value)) > max_nodes:
@@ -644,7 +646,7 @@ def _series_value_is_bounded(value: Any, *, max_nodes: int = 4096) -> bool:
                 # not polynomial variables to expand through.
                 continue
             if poly is not None:
-                if poly.total_degree() > 8:
+                if poly.total_degree() > max_degree:
                     return False
                 for coefficient in poly.coeffs():
                     top, bottom = sympy.fraction(coefficient)
@@ -696,7 +698,12 @@ def bounded_polynomial_degrees(
         polynomial = sympy.Poly(value, *symbols)
         if any(not coefficient.is_Rational for coefficient in polynomial.coeffs()):
             return None
-        return tuple(int(polynomial.degree(symbol)) for symbol in symbols)
+        return tuple(
+            0
+            if polynomial.degree(symbol) is sympy.S.NegativeInfinity
+            else int(polynomial.degree(symbol))
+            for symbol in symbols
+        )
     except Exception:
         return None
 
@@ -713,7 +720,7 @@ def bounded_polynomial_sum_candidate(
         # A private Dummy prevents a user binder from capturing backend work.
         value = value.xreplace({sympy.Symbol(index): symbol})
         candidate = sympy.summation(value, (symbol, lo, hi))
-        return candidate if _series_value_is_bounded(candidate) else None
+        return candidate if _series_value_is_bounded(candidate, max_degree=32) else None
     except Exception:
         return None
 
@@ -722,7 +729,7 @@ def bounded_polynomial_sum_verify(
     body: Expression, index: str, lower: Expression, upper: Expression, candidate: Any
 ) -> bool:
     """Independently check the finite inclusive boundary identity for a candidate."""
-    if not _series_value_is_bounded(candidate):
+    if not _series_value_is_bounded(candidate, max_degree=32):
         return False
     try:
         value, lo, hi = (_to_query_sympy(item) for item in (body, lower, upper))
@@ -731,16 +738,25 @@ def bounded_polynomial_sum_verify(
         # This separately constructed prefix is the one-step antidifference witness.
         endpoint = sympy.Dummy("_nested_endpoint", integer=True)
         prefix: Any = sympy.summation(value, (symbol, 0, endpoint - 1))
-        step = sympy.cancel(
-            prefix.subs(endpoint, symbol + 1) - prefix.subs(endpoint, symbol) - value
-        )
-        boundary = sympy.cancel(prefix.subs(endpoint, hi + 1) - prefix.subs(endpoint, lo))
-        return (
-            _series_value_is_bounded(step)
-            and _series_value_is_bounded(boundary)
-            and step == 0
-            and sympy.cancel(candidate - boundary) == 0
-        )
+        if not _series_value_is_bounded(prefix, max_degree=32):
+            return False
+        raw_step = prefix.subs(endpoint, symbol + 1) - prefix.subs(endpoint, symbol) - value
+        if not _series_value_is_bounded(raw_step, max_degree=32):
+            return False
+        step = sympy.cancel(raw_step)
+        if not _series_value_is_bounded(step, max_degree=32) or step != 0:
+            return False
+        raw_boundary = prefix.subs(endpoint, hi + 1) - prefix.subs(endpoint, lo)
+        if not _series_value_is_bounded(raw_boundary, max_degree=32):
+            return False
+        boundary = sympy.cancel(raw_boundary)
+        if not _series_value_is_bounded(boundary, max_degree=32):
+            return False
+        raw_residual = candidate - boundary
+        if not _series_value_is_bounded(raw_residual, max_degree=32):
+            return False
+        residual = sympy.cancel(raw_residual)
+        return _series_value_is_bounded(residual, max_degree=32) and residual == 0
     except Exception:
         return False
 

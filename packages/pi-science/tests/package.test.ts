@@ -20,6 +20,11 @@ describe("npm package boundary", () => {
     expect(skill).toContain("Parser acceptance, request-context validity");
     expect(skill).toContain("any returned field path, source span");
     expect(skill).toContain("proof qualifications");
+    expect(skill).toContain("partial direct `closed_form` support");
+    expect(skill).toContain("Sum(Sum(1, (l, -k, k)), (k, 0, p))");
+    expect(skill).toContain(
+      "distinct from the partial nested mathematical closed-form family",
+    );
     expect(skill).toContain("compact human-readable projection");
     expect(skill).toContain("complete canonical report in `details`");
     expect(skill).toContain(

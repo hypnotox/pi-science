@@ -126,6 +126,164 @@ def test_nested_finite_polynomial_closed_form_is_direct_only():
     assert direct_property.queries[0].answers[0].conclusion == "unresolved"
 
 
+def _nested_answer(expression, **extra):
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression=expression,
+        queries=({"name": "nested", "kind": "closed_form"},),
+        **extra,
+    ))
+    assert outcome.status == "success"
+    return outcome.queries[0].answers[0]
+
+
+def test_nested_polynomial_shell_topology_and_resource_boundaries():
+    variables = {"p": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER)}
+    shell = _nested_answer(
+        "3 + 2*Sum(Sum(1, (l, -k, k)), (k, 0, p))", variables=variables
+    )
+    assert shell.conclusion == "proved"
+    actual = formula_sympy.sympy.sympify(
+        shell.derived_candidates[0].interpretation.normalized_sympy
+    )
+    expected = formula_sympy.sympy.sympify("2*p**2 + 4*p + 5")
+    assert formula_sympy.sympy.expand(actual).equals(formula_sympy.sympy.expand(expected))
+
+    branching = _nested_answer(
+        "Sum(Sum(Sum(1, (a, 0, 1)) + Sum(1, (b, 0, 1)), (c, 0, 1)) + "
+        "Sum(Sum(Sum(1, (d, 0, 1)), (e, 0, 1)) + Sum(1, (f, 0, 1)), (g, 0, 1)), "
+        "(h, 0, 1))"
+    )
+    assert branching.conclusion == "proved"  # eight nodes, depth four
+
+    for expression, blocker in (
+        ("Sum(Sum(Sum(Sum(Sum(1, (a, 0, 1)), (b, 0, 1)), (c, 0, 1)), (d, 0, 1)), (e, 0, 1))", "one tree of at most depth four and eight sums"),
+        ("Sum(Sum(Sum(1, (a, 0, 1)) + Sum(1, (b, 0, 1)), (c, 0, 1)) + Sum(Sum(1, (d, 0, 1)) + Sum(1, (e, 0, 1)) + Sum(1, (f, 0, 1)) + Sum(1, (g, 0, 1)), (h, 0, 1)), (i, 0, 1))", "one tree of at most depth four and eight sums"),
+        ("Sum(Sum(1, (l, 0, k)), (k, 0, 1)) + Sum(Sum(1, (j, 0, i)), (i, 0, 1))", "one tree of at most depth four and eight sums"),
+        ("Sum(Sum(2**l, (l, 0, k)), (k, 0, 1))", "exact rational polynomial"),
+        ("Sum(Sum(1, (l, 0, oo)), (k, 0, 1))", "finite and independent"),
+    ):
+        answer = _nested_answer(expression)
+        assert answer.conclusion == "unresolved"
+        assert blocker in answer.blockers[0]
+
+
+def test_nested_polynomial_affine_integral_order_and_degree_contract():
+    integer = {"p": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER)}
+    accepted = _nested_answer(
+        "Sum(Sum(p + l**8, (l, 0, 1)), (k, 0, 1))", variables=integer
+    )
+    assert accepted.conclusion == "proved"
+    dependent = _nested_answer(
+        "Sum(Sum(1, (l, k, p)), (k, 0, p))", variables=integer
+    )
+    assert dependent.conclusion == "proved"
+
+    for expression, blocker, extra in (
+        ("Sum(Sum(1, (l, k**2, k**2)), (k, 0, p))", "affine integers", {"variables": integer}),
+        ("Sum(Sum(1, (l, k/2, k/2)), (k, 0, p))", "affine integers", {"variables": integer}),
+        ("Sum(Sum(1/(k + 1), (l, 0, 1)), (k, 0, p))", "exact rational polynomial", {"variables": integer}),
+        ("Sum(Sum(k**9, (l, 0, 1)), (k, 0, p))", "degree at most eight", {"variables": integer}),
+        ("Sum(Sum(y, (l, 0, 1)), (k, 0, p))", "degree at most eight", {"variables": {**integer, "k": VariableDeclaration(domain=MathematicalDomain.INTEGER), "y": VariableDeclaration(domain=MathematicalDomain.INTEGER)}, "definitions": (DirectedDefinition(variable="y", expression="k**9"),)}),
+        ("Sum(Sum(k**8, (l, 0, k)), (k, 0, p))", "degree at most eight", {"variables": integer}),
+    ):
+        answer = _nested_answer(expression, **extra)
+        assert answer.conclusion == "unresolved"
+        assert blocker in answer.blockers[0]
+
+    empty = _nested_answer("Sum(Sum(1, (l, 2, 1)), (k, 0, 1))")
+    assert empty.derived_candidates[0].interpretation.normalized_sympy == "0"
+    changing = _nested_answer("Sum(Sum(1, (l, -k, k)), (k, -1, 1))")
+    assert changing.conclusion == "unresolved"
+    assert changing.blockers == ("nested polynomial range ordering is unresolved",)
+
+
+def test_nested_polynomial_backend_generation_is_never_proof(monkeypatch):
+    expression = "Sum(Sum(1, (l, 0, k)), (k, 0, 2))"
+    monkeypatch.setattr(formula_series, "bounded_polynomial_sum_verify", lambda *args: False)
+    answer = _nested_answer(expression)
+    assert answer.conclusion == "unresolved" and answer.evidence is None
+    assert answer.blockers == ("nested polynomial antidifference verification failed",)
+
+    monkeypatch.undo()
+    monkeypatch.setattr(
+        formula_series,
+        "bounded_polynomial_sum_candidate",
+        lambda *args: formula_sympy.sympy.Symbol("_nested_escape"),
+    )
+    monkeypatch.setattr(formula_series, "bounded_polynomial_sum_verify", lambda *args: True)
+    escaped = _nested_answer(expression)
+    assert escaped.conclusion == "unresolved" and escaped.evidence is None
+    assert escaped.blockers == ("nested polynomial candidate escapes its restricted names or bounds",)
+
+    monkeypatch.undo()
+    monkeypatch.setattr(
+        formula_series,
+        "bounded_polynomial_sum_candidate",
+        lambda *args: formula_sympy.sympy.Function("unsupported")(formula_sympy.sympy.Symbol("k")),
+    )
+    monkeypatch.setattr(formula_series, "bounded_polynomial_sum_verify", lambda *args: True)
+    unparsable = _nested_answer(expression)
+    assert unparsable.conclusion == "unresolved" and unparsable.evidence is None
+
+
+def test_nested_polynomial_backend_independently_checks_step_boundary_and_bounds(monkeypatch):
+    body = parse_expression("k")
+    lower = parse_expression("0")
+    upper = parse_expression("3")
+    assert not isinstance(body, tuple) and not isinstance(lower, tuple) and not isinstance(upper, tuple)
+    candidate = formula_sympy.bounded_polynomial_sum_candidate(body, "k", lower, upper)
+    assert candidate is not None
+    assert formula_sympy.bounded_polynomial_sum_verify(body, "k", lower, upper, candidate)
+    assert not formula_sympy.bounded_polynomial_sum_verify(body, "k", lower, upper, candidate + 1)
+
+    monkeypatch.setattr(formula_sympy.sympy, "summation", lambda *args: formula_sympy.sympy.Integer(0))
+    assert not formula_sympy.bounded_polynomial_sum_verify(body, "k", lower, upper, candidate)
+    monkeypatch.undo()
+    original_bound = formula_sympy._series_value_is_bounded
+    calls = 0
+
+    def reject_intermediate(value, **kwargs):
+        nonlocal calls
+        calls += 1
+        return False if calls == 2 else original_bound(value, **kwargs)
+
+    monkeypatch.setattr(formula_sympy, "_series_value_is_bounded", reject_intermediate)
+    assert not formula_sympy.bounded_polynomial_sum_verify(body, "k", lower, upper, candidate)
+
+
+def test_nested_polynomial_direct_consumers_and_explicit_derived_reuse():
+    expression = "Sum(Sum(1, (l, -k, k)), (k, 0, p))"
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression=expression,
+        variables={"p": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER)},
+        queries=(
+            {"name": "closed", "kind": "closed_form"},
+            {"name": "equivalent", "kind": "equivalence", "target": {"kind": "derived", "query": "closed"}, "comparison": "(p + 1)**2"},
+            {"name": "limit", "kind": "limit", "target": {"kind": "derived", "query": "closed"}, "variable": "p", "point": "oo"},
+        ),
+    ))
+    assert outcome.status == "success"
+    assert [item.answers[0].conclusion for item in outcome.queries] == ["proved", "proved", "proved"]
+    assert isinstance(outcome.queries[1].target, DerivedTarget)
+
+    for query in (
+        {"name": "properties", "kind": "properties", "checks": ({"kind": "sign"},)},
+        {"name": "limit", "kind": "limit", "variable": "p", "point": "oo"},
+        {"name": "asymptotic", "kind": "asymptotic", "variable": "p", "point": "oo", "order": 2},
+    ):
+        direct = analyze(AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression=expression,
+            variables={"p": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER)},
+            queries=(query,),
+        ))
+        assert direct.status == "success"
+        assert direct.queries[0].answers[0].conclusion == "unresolved"
+        assert direct.queries[0].answers[0].blockers
+
+
 def test_closed_form_uses_affine_facts_domain_obligations_and_bounded_collection():
     symbolic = analyze(AnalysisRequest(
         syntax=FormulaSyntax.SYMPY, expression="Sum(k*q**k, (k, 0, n))",

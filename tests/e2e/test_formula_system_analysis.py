@@ -131,6 +131,34 @@ def test_system_derived_target_reuses_named_closed_form_without_changing_work() 
     assert outcome.queries[2].normalized_target is not None
 
 
+def test_named_rhs_nested_closed_form_preserves_system_work_and_reuses_candidate() -> None:
+    equations = (
+        EquationRequest(
+            name="coefficient",
+            expression="Eq(c, Sum(Sum(1, (l, -k, k)), (k, 0, p)))",
+        ),
+    )
+    declared = {"p": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER)}
+    baseline = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY, equations=equations, variables=declared
+    ))
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=equations,
+        variables=declared,
+        queries=(
+            {"name": "closed", "kind": "closed_form", "target": {"kind": "equation", "name": "coefficient"}},
+            {"name": "same", "kind": "equivalence", "target": {"kind": "derived", "query": "closed"}, "comparison": "(p + 1)**2"},
+        ),
+    ))
+    assert isinstance(baseline, AnalysisSuccess) and isinstance(outcome, AnalysisSuccess)
+    assert outcome.system == baseline.system
+    assert outcome.queries[0].answers[0].conclusion == "proved"
+    assert outcome.queries[1].answers[0].conclusion == "proved"
+    assert outcome.queries[1].normalized_target is not None
+    assert outcome.queries[1].normalized_target.normalized_sympy == "2*p + 1 + p**2"
+
+
 def test_named_indexed_equations_reuse_producer_and_sum_work() -> None:
     outcome = analyze(
         AnalysisRequest(

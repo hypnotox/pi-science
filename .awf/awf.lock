@@ -456,7 +456,7 @@
       "templateId": "docs/local.md.tmpl",
       "templateHash": "sha256:f09ab3b6e84fa2d6a10c6f2ac2a6e1552ad8cada8855c9e378f432a96b7c733d",
       "configHash": "sha256:576779d655d5fdd2c1b6d77a84fc15a9ea9000c1fb229501b15a6401c1d5d3e9",
-      "outputHash": "sha256:2c9ea9024d5a2ce131fc2fa226a7ab92b8457d42e32a0a19dc3c17a383fe7f6a",
+      "outputHash": "sha256:4b840f579bbbfbad33c9e7fe2614cfa2500d9042e01b0d045f889e64509ce231",
       "regenChecked": true
     },
     "docs/architecture.md": {

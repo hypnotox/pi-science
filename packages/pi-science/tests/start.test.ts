@@ -851,6 +851,65 @@ describe("readiness gate", () => {
     );
   });
 
+  it("round trips a partial nested polynomial candidate through the registered tool", async () => {
+    const current = host();
+    const adapter = fileURLToPath(
+      new URL("../bridge/formula_adapter.py", import.meta.url),
+    );
+    await start(
+      current.api,
+      Promise.resolve({
+        ready: true,
+        command: "uv",
+        args: ["run", "--locked", "python", adapter],
+      }),
+    );
+    const result = await current.tools[0]!.execute("id", {
+      expression: "Sum(Sum(1, (l, -k, k)), (k, 0, p))",
+      variables: { p: { domain: "nonnegative_integer" } },
+      queries: [
+        { name: "closed", kind: "closed_form" },
+        {
+          name: "same",
+          kind: "equivalence",
+          target: { kind: "derived", query: "closed" },
+          comparison: "(p + 1)**2",
+        },
+      ],
+    });
+    expect(result.details).toMatchObject({
+      status: "success",
+      queries: [
+        {
+          name: "closed",
+          kind: "closed_form",
+          answers: [
+            {
+              conclusion: "proved",
+              evidence: {
+                kind: "closed_form",
+                verification: "finite_antidifference",
+              },
+              derived_candidates: [
+                {
+                  interpretation: { normalized_sympy: "2*p + 1 + p**2" },
+                },
+              ],
+            },
+          ],
+        },
+        {
+          name: "same",
+          kind: "equivalence",
+          target: { kind: "derived", query: "closed" },
+          answers: [{ conclusion: "proved" }],
+        },
+      ],
+    });
+    expect(result.content[0]?.text).toContain("- closed (closed_form): proved");
+    expect(result.content[0]?.text).toContain("2*p + 1 + p**2");
+  });
+
   it("surfaces Python request diagnostics through the registered tool", async () => {
     const current = host();
     const adapter = fileURLToPath(

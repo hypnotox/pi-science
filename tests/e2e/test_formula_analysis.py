@@ -137,6 +137,33 @@ def test_expression_derived_target_feeds_equivalence_and_limit_without_changing_
     assert queried.queries[2].answers[0].conclusion == "proved_under_assumptions"
 
 
+def test_nested_closed_form_and_explicit_reuse_preserve_expression_work() -> None:
+    expression = "Sum(Sum(1, (l, -k, k)), (k, 0, p))"
+    variables = {"p": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER)}
+    baseline = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY, expression=expression, variables=variables
+    ))
+    queried = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression=expression,
+        variables=variables,
+        queries=(
+            {"name": "closed", "kind": "closed_form"},
+            {"name": "same", "kind": "equivalence", "target": {"kind": "derived", "query": "closed"}, "comparison": "(p + 1)**2"},
+            {"name": "growth", "kind": "limit", "target": {"kind": "derived", "query": "closed"}, "variable": "p", "point": "oo"},
+        ),
+    ))
+    assert isinstance(baseline, AnalysisSuccess) and isinstance(queried, AnalysisSuccess)
+    assert queried.operation_counts == baseline.operation_counts
+    assert queried.abstract_work == baseline.abstract_work
+    closed = queried.queries[0].answers[0]
+    assert closed.conclusion == "proved"
+    assert isinstance(closed.evidence, ClosedFormEvidence)
+    assert closed.evidence.verification == "finite_antidifference"
+    assert queried.queries[1].answers[0].conclusion == "proved"
+    assert queried.queries[2].answers[0].conclusion == "proved"
+
+
 def test_closed_form_e2e_uses_global_bounds_without_changing_nonfinite_work() -> None:
     outcome = analyze(AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,

@@ -107,3 +107,8 @@ feat(formula): derive bounded nested polynomial sums
 ## Notes
 
 Inline owners immediately correct stale instructions and record reasoned deviations here. Delegated owners may report rather than edit; the parent supplies the report to phase review and reconciles it with findings in one focused post-review settlement commit before checkpointing or later execution. Record deviations, test-first failure evidence, generated-prose review evidence, follow-ups, and findings surfaced during implementation.
+
+- Phase-review settlement: replaced name-only range shortcuts with project-owned affine-integral validation and enclosing-range extrema, so dependent bounds are proved ordered or uniformly empty without assuming an outer binder's sign; mixed ordered/empty ranges remain unresolved.
+- Phase-review settlement: generalized the authorized single rooted Sum tree under bounded arithmetic, including branch nodes up to the depth/node limits, while preserving rejection of multiple root trees and mixed/infinite families.
+- Phase-review settlement: bounded every independently constructed backend prefix, raw/cancelled step, boundary, and residual; nested witnesses use the existing intermediate degree ceiling rather than the public active-binder degree rule.
+- Phase-review settlement: added the planned acceptance/refusal, falsification, named-RHS, explicit-derived, work-preservation, adapter, bridge, registered-tool, unchanged-schema, and packaged-guidance regressions, and corrected the edit-in-place analysis model plus stale direct-work wording.

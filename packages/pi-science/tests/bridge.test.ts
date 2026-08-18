@@ -231,6 +231,36 @@ describe("private formula bridge", () => {
       },
     });
     await expect(
+      invokeAdapter("uv", args, {
+        syntax: "sympy",
+        expression: "Sum(Sum(1, (l, -k, k)), (k, 0, p))",
+        variables: { p: { domain: "nonnegative_integer" } },
+        queries: [{ name: "closed", kind: "closed_form" }],
+      }),
+    ).resolves.toMatchObject({
+      status: "success",
+      queries: [
+        {
+          name: "closed",
+          kind: "closed_form",
+          answers: [
+            {
+              conclusion: "proved",
+              evidence: {
+                kind: "closed_form",
+                verification: "finite_antidifference",
+              },
+              derived_candidates: [
+                {
+                  interpretation: { normalized_sympy: "2*p + 1 + p**2" },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    await expect(
       invokeAdapter("uv", args, request("oo")),
     ).resolves.toMatchObject({
       status: "success",

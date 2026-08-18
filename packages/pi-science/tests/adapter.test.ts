@@ -215,6 +215,83 @@ print(module._encoded({"result": "x" * 262401}) is None)
     });
   });
 
+  it("round trips partial nested polynomial closed forms without changing protocol v7", () => {
+    const success = invoke(
+      JSON.stringify({
+        version: 7,
+        request: {
+          syntax: "sympy",
+          expression: "Sum(Sum(1, (l, -k, k)), (k, 0, p))",
+          variables: { p: { domain: "nonnegative_integer" } },
+          queries: [
+            { name: "closed", kind: "closed_form" },
+            {
+              name: "same",
+              kind: "equivalence",
+              target: { kind: "derived", query: "closed" },
+              comparison: "(p + 1)**2",
+            },
+          ],
+        },
+      }),
+    );
+    expect(success.status).toBe(0);
+    const envelope = JSON.parse(success.stdout);
+    expect(envelope).toMatchObject({
+      version: 7,
+      result: {
+        status: "success",
+        system: { equations: [{ name: "expression" }] },
+        queries: [
+          {
+            name: "closed",
+            kind: "closed_form",
+            answers: [
+              {
+                conclusion: "proved",
+                evidence: {
+                  kind: "closed_form",
+                  verification: "finite_antidifference",
+                },
+                derived_candidates: [
+                  {
+                    interpretation: { normalized_sympy: "2*p + 1 + p**2" },
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            name: "same",
+            kind: "equivalence",
+            target: { kind: "derived", query: "closed" },
+            answers: [{ conclusion: "proved" }],
+          },
+        ],
+      },
+    });
+
+    const unresolved = invoke(
+      JSON.stringify({
+        version: 7,
+        request: {
+          syntax: "sympy",
+          expression: "Sum(Sum(1, (l, -k, k)), (k, -1, 1))",
+          queries: [{ name: "closed", kind: "closed_form" }],
+        },
+      }),
+    );
+    expect(unresolved.status).toBe(0);
+    expect(
+      JSON.parse(unresolved.stdout).result.queries[0].answers[0],
+    ).toMatchObject({
+      conclusion: "unresolved",
+      blockers: ["nested polynomial range ordering is unresolved"],
+      evidence: null,
+      derived_candidates: [],
+    });
+  });
+
   it("canonicalizes exact real scenario values and interval endpoints", () => {
     const result = invoke(
       JSON.stringify({
