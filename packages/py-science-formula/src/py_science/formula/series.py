@@ -299,9 +299,16 @@ def _derive_nested_node(
     try:
         bound = (*outer, item.index)
         budget = [MAX_INTERMEDIATE_NODES]
-        lower = _nested_expand_for_limits(item.lower, reasoning, bound, budget)
-        upper = _nested_expand_for_limits(item.upper, reasoning, bound, budget)
-        body = _nested_expand_for_limits(item.body, reasoning, bound, budget)
+        applied_names: set[str] = set()
+        lower = _nested_expand_for_limits(
+            item.lower, reasoning, bound, budget, applied_names
+        )
+        upper = _nested_expand_for_limits(
+            item.upper, reasoning, bound, budget, applied_names
+        )
+        body = _nested_expand_for_limits(
+            item.body, reasoning, bound, budget, applied_names
+        )
     except _NestedReasoningCapture:
         return _unresolved("nested polynomial reasoning would capture a bound name")
     except Exception:
@@ -315,6 +322,7 @@ def _derive_nested_node(
     ):
         return _unresolved("nested polynomial bounds must use proved affine integers")
 
+    replacement_uses = reasoning.application_uses(tuple(applied_names))
     ordered, order_uses = _prove_nested_order(lower, upper, outer_ranges, reasoning)
     if not ordered:
         empty, empty_uses = _prove_nested_empty(lower, upper, outer_ranges, reasoning)
@@ -323,17 +331,14 @@ def _derive_nested_node(
                 IntegerLiteral(0),
                 "finite_antidifference",
                 (f"{render(lower).sympy} > {render(upper).sympy}: empty range",),
-                empty_uses,
+                _unique((*replacement_uses, *empty_uses)),
             )
         return _unresolved(
             "nested polynomial range ordering is unresolved",
             reasoning.relevant_unsupported(_names(item)),
         )
 
-    free_input_names = _names(item) - set(outer) - {item.index}
-    uses = _unique(
-        (*reasoning.application_uses(tuple(free_input_names)), *order_uses)
-    )
+    uses = _unique((*replacement_uses, *order_uses))
     conditions: tuple[str, ...] = ()
     child_ranges = {**outer_ranges, item.index: (lower, upper)}
     for child in _direct_sums(body):
@@ -419,27 +424,42 @@ def _nested_expand_for_limits(
     reasoning: ReasoningContext,
     bound: tuple[str, ...],
     budget: list[int],
+    applied_names: set[str] | None = None,
 ) -> Expression:
     if isinstance(value, Symbol) and value.name not in bound:
         expanded = _nested_apply(reasoning, value, bound)
         if expanded != value:
-            return _nested_expand_for_limits(expanded, reasoning, bound, budget)
+            if applied_names is not None:
+                applied_names.add(value.name)
+            return _nested_expand_for_limits(
+                expanded, reasoning, bound, budget, applied_names
+            )
     budget[0] -= 1
     if budget[0] < 0:
         raise ValueError("nested reasoning expansion exceeds its bound")
     if isinstance(value, Sum):
         scoped = (*bound, value.index)
         return Sum(
-            _nested_expand_for_limits(value.body, reasoning, scoped, budget),
+            _nested_expand_for_limits(
+                value.body, reasoning, scoped, budget, applied_names
+            ),
             value.index,
-            _nested_expand_for_limits(value.lower, reasoning, bound, budget),
-            _nested_expand_for_limits(value.upper, reasoning, bound, budget),
+            _nested_expand_for_limits(
+                value.lower, reasoning, bound, budget, applied_names
+            ),
+            _nested_expand_for_limits(
+                value.upper, reasoning, bound, budget, applied_names
+            ),
         )
     if isinstance(value, BinaryExpression):
         return BinaryExpression(
             value.operator,
-            _nested_expand_for_limits(value.left, reasoning, bound, budget),
-            _nested_expand_for_limits(value.right, reasoning, bound, budget),
+            _nested_expand_for_limits(
+                value.left, reasoning, bound, budget, applied_names
+            ),
+            _nested_expand_for_limits(
+                value.right, reasoning, bound, budget, applied_names
+            ),
         )
     return value
 

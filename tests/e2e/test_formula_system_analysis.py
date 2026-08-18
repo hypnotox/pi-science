@@ -786,6 +786,43 @@ def test_harmonic_style_system_closes_dependent_domain_work_without_special_sema
         assert int(expected.subs({"p": value})) == work
         assert int(sympify(translation.primitive_invocations["harmonic"]).subs({"p": value})) == invocations
 
+    query_equations = (
+        *request.equations,
+        EquationRequest(
+            name="translation_count",
+            expression="Eq(C, Sum(Sum(1, (l, -k, k)), (k, 0, p)))",
+        ),
+    )
+    query_baseline = analyze(request.model_copy(update={"equations": query_equations}))
+    queried = analyze(
+        request.model_copy(
+            update={
+                "equations": query_equations,
+                "queries": (
+                    ClosedFormQuery(
+                        name="count_closed",
+                        target=EquationTarget(name="translation_count"),
+                    ),
+                ),
+            }
+        )
+    )
+    assert isinstance(query_baseline, AnalysisSuccess)
+    assert isinstance(queried, AnalysisSuccess)
+    assert queried.system == query_baseline.system
+    assert queried.scenarios == query_baseline.scenarios
+    count_answer = queried.queries[0].answers[0]
+    assert count_answer.conclusion == "proved"
+    assert count_answer.derived_candidates[0].interpretation.normalized_sympy == "2*p + 1 + p**2"
+    queried_translation = next(
+        item for item in queried.system.equations if item.name == "translation"
+    )
+    assert queried_translation.primitive_invocations["harmonic"] == "((p + 1)**2)**2"
+    assert simplify(
+        sympify(queried_translation.primitive_invocations["harmonic"])
+        - sympify("(p + 1)**4")
+    ) == 0
+
 
 def test_request_wide_generic_arities_and_parameter_scopes_are_validated() -> None:
     cross_definition = analyze(

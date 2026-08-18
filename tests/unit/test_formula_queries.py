@@ -365,6 +365,14 @@ def test_nested_polynomial_backend_independently_checks_step_boundary_and_bounds
 
 
 def test_nested_polynomial_binders_shadow_declared_definitions():
+    unused_shadow = _nested_answer(
+        "Sum(Sum(k, (k, 0, 1)), (j, 0, 1))",
+        variables={"k": VariableDeclaration(domain=MathematicalDomain.INTEGER)},
+        definitions=(DirectedDefinition(variable="k", expression="100"),),
+    )
+    assert unused_shadow.conclusion == "proved"
+    assert unused_shadow.assumptions_used == ()
+
     answer = _nested_answer(
         "Sum(Sum(1, (l, -k, k)), (k, 0, 1))",
         variables={"k": VariableDeclaration(domain=MathematicalDomain.INTEGER)},
@@ -428,6 +436,15 @@ def test_nested_polynomial_binders_shadow_declared_definitions():
     )
     assert free_limit.conclusion == "proved_under_assumptions"
     assert free_limit.derived_candidates[0].interpretation.normalized_sympy == "4"
+
+    empty_from_definition = _nested_answer(
+        "Sum(Sum(1, (l, 0, 1)), (k, lower, 0))",
+        variables={"lower": VariableDeclaration(domain=MathematicalDomain.INTEGER)},
+        definitions=(DirectedDefinition(variable="lower", expression="1"),),
+    )
+    assert empty_from_definition.conclusion == "proved_under_assumptions"
+    assert empty_from_definition.derived_candidates[0].interpretation.normalized_sympy == "0"
+    assert tuple(use.name for use in empty_from_definition.assumptions_used) == ("lower",)
 
 
 def test_nested_reasoning_expansion_has_a_shared_budget(monkeypatch):
