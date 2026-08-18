@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-_No decisions are in flight._
+- [ADR-0014: Canonicalize Nested Polynomial Results and Extend Explicit Derived Consumers](0014-canonicalize-nested-polynomial-results-and-extend-explicit-derived-consumers.md) (Proposed)
 
 ## History
 
