@@ -4,7 +4,7 @@ slug: correct-nested-finite-work-current-state-claims
 status: Implemented
 date: 2026-08-18
 ---
-# ADR-correct-nested-finite-work-current-state-claims: Correct nested finite-work current-state claims
+# ADR-0009: Correct nested finite-work current-state claims
 
 ## Context
 

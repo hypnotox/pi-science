@@ -4,7 +4,7 @@ slug: adopt-acyclic-dependent-output-domains
 status: Implementing
 date: 2026-08-18
 ---
-# ADR-adopt-acyclic-dependent-output-domains: Adopt acyclic dependent output domains
+# ADR-0010: Adopt acyclic dependent output domains
 
 ## Context
 

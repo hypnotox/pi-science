@@ -9,12 +9,10 @@ Coding agents can propose plausible algorithms without reliably inspecting the m
 The tool reports information such as:
 
 - symbolic operation counts and work expressions;
-- asymptotic complexity and scaling variables;
-- concrete results, finite choices, and qualified parameter bounds;
-- dominant terms and crossover conditions;
-- dependencies, repeated subexpressions, and loop-invariant work;
-- mathematically equivalent local formulations that may require less work;
-- unknown costs or assumptions that prevent a tighter conclusion.
+- qualified bounded properties, limits, asymptotics, equivalence, and closed forms;
+- scenario specializations and conservative parameter bounds;
+- named equation dependencies, ideal reuse, and repeated-expression extraction diagnostics;
+- unknown costs, assumptions, or evaluator limits that prevent a tighter conclusion.
 
 The goal is not to replace agent reasoning. It is to make the mathematical structure behind that reasoning testable before it becomes code.
 
@@ -24,8 +22,8 @@ The goal is not to replace agent reasoning. It is to make the mathematical struc
 2. The agent expresses the planned computation in restricted SymPy syntax.
 3. The agent supplies relevant domains, assumptions, scenarios, and opaque primitive costs.
 4. The tool safely parses and normalizes the submission into one internal mathematical model.
-5. The tool analyzes symbolic work, dependencies, scaling, and local improvement opportunities.
-6. The agent inspects the normalized interpretation, revises the plan, or compares candidate formulations before implementation.
+5. The tool analyzes symbolic work, dependencies, scenarios, and supported bounded mathematical queries.
+6. The agent inspects the normalized interpretation and qualifications, then revises the plan before implementation.
 
 The same workflow supports a one-line expression and a named system of indexed equations. A motivating use case is a 3D adaptive fast multipole method whose upward pass, interactions, downward pass, and particle evaluation depend on particle count, expansion order, tree occupancy, and interaction-list size. The analysis remains general mathematical tooling rather than an AFMM-specific product.
 
@@ -41,7 +39,7 @@ The expression describes the computation. A small JSON envelope supplies what or
 
 ### Deterministic analysis and explicit uncertainty
 
-Every result distinguishes exact derivation, assumption-dependent derivation, conservative bound, conditional optimization, and unresolved quantity. The analyzer does not silently invent a missing cost, treat a scaling variable as constant, or label a sampled estimate as a mathematical bound.
+Reported conclusions distinguish exact derivation, assumption-dependent derivation, conservative bound, and unresolved quantity. The analyzer does not silently invent a missing cost, treat a scaling variable as constant, or label a sampled estimate as a mathematical bound.
 
 ### Progressive detail
 
@@ -49,7 +47,7 @@ Unknown functions and costs remain symbolic until the agent defines them. An opa
 
 ### Inspectable interpretation
 
-Every response includes normalized SymPy and LaTeX renderings of what the tool actually analyzed, with warnings for ambiguity or unsupported constructs.
+Successful reports include normalized SymPy and LaTeX renderings of what the tool actually analyzed. Invalid requests return localized diagnostics; valid unsupported queries return qualified blockers rather than invented conclusions.
 
 ## MVP capabilities
 
@@ -59,11 +57,8 @@ The MVP provides:
 2. symbolic counts for arithmetic, powers, roots, function calls, terms, and declared primitives;
 3. exact or qualified work-complexity analysis under supplied assumptions;
 4. scenario evaluation for fixed values, intervals, finite choices, definitions, and retained asymptotic variables;
-5. dependency, reuse, common-subexpression, and invariant-hoisting analysis for named equation systems;
-6. dominant-term analysis that retains lower-order terms when concrete ranges make them relevant;
-7. comparison of candidate formulations, including symbolic differences and crossover conditions;
-8. safe local mathematical rewrites with assumptions and estimated symbolic effect;
-9. explicit bounded general-context mathematical queries with qualified evidence.
+5. dependency, ideal-reuse, and repeated-expression extraction diagnostics for named equation systems;
+6. explicit bounded general-context mathematical queries with qualified evidence.
 
 The tooling includes a concise agent skill for formulating analyzable requests and inspecting the normalized result. [Analysis Model](analysis-model.md) defines the request and report contract.
 
@@ -90,9 +85,9 @@ The MVP succeeds when an agent can:
 - derive aggregate symbolic work across declared domains;
 - fix some parameters while retaining others as scaling dimensions;
 - evaluate intervals and finite choices with correctly qualified results;
-- identify dominant terms, repeated work, and invariant calculations;
-- compare candidate formulations and derive crossover conditions;
-- see exactly which unknowns prevent a tighter answer;
+- inspect named dependencies, ideal reuse, and repeated-expression extraction diagnostics;
+- ask supported bounded mathematical questions and inspect their evidence and qualifications;
+- see exactly which unknowns or evaluator limits prevent a tighter answer;
 - revise an algorithm plan using the analysis before producing implementation code.
 
 ## Future direction

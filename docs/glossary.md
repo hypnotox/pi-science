@@ -21,7 +21,7 @@
 | invariant backing | What makes an invariant claim checkable: either a proof marker on a test, or a written verification procedure where no test can bear it. The two forms are enforced symmetrically. |
 | managed effort worktree | The checkout an effort creates alongside itself, on its own branch, as the default place its work executes. Integrated and removed explicitly when the effort finishes. |
 | mandatory approval check-in | A check-in that always stops, however clear the path looks. Work continues only once approval is explicitly granted and recorded. |
-| mathematical request | A LaTeX or restricted-SymPy computation with relevant domains, assumptions, scenarios, and primitive costs. |
+| mathematical request | A restricted-SymPy computation with relevant domains, assumptions, scenarios, and primitive costs. |
 | normalized interpretation | The canonical mathematical form the analyzer actually uses, returned in SymPy and LaTeX renderings for inspection. |
 | opaque primitive | A symbolic function whose internal work remains unknown until the request supplies a definition or cost. |
 | primitive cost | A symbolic abstract-work expression assigned to an otherwise opaque operation. |

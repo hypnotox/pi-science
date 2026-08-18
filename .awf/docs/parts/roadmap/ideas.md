@@ -1,20 +1,14 @@
-### Safe mathematical request model
+### Stage metadata
 
-Define versioned JSON requests for one expression or named equation systems, with LaTeX and restricted-SymPy frontends. Parse both as data into one normalized mathematical model, return normalized SymPy and LaTeX renderings, and reject ambiguous, unsupported, or arbitrary Python constructs.
+Add optional stage metadata without weakening the normalized mathematical model or bounded request contract.
 
-Define domains, variables, assumptions, scenarios, primitive costs, and optional stages. Add the concise agent skill that teaches agents to formulate analyzable requests and inspect the normalized interpretation.
+### Dominance analysis
 
-### Symbolic cost analysis
+Report piecewise dominance, scaling variables, and terms that remain relevant over concrete ranges.
 
-Count scalar arithmetic, powers, roots, function calls, terms, and declared primitives across sums, products, free-index domains, and equation systems. Derive exact symbolic work where possible, simplify under named assumptions, preserve unknown costs, and qualify asymptotic conclusions.
+### Hoisting and comparison
 
-### Scenario and dominance analysis
-
-Support fixed substitutions, intervals, finite choices, definitions, and retained asymptotic variables. Report concrete results, qualified bounds, piecewise dominance, scaling variables, and terms that remain relevant over concrete ranges.
-
-### Dependency, reuse, and comparison
-
-Build equation dependency graphs, identify repeated subexpressions and invariant work, and estimate the symbolic effect of common-subexpression extraction or hoisting. Compare candidate formulations under shared metadata, including symbolic differences, concrete winners, crossover conditions, and unresolved trade-offs.
+Estimate the symbolic effect of extracting reported repeated expressions or hoisting invariant work. Compare candidate formulations under shared metadata, including symbolic differences, concrete winners, crossover conditions, and unresolved trade-offs.
 
 ### Local mathematical rewrites
 

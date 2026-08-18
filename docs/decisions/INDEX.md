@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-- [ADR-adopt-acyclic-dependent-output-domains: Adopt acyclic dependent output domains](adopt-acyclic-dependent-output-domains.md) (Implementing)
+- [ADR-0010: Adopt acyclic dependent output domains](0010-adopt-acyclic-dependent-output-domains.md) (Implementing)
 
 ## History
 
@@ -11,4 +11,7 @@
 - [ADR-0003: Adopt compositional indexed equation analysis](0003-adopt-compositional-indexed-equation-analysis.md) (Implemented)
 - [ADR-0004: Adopt explicit bounded mathematical queries](0004-adopt-explicit-bounded-mathematical-queries.md) (Implemented)
 - [ADR-0005: Require actionable bounded query blockers](0005-require-actionable-bounded-query-blockers.md) (Implemented)
-- [ADR-correct-nested-finite-work-current-state-claims: Correct nested finite-work current-state claims](correct-nested-finite-work-current-state-claims.md) (Implemented)
+- [ADR-0006: Use SymPy behind checked analysis boundaries](0006-use-sympy-behind-checked-analysis-boundaries.md) (Implemented)
+- [ADR-0007: Keep LaTeX input deferred until bounded](0007-keep-latex-input-deferred-until-bounded.md) (Implemented)
+- [ADR-0008: Keep rewrite guidance deferred until implemented](0008-keep-rewrite-guidance-deferred-until-implemented.md) (Implemented)
+- [ADR-0009: Correct nested finite-work current-state claims](0009-correct-nested-finite-work-current-state-claims.md) (Implemented)

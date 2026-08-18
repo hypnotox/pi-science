@@ -3,7 +3,7 @@
 
 <!-- awf:edit overview: from .awf/docs/parts/architecture/overview.md -->
 ## Overview
-The repository contains the independently importable `py-science-formula` Python 3.13 distribution and the aggregate `pi-science` Pi package. Formula parsing, expression representation, mathematical policy, and SymPy rendering remain transport-free behind `py_science.formula`. Pi carries the same strict expression-or-equation-system request and qualified report through a private bounded JSON subprocess adapter.
+The repository contains the independently importable `py-science-formula` Python 3.13 distribution and the aggregate `pi-science` Pi package. Formula parsing, expression representation, mathematical policy, and bounded SymPy algebra, rendering, and verification remain transport-free behind `py_science.formula`. Pi carries the same strict expression-or-equation-system request and qualified report through a private bounded JSON subprocess adapter.
 
 At extension startup Pi provisions an isolated, immutable-revision uv environment outside its checkout. It registers formula analysis and its product skill only after that readiness check; otherwise only its diagnostic command remains available. [Vision](vision.md) owns the product boundary, [Analysis Model](analysis-model.md) owns request and report semantics, and [Roadmap](roadmap.md) owns uncommitted expansion work.
 
@@ -41,7 +41,7 @@ Optional general-context query requests and their exact discriminated qualified 
 |---|---|
 | Python 3.13 | Formula analysis runtime. |
 | uv | Isolated Pi backend provisioning and workspace commands. |
-| Pydantic v2 / SymPy | Formula contracts and normalized rendering. |
+| Pydantic v2 / SymPy | Formula contracts and bounded algebra, rendering, and verification. |
 | Pi host API | Aggregate tool and diagnostic-command host (peer dependency). |
 | TypeScript / Vitest / ESLint / Prettier | Pi bridge checking and tests. |
 | awf | Generates and verifies workflow and documentation state. |
