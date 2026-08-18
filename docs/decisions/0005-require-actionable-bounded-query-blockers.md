@@ -1,7 +1,7 @@
 ---
 format: current-state-v4
 slug: require-actionable-bounded-query-blockers
-status: Implementing
+status: Implemented
 date: 2026-08-18
 ---
 # ADR-0005: Require actionable bounded query blockers
@@ -43,3 +43,4 @@ Diagnostic wording becomes part of inspectable product behavior even though exac
 - 2026-08-18: Proposed
 - 2026-08-18: Implementing; content-sha256: 4307cfbbdbfc4592afd50a5bbe565275b53d1e0685d592feacebcf55b4ef2730
 - 2026-08-18: Applied; operations: update `product/mathematical-analysis-model:assumption-aware-query-reasoning`, update `product/analysis-report-contract:qualified-query-conclusions`
+- 2026-08-18: Implemented; content-sha256: 4307cfbbdbfc4592afd50a5bbe565275b53d1e0685d592feacebcf55b4ef2730

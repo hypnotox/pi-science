@@ -2,7 +2,7 @@
 format: plan-v2
 date: 2026-08-18
 adrs: [require-actionable-bounded-query-blockers]
-status: Proposed
+status: Implemented
 ---
 # Plan: Make bounded query diagnostics actionable
 
