@@ -1,7 +1,7 @@
 ---
 format: plan-v2
 date: 2026-08-18
-adrs: []
+adrs: [require-actionable-bounded-query-blockers]
 status: Proposed
 ---
 # Plan: Make bounded query diagnostics actionable
@@ -80,25 +80,26 @@ Completes: ["agent-diagnostic-guidance"]
 
 ### Task 3.1: Strengthen current-state blocker guarantees through awf ownership
 Kind: batch
+Applying: ["require-actionable-bounded-query-blockers:actionable-bounded-query-blockers"]
 Context: ["0004:assumption-aware-qualified-reasoning", "0004:explicit-bounded-mathematical-queries"]
-Paths: [".awf/topics/parts/product/mathematical-analysis-model/current-state.md", ".awf/topics/parts/product/analysis-report-contract/current-state.md", "docs/topics/product/mathematical-analysis-model.md", "docs/topics/product/analysis-report-contract.md", "docs/analysis-model.md", ".awf/awf.lock"]
-Representative: The current-state contract says unresolved query blockers identify the failed supported family, structural/resource bound, or missing precondition and provide safe reformulation guidance when one exists, without implying broader mathematical support.
+Paths: ["docs/decisions/require-actionable-bounded-query-blockers.md", "docs/decisions/INDEX.md", ".awf/topics/parts/product/mathematical-analysis-model/current-state.md", ".awf/topics/parts/product/analysis-report-contract/current-state.md", "docs/topics/product/mathematical-analysis-model.md", "docs/topics/product/analysis-report-contract.md", "docs/analysis-model.md", ".awf/awf.lock"]
+Representative: The analysis-model claim owns bounded evaluator refusal policy, including failed supported families, structural/resource bounds, ambiguous axes, and missing preconditions. The report-contract claim owns inspectable reasons, trustworthy bounded observations, and safe reformulation guidance without implying broader mathematical support.
 Edge: Keep request-validation diagnostics distinct from query-answer blockers; do not turn implementation-specific constant values into durable product guarantees or alter ADR-0004.
-Post-check: Run `./awf render` as choreography and `./awf check` as authority enforcement, both with successful exit status. Inspect the changed authored claims, both rendered topic publications, and the edit-in-place `docs/analysis-model.md` paragraphs for semantic agreement, conservative wording, contradictory generic guidance, and unintended placeholders. Confirm the generated changed set includes the authored sources, their rendered publications, the intended analysis-model body, and `.awf/awf.lock` only as produced by ownership.
+Post-check: Run `./awf render` as choreography, then stage the complete application transaction and run `./awf check staged` and `./awf check` as authority enforcement, all with successful exit status. Inspect the changed authored claims, both rendered topic publications, the generated decision index, and the edit-in-place `docs/analysis-model.md` paragraphs for semantic agreement, conservative wording, contradictory generic guidance, and unintended placeholders. Confirm the ADR history contains Implementing followed by one Applied event naming both updates, both matching claim mutations append this ADR to their existing Revised-by provenance, and the terminal set contains both operations as Applied with no Remaining or Canceled operation. Confirm the generated changed set includes only the pending ADR, authored sources, their rendered publications, generated decision index, intended analysis-model body, and `.awf/awf.lock` as produced by ownership.
 
-Update the authored current-state claims and the `docs/analysis-model.md` edit-in-place body to establish reason-specific, bounded, actionable blockers as part of inspectable query results. Describe measured limits as result details rather than promises that every backend refusal has a numeric metric. Preserve unsupported questions as localized `unresolved` or `inapplicable` answers.
+Transition the pending ADR from Proposed to Implementing and append one Applied event containing both declared update operations in the same pair-atomic transaction as their matching claim mutations. Update the authored current-state claims and the `docs/analysis-model.md` edit-in-place body to establish reason-specific, bounded, actionable blockers as part of inspectable query results. Describe measured limits as result details rather than promises that every backend refusal has a numeric metric. Preserve unsupported questions as localized `unresolved` or `inapplicable` answers.
 
 ### Task 3.2: Update direct-Python and Pi agent guidance
 Paths: ["packages/py-science-formula/README.md", "packages/pi-science/skills/formula-analysis/SKILL.md", "packages/pi-science/tests/package.test.ts"]
 
-Explain that query blockers identify a failed family, exceeded bound, ambiguous axis, or missing supported precondition; tell agents to use the stated observation and recovery hint to simplify, reformulate, or select a supported source family. State that hints are conservative and do not certify equivalence or promise wider evaluator support. Add focused packaged-skill assertions for this contract without snapshotting exact prose or duplicating the evaluator's reason vocabulary in TypeScript.
+Explain that query blockers identify a failed family, exceeded bound, ambiguous axis, or missing supported precondition; tell agents to use the stated observation and recovery hint to simplify, reformulate, or select a supported source family. State that hints are conservative and do not certify equivalence or promise wider evaluator support. Add focused packaged-skill assertions for this contract without snapshotting exact prose or duplicating the evaluator's reason vocabulary in TypeScript. Inspect both guidance artifacts for agreement with the applied claims, including actionable observations, conservative hints, no equivalence certification, no expanded-support promise, contradictory generic guidance, and unintended placeholders.
 
 ### Phase close
 
-Land authored current-state sources, rendered publications, the analysis-model edit-in-place body, Python README, packaged skill, package assertion, and awf lock together. Complete Task 3.1's render, authority, and semantic state checks; run `npm run test:pi -- packages/pi-science/tests/package.test.ts`; then run `./scripts/check` and require all commands to exit zero.
+Land the pending ADR's Implementing/Applied history, generated decision index, authored current-state sources, rendered publications, the analysis-model edit-in-place body, Python README, packaged skill, package assertion, and awf lock together. Complete Task 3.1's pair-atomic application, render, authority, and semantic state checks plus Task 3.2's guidance inspection; run `npm run test:pi -- packages/pi-science/tests/package.test.ts`; then run `./scripts/check` and require all commands to exit zero.
 
 ```commit
-docs(formula): explain actionable query blockers
+fix: explain (applies require-actionable-bounded-query-blockers batch)
 ```
 
 ## Definition of done
@@ -113,3 +114,4 @@ Inline owners immediately correct stale instructions and record reasoned deviati
 
 - Plan review: require the fixed-`p=12` regression to report the trustworthy first observed `q**12` degree overflow rather than an aggregate numerator degree that bounded traversal has not safely computed.
 - Plan review: distinguish asymptotic no-match from recognized refusal and define arbitration so the evaluator's exponential-first probe cannot mask a supported or specifically refused rational target.
+- Linked-authority freshness: the successor ADR affects completed Phase 1 through `32e7f51` and Phase 2 through `3003d7f`. Before Phase 3, renew assurance separately on each final phase snapshot against reason-specific refusal categories, bounded measured details only, safe non-promissory hints, unchanged public schemas and conservative conclusions, and request-validation separation; rerun each phase's focused evidence and settle any findings before continuing from a clean green baseline.
