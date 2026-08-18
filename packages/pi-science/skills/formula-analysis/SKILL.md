@@ -67,7 +67,7 @@ Represent vectors and tensors as indexed scalar algebra, for example `x[i, d]`. 
 }
 ```
 
-Scenarios may select fixed exact values, finite choices, finite bounds, directed definitions, or asymptotic variables without changing the general report. Exact scalars use JavaScript-safe JSON integers or strings such as `1/2` and `1.20`.
+Nested finite sums preserve exact direct work with each iterator lexically bound in symbolic operation counts, opaque work, and primitive invocations; a symbolic `Sum` is an exact populated work value, while an unproved cardinality remains explicitly unresolved. This direct-work behavior does not make nested mathematical closed-form queries supported. Scenarios may select fixed exact values, finite choices, finite bounds, directed definitions, or asymptotic variables without changing the general report. Exact scalars use JavaScript-safe JSON integers or strings such as `1/2` and `1.20`.
 
 ## Ask bounded mathematical queries
 

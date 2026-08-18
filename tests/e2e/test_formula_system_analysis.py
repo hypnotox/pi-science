@@ -1,5 +1,7 @@
 # ruff: noqa: E501
 # pyright: basic, reportArgumentType=false, reportOptionalMemberAccess=false, reportAttributeAccessIssue=false, reportOperatorIssue=false, reportUnknownMemberType=false, reportUnknownVariableType=false
+from typing import Any, cast
+
 import py_science.formula.service as formula_service
 import py_science.formula.work as formula_work
 import pytest
@@ -22,6 +24,8 @@ from py_science.formula import (
 )
 from py_science.formula.expressions import IntegerLiteral, Sum, Symbol
 from pydantic import ValidationError
+from sympy import Max, sympify  # type: ignore[import-untyped]
+from sympy import Sum as SympySum  # type: ignore[import-untyped]
 
 
 def variables(*names: str) -> dict[str, VariableDeclaration]:
@@ -133,6 +137,53 @@ def test_named_indexed_equations_reuse_producer_and_sum_work() -> None:
     assert outcome.system.equations[0].aggregate_work is not None
     assert "Max" in outcome.system.equations[0].aggregate_work
     assert outcome.system.extraction_opportunities == ()
+
+
+def assert_iterators_are_lexically_bound(rendered: str) -> None:
+    parsed = cast(Any, sympify(rendered))
+    assert {symbol.name for symbol in parsed.free_symbols}.isdisjoint({"j", "k"})
+
+    def visit(node: Any, bound: frozenset[str] = frozenset()) -> None:
+        if node.func is Max:
+            assert {symbol.name for symbol in node.free_symbols}.isdisjoint({"j", "k"} - bound)
+        if isinstance(node, SympySum):
+            body, *limits = cast(tuple[Any, ...], node.args)
+            iterators = frozenset(str(limit[0]) for limit in limits)
+            visit(body, bound | iterators)
+            for limit in limits:
+                for endpoint in limit[1:]:
+                    visit(endpoint, bound)
+            return
+        for child in cast(tuple[Any, ...], node.args):
+            visit(child, bound)
+
+    visit(parsed)
+
+
+def test_nested_sum_work_keeps_iterators_lexically_bound() -> None:
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="Sum(Sum(x[j] + primitive(k), (j, k, n)), (k, 0, p - 1))",
+            variables=variables("n", "p", "x"),
+            primitive_costs=(PrimitiveCost(name="primitive", parameters=("value",), work="value"),),
+            queries=(ClosedFormQuery(name="nested"),),
+        )
+    )
+
+    assert isinstance(outcome, AnalysisSuccess)
+    assert outcome.system is not None
+    assert outcome.queries[0].answers[0].conclusion == "unresolved"
+    assert "nested" in " ".join(outcome.queries[0].answers[0].blockers)
+    values = (
+        *outcome.system.aggregate_operation_counts.model_dump().values(),
+        outcome.system.total_work,
+        outcome.system.equations[0].aggregate_work,
+        *outcome.system.primitive_invocations.values(),
+    )
+    for rendered in values:
+        assert rendered is not None
+        assert_iterators_are_lexically_bound(rendered)
 
 
 def test_sum_work_handles_empty_one_term_nested_and_symbolic_domains() -> None:

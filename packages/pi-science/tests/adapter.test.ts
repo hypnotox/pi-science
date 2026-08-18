@@ -297,7 +297,7 @@ print(module._encoded({"result": "x" * 262401}) is None)
             { producer: "multipoles", consumer: "translation", references: 2 },
           ],
           total_work:
-            "B*p*(2*C - 1) + C*Sum(C_translate(M[neighbor[b, c], k]), (b, 0, B - 1), (k, 0, p - 1)) + N*dim + 2*N*p + N*Sum(k + 1, (k, 0, p - 1)) + p*Sum(Max(0, n[b] - 1), (b, 0, B - 1))",
+            "B*p*(2*C - 1) + N*dim + 2*N*p + N*Sum(k + 1, (k, 0, p - 1)) + p*Sum(Max(0, n[b] - 1), (b, 0, B - 1)) + Sum(C_translate(M[neighbor[b, c], k]), (c, 0, C - 1), (b, 0, B - 1), (k, 0, p - 1))",
           unknown_costs: ["C_translate"],
           relationships_used: [
             {

@@ -449,12 +449,22 @@ def aggregate_analysis(
     """Aggregate over an output domain without erasing index-dependent work."""
     count, unresolved = cardinality(lower, upper, context, label)
 
-    def aggregate(value: Expression) -> Expression:
-        if _contains_symbol(value, index):
-            return factor_independent(Sum(value, index, lower, upper), index)
-        return _multiply(count, value)
+    return map_analysis(
+        analysis,
+        lambda value: _aggregate_value(value, index, lower, upper, count),
+    ), unresolved
 
-    return map_analysis(analysis, aggregate), unresolved
+
+def _aggregate_value(
+    value: Expression,
+    index: str,
+    lower: Expression,
+    upper: Expression,
+    count: Expression,
+) -> Expression:
+    if index in _free_symbol_names(value):
+        return factor_independent(Sum(value, index, lower, upper), index)
+    return _multiply(count, value)
 
 
 def factor_independent(expression: Expression, index: str) -> Expression:
@@ -464,8 +474,8 @@ def factor_independent(expression: Expression, index: str) -> Expression:
     body = expression.body
     if body.operator is not BinaryOperator.MULTIPLY:
         return expression
-    left_depends = _contains_symbol(body.left, index)
-    right_depends = _contains_symbol(body.right, index)
+    left_depends = index in _free_symbol_names(body.left)
+    right_depends = index in _free_symbol_names(body.right)
     if left_depends == right_depends:
         return expression
     independent, dependent = (body.right, body.left) if left_depends else (body.left, body.right)
@@ -520,12 +530,6 @@ def replace_exact(
         return value
 
     return visit(expression, frozenset()), changed
-
-
-def _contains_symbol(expression: Expression, name: str) -> bool:
-    if isinstance(expression, Symbol):
-        return expression.name == name
-    return any(_contains_symbol(child, name) for child in _expression_children(expression))
 
 
 def _expression_children(expression: Expression) -> tuple[Expression, ...]:
@@ -675,7 +679,16 @@ def _analyze_sum(expression: Sum, context: WorkContext) -> WorkAnalysis:
         context,
         f"sum index {expression.index}",
     )
-    result = body.scale(count)
+    result = map_analysis(
+        body,
+        lambda value: _aggregate_value(
+            value,
+            expression.index,
+            expression.lower,
+            expression.upper,
+            count,
+        ),
+    )
     reduction = (
         _subtract(count, _ONE)
         if is_positive_expression(count, context)

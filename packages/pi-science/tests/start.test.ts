@@ -370,6 +370,57 @@ describe("readiness gate", () => {
     ]);
   });
 
+  it("keeps nested finite-work iterators bound through the registered tool", async () => {
+    const current = host();
+    const adapter = fileURLToPath(
+      new URL("../bridge/formula_adapter.py", import.meta.url),
+    );
+    await start(
+      current.api,
+      Promise.resolve({
+        ready: true,
+        command: "uv",
+        args: ["run", "--locked", "python", adapter],
+      }),
+    );
+    const result = await current.tools[0]!.execute("id", {
+      expression: "Sum(Sum(x[j] + primitive(k), (j, k, n)), (k, 0, p - 1))",
+      variables: {
+        n: { domain: "nonnegative_integer" },
+        p: { domain: "nonnegative_integer" },
+        x: { domain: "real" },
+      },
+      primitive_costs: [
+        { name: "primitive", parameters: ["value"], work: "value" },
+      ],
+      scenarios: [{ name: "fixed_order", fixed: { p: 4 } }],
+    });
+    expect(result.details).toMatchObject({
+      status: "success",
+      system: { primitive_invocations: { primitive: expect.any(String) } },
+      scenarios: [
+        { name: "fixed_order", substituted_work: expect.any(String) },
+      ],
+    });
+    expect(result.details).toMatchObject({
+      system: {
+        total_work: expect.stringContaining(
+          "Sum(k*Max(0, -k + n + 1), (k, 0, p - 1))",
+        ),
+        primitive_invocations: {
+          primitive: "Sum(Max(0, -k + n + 1), (k, 0, p - 1))",
+        },
+      },
+      scenarios: [
+        {
+          substituted_work: expect.stringContaining(
+            "Sum(k*Max(0, -k + n + 1), (k, 0, 3))",
+          ),
+        },
+      ],
+    });
+  });
+
   it("round trips a query-bearing AFMM tail through the registered tool", async () => {
     const current = host();
     const adapter = fileURLToPath(

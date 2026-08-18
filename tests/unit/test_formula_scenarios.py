@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 import pytest
 from py_science.formula import (
     AnalysisRequest,
@@ -17,12 +19,64 @@ from py_science.formula import (
     analyze,
 )
 from pydantic import ValidationError
+from sympy import Max, sympify  # type: ignore[import-untyped]
+from sympy import Sum as SympySum  # type: ignore[import-untyped]
 
 
 def declared(
     domain: MathematicalDomain = MathematicalDomain.NONNEGATIVE_INTEGER,
 ) -> VariableDeclaration:
     return VariableDeclaration(domain=domain)
+
+
+def assert_iterators_are_lexically_bound(rendered: str) -> None:
+    parsed = cast(Any, sympify(rendered))
+    assert {symbol.name for symbol in parsed.free_symbols}.isdisjoint({"j", "k"})
+
+    def visit(node: Any, bound: frozenset[str] = frozenset()) -> None:
+        if node.func is Max:
+            assert {symbol.name for symbol in node.free_symbols}.isdisjoint({"j", "k"} - bound)
+        if isinstance(node, SympySum):
+            body, *limits = cast(tuple[Any, ...], node.args)
+            iterators = frozenset(str(limit[0]) for limit in limits)
+            visit(body, bound | iterators)
+            for limit in limits:
+                for endpoint in limit[1:]:
+                    visit(endpoint, bound)
+            return
+        for child in cast(tuple[Any, ...], node.args):
+            visit(child, bound)
+
+    visit(parsed)
+
+
+def test_nested_sum_scenarios_eliminate_free_bound_indices() -> None:
+    result = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="Sum(Sum(x[j] + primitive(k), (j, k, n)), (k, 0, p - 1))",
+            variables={"n": declared(), "p": declared(), "x": declared(MathematicalDomain.REAL)},
+            primitive_costs=(PrimitiveCost(name="primitive", parameters=("value",), work="value"),),
+            scenarios=(Scenario(name="fixed_order", fixed={"p": 4}),),
+        )
+    )
+
+    assert isinstance(result, AnalysisSuccess)
+    assert result.system is not None
+    assert len(result.scenarios) == 1
+    operation_counts = result.system.aggregate_operation_counts
+    invocations = result.system.primitive_invocations
+    assert operation_counts is not None and invocations is not None
+    values = (
+        *operation_counts.model_dump().values(),
+        result.system.total_work,
+        result.system.equations[0].aggregate_work,
+        *invocations.values(),
+        result.scenarios[0].substituted_work,
+    )
+    for rendered in values:
+        assert rendered is not None
+        assert_iterators_are_lexically_bound(rendered)
 
 
 def test_general_queries_do_not_fan_out_across_scenarios() -> None:

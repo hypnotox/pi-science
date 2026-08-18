@@ -11,3 +11,4 @@
 - [ADR-0003: Adopt compositional indexed equation analysis](0003-adopt-compositional-indexed-equation-analysis.md) (Implemented)
 - [ADR-0004: Adopt explicit bounded mathematical queries](0004-adopt-explicit-bounded-mathematical-queries.md) (Implemented)
 - [ADR-0005: Require actionable bounded query blockers](0005-require-actionable-bounded-query-blockers.md) (Implemented)
+- [ADR-correct-nested-finite-work-current-state-claims: Correct nested finite-work current-state claims](correct-nested-finite-work-current-state-claims.md) (Implemented)
