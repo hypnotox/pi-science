@@ -420,6 +420,8 @@ def rational_ir_measure(
                 left_den_terms * right_den_terms,
                 left_measure.degree_is_observed
                 and right_measure.degree_is_observed
+                and left_den == 0
+                and right_den == 0
                 and known_nonzero,
                 False,
                 False,
@@ -434,9 +436,7 @@ def rational_ir_measure(
                 left_den_bits + right_num_bits,
                 left_num_terms * right_den_terms,
                 left_den_terms * right_num_terms,
-                left_measure.degree_is_observed
-                and right_measure.degree_is_observed
-                and known_nonzero,
+                False,
                 False,
                 False,
                 known_nonzero,

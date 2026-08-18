@@ -702,6 +702,11 @@ def test_equivalence_resource_refusals_are_localized_unresolved():
             "equivalence operand exceeds bounded rational coefficient-bit limit; "
             "use bounded rational operands",
         ),
+        (
+            "(x/x)**9",
+            "equivalence operand exceeds bounded rational degree limit; "
+            "use bounded rational operands",
+        ),
     ):
         outcome = analyze(request(queries=({"name":"q", "kind":"equivalence", "comparison":comparison},)))
         assert outcome.status == "success"
@@ -745,6 +750,7 @@ def test_rational_measure_failures_are_closed_and_report_first_bounded_fact():
         (f"{1 << 1024}", "coefficient_bits", 1025, 1024),
         (f"({' + '.join('abcdefghij')})**8", "expanded_terms", None, 4096),
         ("((x + 1) - (x + 1))**9", "degree", None, 8),
+        ("(x/x)**9", "degree", None, 8),
         (f"{1 << 600}*{1 << 423}", "coefficient_bits", None, 1024),
     )
     for source, kind, observed, configured in cases:
