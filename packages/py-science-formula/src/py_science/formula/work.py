@@ -387,6 +387,13 @@ def is_integer_expression(expression: Expression, context: WorkContext) -> bool:
             )
         return False
     if isinstance(expression, Call):
+        # Min/Max are analyzer-generated bound IR, not submitted callable syntax.
+        # They preserve integrality when every candidate bound is integral.
+        if expression.name in {"Min", "Max"}:
+            return bool(expression.arguments) and all(
+                is_integer_expression(argument, context)
+                for argument in expression.arguments
+            )
         definition = context.definitions.get(expression.name)
         if definition is None or len(definition.parameters) != len(expression.arguments):
             return False
@@ -709,10 +716,11 @@ def simplify_constants(expression: Expression) -> Expression:
         )
     if isinstance(expression, Call):
         arguments = tuple(simplify_constants(item) for item in expression.arguments)
-        if expression.name == "Max" and all(isinstance(item, IntegerLiteral) for item in arguments):
-            return IntegerLiteral(
-                max(item.value for item in arguments if isinstance(item, IntegerLiteral))
-            )
+        if expression.name in {"Min", "Max"} and all(
+            isinstance(item, IntegerLiteral) for item in arguments
+        ):
+            values = [item.value for item in arguments if isinstance(item, IntegerLiteral)]
+            return IntegerLiteral(min(values) if expression.name == "Min" else max(values))
         return Call(expression.name, arguments)
     if isinstance(expression, Sum):
         body = simplify_constants(expression.body)

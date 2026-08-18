@@ -67,6 +67,132 @@ def test_bounded_named_affine_constraints_produce_effective_minimum_domain() -> 
     assert report.constraint_uses[0].equation == "simplex"
 
 
+@pytest.mark.parametrize(
+    "relationship",
+    (
+        "i == K",
+        "i < K",
+        "i > K",
+        "-i <= K",
+        "K >= Abs(i)",
+        "Abs(i) < K",
+    ),
+)
+def test_affine_constraint_acceptance_matrix_covers_integer_and_absolute_forms(
+    relationship: str,
+) -> None:
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=(
+                EquationRequest(
+                    name="accepted",
+                    expression="Eq(A[i], i)",
+                    domains={"i": IndexDomain(lower="0", upper="N")},
+                    constraints=(
+                        DomainConstraint(name="constraint", target="i", relationship=relationship),
+                    ),
+                ),
+            ),
+            variables=variables("N", "K"),
+        )
+    )
+    assert isinstance(outcome, AnalysisSuccess)
+
+
+@pytest.mark.parametrize(
+    "relationship",
+    (
+        "2*i <= N",
+        "0 <= i <= N",
+        "i <= K | i >= 0",
+        "Abs(i) >= K",
+        "Abs(i) == K",
+        "i*i <= N",
+        "i**2 <= N",
+        "i/N <= K",
+    ),
+)
+def test_affine_constraint_refusal_matrix_rejects_excluded_forms(relationship: str) -> None:
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=(
+                EquationRequest(
+                    name="rejected",
+                    expression="Eq(A[i], i)",
+                    domains={"i": IndexDomain(lower="0", upper="N")},
+                    constraints=(
+                        DomainConstraint(name="constraint", target="i", relationship=relationship),
+                    ),
+                ),
+            ),
+            variables=variables("N", "K"),
+        )
+    )
+    assert outcome.status == "failure"
+    assert outcome.error.source is not None
+    assert outcome.error.source.path == "equations[0].constraints[0].relationship"
+
+
+def test_constrained_minimum_bounds_have_integral_clamped_cardinality_and_specialize_empty() -> None:
+    request = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(
+            EquationRequest(
+                name="bounded",
+                expression="Eq(A[i], i)",
+                domains={"i": IndexDomain(lower="0", upper="N")},
+                constraints=(DomainConstraint(name="cap", target="i", relationship="i <= K"),),
+            ),
+        ),
+        variables={
+            "N": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER),
+            "K": VariableDeclaration(domain=MathematicalDomain.INTEGER),
+        },
+        scenarios=(Scenario(name="empty", fixed={"N": 3, "K": -1}),),
+    )
+    outcome = analyze(request)
+    assert isinstance(outcome, AnalysisSuccess) and outcome.system is not None
+    assert "cardinality" not in outcome.system.equations[0].aggregate_work
+    assert outcome.scenarios[0].substituted_work == "0"
+    assert outcome.scenarios[0].effective_domains[0].domains[0].upper == "-1"
+
+
+def test_uniformly_empty_local_constraint_is_rejected_but_unresolved_one_is_retained() -> None:
+    invalid = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(EquationRequest(name="bad", expression="Eq(A[i], i)", domains={"i": IndexDomain(lower="0", upper="2")}, constraints=(DomainConstraint(name="outside", target="i", relationship="i <= -1"),)),),
+    ))
+    assert invalid.status == "failure"
+    assert invalid.error.source is not None
+    assert invalid.error.source.path == "equations[0].constraints[0].relationship"
+    unresolved = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(EquationRequest(name="maybe", expression="Eq(A[i], i)", domains={"i": IndexDomain(lower="0", upper="N")}, constraints=(DomainConstraint(name="cap", target="i", relationship="i <= K"),)),),
+        variables=variables("N", "K"),
+    ))
+    assert isinstance(unresolved, AnalysisSuccess)
+
+
+def test_equation_targeted_query_reports_only_its_consumed_local_constraints() -> None:
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(
+            EquationRequest(name="constrained", expression="Eq(A[i], i)", domains={"i": IndexDomain(lower="0", upper="N")}, constraints=(DomainConstraint(name="cap", target="i", relationship="i <= K"),)),
+            EquationRequest(name="plain", expression="Eq(B[j], j)", domains={"j": IndexDomain(lower="0", upper="N")}),
+        ),
+        variables=variables("N", "K"),
+        queries=(
+            EquivalenceQuery(name="local", target=EquationTarget(name="constrained"), comparison="i"),
+            EquivalenceQuery(name="other", target=EquationTarget(name="plain"), comparison="j"),
+        ),
+    ))
+    assert isinstance(outcome, AnalysisSuccess)
+    assert [use.name for use in outcome.queries[0].answers[0].constraint_uses] == ["cap"]
+    assert outcome.queries[1].answers[0].constraint_uses == ()
+
+
 def test_named_rhs_query_is_local_and_preserves_system_work() -> None:
     base = AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,
@@ -353,6 +479,25 @@ def test_function_contract_rejects_arity_conflicts_and_recursion() -> None:
             functions=(FunctionDefinition(name="f", parameters=("z",), body="z"),),
             primitive_costs=(PrimitiveCost(name="f", parameters=("z",), work="1"),),
         )
+
+
+def test_duplicate_constraint_name_identifies_the_duplicate_name_field() -> None:
+    with pytest.raises(ValidationError) as raised:
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=(
+                EquationRequest(
+                    name="duplicate_constraint",
+                    expression="Eq(A[i], i)",
+                    domains={"i": IndexDomain(lower="0", upper="1")},
+                    constraints=(
+                        DomainConstraint(name="cap", target="i", relationship="i <= 1"),
+                        DomainConstraint(name="cap", target="i", relationship="i <= 0"),
+                    ),
+                ),
+            ),
+        )
+    assert raised.value.errors()[0]["loc"] == ("constraints", 1, "name")
 
 
 def test_system_validation_rejects_duplicate_results_cycles_and_bad_indices() -> None:

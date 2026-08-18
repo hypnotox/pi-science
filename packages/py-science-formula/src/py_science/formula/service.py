@@ -272,6 +272,32 @@ def _attach_queries(
         if isinstance(evaluated, AnalysisFailure):
             return evaluated
         result = evaluated[0]
+        if request.expression is None and not isinstance(query.target, DerivedTarget):
+            assert query.target is not None
+            owning = next(
+                item for item in request.equations if item.name == query.target.name
+            )
+            # Local facts are not global assumptions.  A targeted query consumes
+            # only the owning constraints whose target participates in its
+            # expression; this preserves equation isolation and provenance.
+            target_symbols = _symbol_names(target.expression)
+            consumed = tuple(
+                ConstraintUse(
+                    equation=owning.name,
+                    name=constraint.name,
+                    target=constraint.target,
+                    relationship=constraint.relationship,
+                )
+                for constraint in owning.constraints
+                if constraint.target in target_symbols
+            )
+            if consumed:
+                result = result.model_copy(update={
+                    "answers": tuple(
+                        answer.model_copy(update={"constraint_uses": consumed})
+                        for answer in result.answers
+                    )
+                })
         if isinstance(query.target, DerivedTarget):
             assert source is not None
             result = _compose_derived_qualification(result, source)
@@ -971,6 +997,9 @@ def _analyze_system(
         )
     except ExpressionTooComplex:
         return _complexity_failure("output-domain assumptions exceed the reasoning bound")
+    compatibility_failure = _globally_empty_constraint_domain(equations, domain_reasoning)
+    if compatibility_failure is not None:
+        return compatibility_failure
     all_extractions: list[str] = []
     for name in order:
         equation = by_name[name]
@@ -1208,6 +1237,45 @@ def _parse_equations(
         output_domains, domain_order = built
         result.append(ParsedEquation(item, parsed, domains, tuple(constraints), output_domains, domain_order))
     return tuple(result)
+
+
+def _globally_empty_constraint_domain(
+    equations: tuple[ParsedEquation, ...], reasoning: ReasoningContext
+) -> AnalysisFailure | None:
+    """Reject only a bounded proof that a local intersection is uniformly empty.
+
+    Reversing an inclusive extent proves `lower > upper` under global facts and
+    predecessor extrema.  Failure to prove it deliberately leaves a symbolic
+    intersection qualified rather than turning uncertainty into refusal.
+    """
+    for equation_position, equation in enumerate(equations):
+        predecessors = {domain.index: domain for domain in equation.output_domains}
+        for domain in equation.output_domains:
+            if not any(target == domain.index for _, target, _ in equation.constraints):
+                continue
+            reverse = OutputDomain(
+                domain.index,
+                domain.upper,
+                domain.lower,
+                domain.upper_path,
+                domain.lower_path,
+                domain.dependencies,
+            )
+            _, empty, _ = domain_extent(reverse, predecessors, reasoning)
+            if not empty:
+                continue
+            constraint_position = next(
+                position
+                for position, (_, target, _) in enumerate(equation.constraints)
+                if target == domain.index
+            )
+            return _invalid(
+                f"equation {equation.request.name}: local constraint intersection is uniformly empty under global facts",
+                source=SourceReference(
+                    path=f"equations[{equation_position}].constraints[{constraint_position}].relationship"
+                ),
+            )
+    return None
 
 
 def _build_producers(

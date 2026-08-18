@@ -202,11 +202,21 @@ def _normalize_constraint(
 
 
 def _minimum(values: tuple[Expression, ...]) -> Expression:
-    return values[0] if len(values) == 1 else Call("Min", values)
+    if len(values) == 1:
+        return values[0]
+    if all(isinstance(value, IntegerLiteral) for value in values):
+        integers = [value.value for value in values if isinstance(value, IntegerLiteral)]
+        return IntegerLiteral(min(integers))
+    return Call("Min", values)
 
 
 def _maximum(values: tuple[Expression, ...]) -> Expression:
-    return values[0] if len(values) == 1 else Call("Max", values)
+    if len(values) == 1:
+        return values[0]
+    if all(isinstance(value, IntegerLiteral) for value in values):
+        integers = [value.value for value in values if isinstance(value, IntegerLiteral)]
+        return IntegerLiteral(max(integers))
+    return Call("Max", values)
 
 
 def _negate(expression: Expression) -> Expression:
@@ -304,12 +314,18 @@ def _fraction_expression(value: Fraction) -> Expression:
 
 
 def _add(left: Expression, right: Expression) -> Expression:
+    if isinstance(left, IntegerLiteral) and isinstance(right, IntegerLiteral):
+        return IntegerLiteral(left.value + right.value)
     return BinaryExpression(BinaryOperator.ADD, left, right)
 
 
 def _subtract(left: Expression, right: Expression) -> Expression:
+    if isinstance(left, IntegerLiteral) and isinstance(right, IntegerLiteral):
+        return IntegerLiteral(left.value - right.value)
     return BinaryExpression(BinaryOperator.SUBTRACT, left, right)
 
 
 def _multiply(left: Expression, right: Expression) -> Expression:
+    if isinstance(left, IntegerLiteral) and isinstance(right, IntegerLiteral):
+        return IntegerLiteral(left.value * right.value)
     return BinaryExpression(BinaryOperator.MULTIPLY, left, right)

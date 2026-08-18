@@ -5,7 +5,7 @@ from enum import StrEnum
 from typing import Annotated, Any, Literal, cast
 
 from py_science.formula.exact_values import parse_exact_scalar, render_exact
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 MAX_NAME_LENGTH = 128
 MAX_FORMULA_BYTES = 65_536
@@ -203,11 +203,30 @@ class EquationRequest(StructuredModel):
     domains: dict[str, IndexDomain] = Field(default_factory=dict)
     constraints: tuple[DomainConstraint, ...] = Field(default=(), max_length=MAX_CONSTRAINTS_PER_EQUATION)
 
+    @field_validator("constraints")
+    @classmethod
+    def validate_constraint_names(
+        cls, constraints: tuple[DomainConstraint, ...]
+    ) -> tuple[DomainConstraint, ...]:
+        names: set[str] = set()
+        for position, constraint in enumerate(constraints):
+            if constraint.name in names:
+                raise ValidationError.from_exception_data(
+                    cls.__name__,
+                    [{
+                        "type": "value_error",
+                        "loc": (position, "name"),
+                        "input": constraint.name,
+                        "ctx": {"error": ValueError("equation constraint names must be unique")},
+                    }],
+                )
+            names.add(constraint.name)
+        return constraints
+
     @model_validator(mode="after")
     def validate_domains(self) -> "EquationRequest":
         if len(self.domains) > MAX_DOMAINS_PER_EQUATION:
             raise ValueError("equation domain collection exceeds its bound")
-        _require_unique((constraint.name for constraint in self.constraints), "equation constraint names")
         if any(
             name == "oo"
             or len(name) > MAX_NAME_LENGTH

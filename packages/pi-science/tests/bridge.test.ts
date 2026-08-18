@@ -1072,7 +1072,18 @@ describe("private formula bridge", () => {
     await expect(
       invokeAdapter(
         node,
-        responder({ ...richSuccess, queries: [reorderedSystemQuery] }),
+        responder({
+          ...richSuccess,
+          system: {
+            ...richSuccess.system,
+            equations: richSuccess.system.equations.map((equation) => ({
+              ...equation,
+              name: "stage",
+            })),
+          },
+          scenarios: [],
+          queries: [reorderedSystemQuery],
+        }),
         systemRequest,
       ),
     ).resolves.toMatchObject({ queries: [reorderedSystemQuery] });

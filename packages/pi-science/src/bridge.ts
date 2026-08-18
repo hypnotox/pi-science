@@ -663,8 +663,27 @@ function validEquationReport(value: unknown): boolean {
     validStringArray(value.unresolved) &&
     validRelationshipUses(value.relationships_used) &&
     validDomainConstraints(value.constraints) &&
+    new Set(
+      (value.constraints as Array<Record<string, unknown>>).map(
+        (item) => item.name,
+      ),
+    ).size === (value.constraints as unknown[]).length &&
     validEffectiveDomains(value.effective_domains) &&
-    validConstraintUses(value.constraint_uses)
+    validConstraintUses(value.constraint_uses) &&
+    (value.constraint_uses as unknown[]).length ===
+      (value.constraints as unknown[]).length &&
+    (value.constraint_uses as Array<Record<string, unknown>>).every(
+      (use, index) =>
+        use.equation === value.name &&
+        use.name ===
+          (value.constraints as Array<Record<string, unknown>>)[index]?.name &&
+        use.target ===
+          (value.constraints as Array<Record<string, unknown>>)[index]
+            ?.target &&
+        use.relationship ===
+          (value.constraints as Array<Record<string, unknown>>)[index]
+            ?.relationship,
+    )
   );
 }
 function validIntervalResult(value: unknown): boolean {
@@ -729,7 +748,15 @@ function validScenarioResult(value: unknown): boolean {
     isRecord(value.choice_effective_domains) &&
     Object.values(value.choice_effective_domains).every(
       validEquationEffectiveDomains,
-    )
+    ) &&
+    (Object.keys(value.choice_work as object).length === 0
+      ? Object.keys(value.choice_effective_domains as object).length === 0
+      : (value.effective_domains as unknown[]).length === 0 &&
+        Object.keys(value.choice_work as object).length ===
+          Object.keys(value.choice_effective_domains as object).length &&
+        Object.keys(value.choice_work as object).every(
+          (key) => key in (value.choice_effective_domains as object),
+        ))
   );
 }
 function validSystemReport(value: unknown): boolean {
@@ -1196,6 +1223,33 @@ function validQueryCorrelation(
   });
 }
 
+function validSystemCorrelation(
+  request: AnalysisRequest,
+  system: unknown,
+): boolean {
+  if (
+    isExpressionRequest(request) ||
+    !isRecord(system) ||
+    !Array.isArray(system.equations)
+  )
+    return isExpressionRequest(request);
+  return (
+    system.equations.length === request.equations.length &&
+    system.equations.every((equation) => {
+      if (!isRecord(equation) || typeof equation.name !== "string")
+        return false;
+      const submitted = request.equations.find(
+        (candidate) => candidate.name === equation.name,
+      );
+      return (
+        submitted !== undefined &&
+        JSON.stringify(equation.constraints) ===
+          JSON.stringify(submitted.constraints ?? [])
+      );
+    })
+  );
+}
+
 function validResult(
   value: unknown,
   request: AnalysisRequest,
@@ -1229,7 +1283,8 @@ function validResult(
         (validSystemReport(value.system) &&
           isRecord(value.system) &&
           value.system.direct_work_applicability ===
-            value.direct_work_applicability)) &&
+            value.direct_work_applicability &&
+          validSystemCorrelation(request, value.system))) &&
       Array.isArray(value.scenarios) &&
       value.scenarios.every(validScenarioResult) &&
       Array.isArray(value.queries) &&
@@ -1284,6 +1339,8 @@ function formulaSources(request: AnalysisRequest): string[] {
       sources.push(equation.expression);
       for (const domain of Object.values(equation.domains ?? {}))
         sources.push(domain.lower, domain.upper);
+      for (const constraint of equation.constraints ?? [])
+        sources.push(constraint.relationship);
     }
   for (const definition of request.functions ?? [])
     sources.push(definition.body);
