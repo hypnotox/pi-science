@@ -88,7 +88,7 @@ Optional `queries` ask explicit general-context questions. Each has a unique `na
 }
 ```
 
-Accepted query shape does not promise a proved answer. The shipped evaluators are bounded to rational equivalence; geometric-linear finite or convergent infinite closed forms; supported rational sign, valid-domain, singularity, and monotonicity properties; supported rational limits; and bounded rational or linear-exponential asymptotics. Valid questions outside those families return localized `unresolved` or `inapplicable` answers. Scenarios do not run queries, and derived candidates never replace submitted work.
+Accepted query shape does not promise a proved answer. The shipped evaluators are bounded to rational equivalence; partial direct `closed_form` support for one ordered-or-empty finite-polynomial nested Sum tree (including `Sum(Sum(1, (l, -k, k)), (k, 0, p))`); geometric-linear finite or convergent infinite closed forms; supported rational sign, valid-domain, singularity, and monotonicity properties; supported rational limits; and bounded rational or linear-exponential asymptotics. Valid questions outside those families return localized `unresolved` or `inapplicable` answers. Scenarios do not run queries, and derived candidates never replace submitted work.
 
 ## Correct and interpret results
 

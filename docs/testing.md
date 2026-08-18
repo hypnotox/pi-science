@@ -12,7 +12,7 @@ Run `./scripts/check` before every commit. It runs Python pytest, verifies that 
 ## Tiers and lanes
 Python tests cover the transport-free public formula API, qualified equation systems, AFMM-like acceptance, and distribution. `packages/pi-science/tests/` exercises the actual full-request adapter, strict Pi schema and rich result shapes, whole-envelope and output bounds, AFMM system translation through the registered callback, installed-extension schema compilation by the host Pi runtime, stderr draining, process failure, timeout and cancellation cleanup, readiness withholding, immutable checkout identity, package contents, and prerequisite-specific diagnostics. A barrier wrapper around real uv proves concurrent healthy starts reuse one immutable-source cache without modifying the checkout; a synchronized failure proves identical fail-closed results. The combined gate confines transient test data to an external user-cache directory and removes it on exit; direct Pi test runs also remove their temporary package, install, provisioning, and checkout fixtures.
 
-The Pi tier includes protocol-v7 request/result parity and a query-bearing AFMM tail round trip separate from the preserved no-query AFMM system fixture.
+The Pi tier includes protocol-v7 request/result parity, a query-bearing AFMM tail round trip, and partial nested finite-polynomial closed-form transport separate from preserved submitted-work fixtures.
 
 Derived query targets cross protocol v7 as strict correlation data only; Python owns earlier-only validation, verified-candidate eligibility, bounded qualification composition, and unavailable-target results.
 
@@ -23,5 +23,5 @@ Python tests cover the transport-free public formula API and distribution. `pack
 
 Pi regressions also cover protocol-v7 query requests, exact discriminated query-answer results, malformed query transport, and separate no-query and query-bearing AFMM registered-tool round trips. The latter proves a qualified infinite tail without changing submitted direct work.
 
-Derived query targets cross protocol v7 as strict correlation data only; Python owns earlier-only validation, verified-candidate eligibility, bounded qualification composition, and unavailable-target results.
+Derived query targets cross protocol v7 as strict correlation data only; Python owns earlier-only validation, verified-candidate eligibility, bounded qualification composition, and unavailable-target results. Focused regressions cover the partial direct nested finite-polynomial closed-form family and preserve submitted work separately from its informational candidate.
 

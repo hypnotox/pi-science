@@ -34,7 +34,7 @@ The adapter owns whole-envelope and serialized-output bounds. The TypeScript bri
 
 Optional general-context query requests and their exact discriminated qualified results cross the same protocol-v7 boundary. TypeScript and the adapter enforce only strict shape and bounds; target resolution, assumption use, mathematical applicability, and proof policy remain Python-owned. Scenarios specialize submitted work only and do not execute queries.
 
-Derived query targets cross protocol v7 as strict correlation data only; Python owns earlier-only validation, verified-candidate eligibility, bounded qualification composition, and unavailable-target results.
+Derived query targets cross protocol v7 as strict correlation data only; Python owns earlier-only validation, verified-candidate eligibility, bounded qualification composition, and unavailable-target results. Direct `closed_form` may additionally evaluate one partial finite-polynomial nested Sum tree in Python; the bridge transports its checked candidate and never classifies or verifies it.
 
 
 <!-- awf:edit dependencies: from .awf/docs/parts/architecture/dependencies.md -->

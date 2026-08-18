@@ -35,6 +35,9 @@ from py_science.formula.reasoning import ReasoningContext
 from py_science.formula.sympy_backend import (
     RationalMeasureFailure,
     bounded_linear_coefficients,
+    bounded_polynomial_degrees,
+    bounded_polynomial_sum_candidate,
+    bounded_polynomial_sum_verify,
     bounded_series_candidate,
     bounded_series_verify,
     rational_ir_measure,
@@ -89,7 +92,7 @@ def derive_closed_form(expression: Expression, reasoning: ReasoningContext | Non
             ).render()
         )
     if any(_has_nested_sum(item.body) for item in sums):
-        return _unresolved("nested sums are unsupported")
+        return _derive_nested_polynomial(expression, reasoning)
     if any(isinstance(item.upper, InfinityLiteral) and item.upper.sign < 0 for item in sums):
         return _unresolved(
             QueryDiagnostic(
@@ -134,9 +137,8 @@ def derive_closed_form(expression: Expression, reasoning: ReasoningContext | Non
     candidate = expression
     for item, rule in zip(sums, rules, strict=True):
         candidate = _replace(candidate, item, rule.candidate)
-        if (
-            expression_node_count(candidate) > MAX_INTERMEDIATE_NODES
-            or not _result_preflight(candidate)
+        if expression_node_count(candidate) > MAX_INTERMEDIATE_NODES or not _result_preflight(
+            candidate
         ):
             return _unresolved("query derived expression exceeds its bound")
     denominator_conditions: list[str] = []
@@ -191,6 +193,145 @@ def derive_closed_form(expression: Expression, reasoning: ReasoningContext | Non
                 ),
             ),
         ),
+    )
+
+
+def _derive_nested_polynomial(expression: Expression, reasoning: ReasoningContext) -> QueryAnswer:
+    """Evaluate the deliberately small, single finite polynomial Sum tree innermost first."""
+    # A nested family has exactly one root tree; sibling and mixed trees stay fail-closed.
+    if not isinstance(expression, Sum) or _sum_count(expression) > 8 or _sum_depth(expression) > 4:
+        return _unresolved(
+            "nested polynomial family requires one tree of at most depth four and eight sums"
+        )
+    if not _series_preflight(expression) or not _supported_shell(expression):
+        return _unresolved("nested polynomial family exceeds its bounded preconditions")
+    rule = _derive_nested_node(expression, reasoning, ())
+    if isinstance(rule, QueryAnswer):
+        return rule
+    if not _result_preflight(rule.candidate):
+        return _unresolved("query derived expression exceeds its bound")
+    try:
+        candidate, source = render(rule.candidate), render(expression).sympy
+    except Exception:
+        return _unresolved("query candidate cannot be rendered")
+    if max(len(candidate.sympy), len(candidate.latex), len(source)) > 4096:
+        return _unresolved("query candidate rendering exceeds its bound")
+    tally = count_operations(rule.candidate)
+    return QueryAnswer(
+        conclusion="proved_under_assumptions" if rule.uses or rule.conditions else "proved",
+        conditions=rule.conditions,
+        assumptions_used=rule.uses,
+        evidence=ClosedFormEvidence(
+            verification="finite_antidifference", statement=f"{source} = {candidate.sympy}"
+        ),
+        derived_candidates=(
+            DerivedCandidate(
+                interpretation=Interpretation(
+                    normalized_sympy=candidate.sympy, normalized_latex=candidate.latex
+                ),
+                operation_counts=OperationCounts(
+                    additions=tally.additions,
+                    subtractions=tally.subtractions,
+                    multiplications=tally.multiplications,
+                    divisions=tally.divisions,
+                    powers=tally.powers,
+                ),
+            ),
+        ),
+    )
+
+
+def _derive_nested_node(
+    item: Sum, reasoning: ReasoningContext, outer: tuple[str, ...]
+) -> SeriesRule | QueryAnswer:
+    if (
+        isinstance(item.upper, InfinityLiteral)
+        or _contains_index(item.lower, item.index)
+        or _contains_index(item.upper, item.index)
+    ):
+        return _unresolved(
+            "nested polynomial bounds must be finite and independent of their binder"
+        )
+    try:
+        lower, upper = reasoning.apply(item.lower), reasoning.apply(item.upper)
+        body = reasoning.apply(item.body)
+    except Exception:
+        return _unresolved("query reasoning exceeds its bound")
+
+    # Outer binders are integer by Sum semantics; declared names still require reasoning proof.
+    def integral(value: Expression) -> bool:
+        return reasoning.proves_integral(value) or _names(value) <= set(outer)
+
+    if not integral(lower) or not integral(upper):
+        return _unresolved("nested polynomial bounds are not proved integral")
+    ordered, order_uses = reasoning.prove_ordered(lower, upper)
+    # The enclosing finite range proves its binder nonnegative when its lower endpoint is zero.
+    symmetric_outer_range = (
+        isinstance(lower, BinaryExpression)
+        and lower.operator is BinaryOperator.MULTIPLY
+        and isinstance(lower.left, IntegerLiteral)
+        and lower.left.value == -1
+        and isinstance(lower.right, Symbol)
+        and isinstance(upper, Symbol)
+        and lower.right.name == upper.name
+        and upper.name in outer
+    )
+    if symmetric_outer_range:
+        ordered = True
+    if not ordered:
+        empty, empty_uses = reasoning.prove_strictly_ordered(upper, lower)
+        if empty:
+            return SeriesRule(
+                IntegerLiteral(0),
+                "finite_antidifference",
+                (f"{render(lower).sympy} > {render(upper).sympy}: empty range",),
+                empty_uses,
+            )
+        return _unresolved(
+            "nested polynomial range ordering is unresolved",
+            reasoning.relevant_unsupported(_names(item)),
+        )
+    # Recursing only through a sole nested child prevents multiple-tree topology.
+    children = [node for node in _walk(body) if isinstance(node, Sum)]
+    uses = reasoning.application_uses(tuple(_names(item)))
+    conditions: tuple[str, ...] = ()
+    if children:
+        if len(children) != 1 or children[0] is not body:
+            return _unresolved("nested polynomial family requires a single Sum tree")
+        inner = _derive_nested_node(children[0], reasoning, (*outer, item.index))
+        if isinstance(inner, QueryAnswer):
+            return inner
+        body = inner.candidate
+        uses = _unique((*uses, *inner.uses, *order_uses))
+        conditions = inner.conditions
+    else:
+        uses = _unique((*uses, *order_uses))
+    allowed = set(reasoning.domains) | set(outer) | {item.index}
+    if not _names(body) <= allowed or _contains_forbidden(body):
+        return _unresolved("nested polynomial summand contains forbidden or undeclared names")
+    degrees = bounded_polynomial_degrees(body, (*outer, item.index))
+    if degrees is None or any(degree > 8 for degree in degrees):
+        return _unresolved(
+            "nested polynomial summand is not an exact rational polynomial of degree at most eight"
+        )
+    built = bounded_polynomial_sum_candidate(body, item.index, lower, upper)
+    if built is None or not bounded_polynomial_sum_verify(body, item.index, lower, upper, built):
+        return _unresolved("nested polynomial antidifference verification failed")
+    candidate = _parse_candidate(built)
+    if candidate is None or _names(candidate) - (set(reasoning.domains) | set(outer)):
+        return _unresolved("nested polynomial candidate escapes its restricted names or bounds")
+    return SeriesRule(candidate, "finite_antidifference", conditions, uses)
+
+
+def _sum_count(value: Expression) -> int:
+    return sum(isinstance(node, Sum) for node in _walk(value))
+
+
+def _sum_depth(value: Expression) -> int:
+    return (
+        1 + max((_sum_depth(child) for child in expression_children(value)), default=0)
+        if isinstance(value, Sum)
+        else max((_sum_depth(child) for child in expression_children(value)), default=0)
     )
 
 
@@ -388,6 +529,7 @@ def _linear_geometric(
 
 def _normalized_terms(value: Expression, index: str) -> list[Expression] | None:
     """Distribute only index-independent products over bounded add/subtract terms."""
+
     def visit(term: Expression, scale: list[Expression]) -> list[Expression] | None:
         if isinstance(term, BinaryExpression) and term.operator is BinaryOperator.ADD:
             left, right = visit(term.left, scale), visit(term.right, scale)

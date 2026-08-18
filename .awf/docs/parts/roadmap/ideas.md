@@ -17,3 +17,7 @@ Suggest safe local factoring, reciprocal or norm reuse, repeated-call reduction,
 ### Future mathematical query contexts and notation
 
 Scenario-context queries, restricted LaTeX input, complex values, dimensions, vector shorthand, and differentiation remain deliberately deferred beyond the shipped bounded general-query contract.
+
+### Nested closed-form extensions
+
+Future candidates include rational-function coefficients; multiple or mixed trees; infinite nesting; higher depth, node, or degree limits; conditional or piecewise range forms; direct implicit property, limit, and asymptotic consumers; staged derived-to-closed-form composition; safe cross-equation inlining; and deeper whole-system optimization analysis.

@@ -2,4 +2,4 @@ Python tests cover the transport-free public formula API and distribution. `pack
 
 Pi regressions also cover protocol-v7 query requests, exact discriminated query-answer results, malformed query transport, and separate no-query and query-bearing AFMM registered-tool round trips. The latter proves a qualified infinite tail without changing submitted direct work.
 
-Derived query targets cross protocol v7 as strict correlation data only; Python owns earlier-only validation, verified-candidate eligibility, bounded qualification composition, and unavailable-target results.
+Derived query targets cross protocol v7 as strict correlation data only; Python owns earlier-only validation, verified-candidate eligibility, bounded qualification composition, and unavailable-target results. Focused regressions cover the partial direct nested finite-polynomial closed-form family and preserve submitted work separately from its informational candidate.

@@ -102,7 +102,7 @@ def test_closed_form_series_rule_matrix_and_afmm_identity():
     assert finite.queries[0].answers[0].evidence.verification == "finite_antidifference"  # pyright: ignore[reportAttributeAccessIssue]
     assert finite.queries[0].answers[0].derived_candidates[0].interpretation.normalized_sympy == "34"
 
-    for expression, conclusion, blocker in (("Sum(k * 2**k, (k, 0, oo))", "inapplicable", None), ("Sum(k * q**k, (k, 0, oo))", "unresolved", "series convergence is not proved"), ("Sum(Sum(k * q**k, (k, 0, 1)), (j, 0, 1))", "unresolved", "nested sums are unsupported"), ("Sum(k**2 * q**k, (k, 0, 1))", "unresolved", "closed-form summand does not match (a*k+b)*r**k; use a summand in that form")):
+    for expression, conclusion, blocker in (("Sum(k * 2**k, (k, 0, oo))", "inapplicable", None), ("Sum(k * q**k, (k, 0, oo))", "unresolved", "series convergence is not proved"), ("Sum(Sum(k * q**k, (k, 0, 1)), (j, 0, 1))", "unresolved", "nested polynomial summand contains forbidden or undeclared names"), ("Sum(k**2 * q**k, (k, 0, 1))", "unresolved", "closed-form summand does not match (a*k+b)*r**k; use a summand in that form")):
         outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression, queries=({"name": "series", "kind": "closed_form"},)))
         assert outcome.status == "success"
         terminal = outcome.queries[0].answers[0]
@@ -112,6 +112,18 @@ def test_closed_form_series_rule_matrix_and_afmm_identity():
     assert empty.status == "success"
     assert empty.queries[0].answers[0].conclusion == "proved_under_assumptions"
     assert empty.queries[0].answers[0].derived_candidates[0].interpretation.normalized_sympy == "0"
+
+
+def test_nested_finite_polynomial_closed_form_is_direct_only():
+    nested = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="Sum(Sum(1, (l, -k, k)), (k, 0, p))", variables={"p": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER)}, queries=({"name": "closed", "kind": "closed_form"},)))
+    assert nested.status == "success"
+    answer = nested.queries[0].answers[0]
+    assert answer.conclusion == "proved"
+    assert answer.evidence is not None and answer.evidence.kind == "closed_form"
+    assert answer.derived_candidates[0].interpretation.normalized_sympy == "2*p + 1 + p**2"
+    direct_property = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="Sum(Sum(1, (l, -k, k)), (k, 0, p))", variables={"p": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER)}, queries=({"name": "properties", "kind": "properties", "checks": ({"kind": "sign"},)},)))
+    assert direct_property.status == "success"
+    assert direct_property.queries[0].answers[0].conclusion == "unresolved"
 
 
 def test_closed_form_uses_affine_facts_domain_obligations_and_bounded_collection():

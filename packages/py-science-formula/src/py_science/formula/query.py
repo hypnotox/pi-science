@@ -130,6 +130,9 @@ def _property_expression(
     """Replace only a Task-3-proved series before the Task-4 rational rules."""
     if not any(isinstance(item, Sum) for item in _walk(expression)):
         return expression, None
+    # Nested polynomial derivation is intentionally direct-closed-form only.
+    if any(isinstance(item, Sum) and any(isinstance(child, Sum) for child in _walk(item.body)) for item in _walk(expression)):
+        return expression, QueryAnswer(conclusion="unresolved", blockers=("nested polynomial closed forms require an explicit closed_form query",))
     closed = derive_closed_form(expression, reasoning)
     if closed.conclusion not in {"proved", "proved_under_assumptions"} or not closed.derived_candidates:
         return expression, closed
