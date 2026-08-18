@@ -4,7 +4,7 @@ slug: require-actionable-bounded-query-blockers
 status: Implementing
 date: 2026-08-18
 ---
-# ADR-require-actionable-bounded-query-blockers: Require actionable bounded query blockers
+# ADR-0005: Require actionable bounded query blockers
 
 ## Context
 

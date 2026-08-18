@@ -13,4 +13,4 @@ Origin: ADR-0003
 ### `rule: qualified-query-conclusions`
 Each query result preserves its submitted target and normalized interpretation and returns only `proved`, `proved_under_assumptions`, `disproved`, `unresolved`, or `inapplicable` conclusions with inspectable evidence and qualifications. Unresolved blockers identify the failed supported family, structural or resource bound, ambiguous axis, or missing precondition and provide safe reformulation guidance when one exists; observed and configured values appear only when bounded inspection measured them, and guidance neither proves equivalence nor promises broader evaluator support. Derived candidates are informational and never replace submitted operation counts or direct work; no-query reports remain valid with an empty query collection.
 Origin: ADR-0004
-Revised-by: ADR-require-actionable-bounded-query-blockers
+Revised-by: ADR-0005
