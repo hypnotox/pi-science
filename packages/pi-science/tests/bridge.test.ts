@@ -546,7 +546,7 @@ describe("private formula bridge", () => {
       await kind(invokeAdapter(node, responder(value), request()), "protocol");
   });
 
-  it("strictly validates populated protocol-v6 query result unions", async () => {
+  it("strictly validates populated protocol-v7 query result unions", async () => {
     const identityAnswer = {
       check: null,
       conclusion: "proved",

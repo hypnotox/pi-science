@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-- [ADR-adopt-explicit-reusable-verified-query-candidates: Adopt explicit reusable verified query candidates](adopt-explicit-reusable-verified-query-candidates.md) (Proposed)
+- [ADR-adopt-explicit-reusable-verified-query-candidates: Adopt explicit reusable verified query candidates](adopt-explicit-reusable-verified-query-candidates.md) (Implementing)
 
 ## History
 

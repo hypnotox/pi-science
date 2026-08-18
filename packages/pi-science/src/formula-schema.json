@@ -136,6 +136,32 @@
                     "minLength": 1,
                     "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
                     "type": "string"
+                  },
+                  "target": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "enum": [
+                              "derived"
+                            ],
+                            "type": "string"
+                          },
+                          "query": {
+                            "maxLength": 128,
+                            "minLength": 1,
+                            "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "query",
+                          "kind"
+                        ],
+                        "type": "object"
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -268,6 +294,32 @@
                       },
                       {
                         "type": "integer"
+                      }
+                    ]
+                  },
+                  "target": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "enum": [
+                              "derived"
+                            ],
+                            "type": "string"
+                          },
+                          "query": {
+                            "maxLength": 128,
+                            "minLength": 1,
+                            "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "query",
+                          "kind"
+                        ],
+                        "type": "object"
                       }
                     ]
                   },
@@ -668,26 +720,52 @@
                     "type": "string"
                   },
                   "target": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "kind": {
-                        "enum": [
-                          "equation"
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "enum": [
+                              "equation"
+                            ],
+                            "type": "string"
+                          },
+                          "name": {
+                            "maxLength": 128,
+                            "minLength": 1,
+                            "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "kind"
                         ],
-                        "type": "string"
+                        "type": "object"
                       },
-                      "name": {
-                        "maxLength": 128,
-                        "minLength": 1,
-                        "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
-                        "type": "string"
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "enum": [
+                              "derived"
+                            ],
+                            "type": "string"
+                          },
+                          "query": {
+                            "maxLength": 128,
+                            "minLength": 1,
+                            "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "query",
+                          "kind"
+                        ],
+                        "type": "object"
                       }
-                    },
-                    "required": [
-                      "name",
-                      "kind"
-                    ],
-                    "type": "object"
+                    ]
                   }
                 },
                 "required": [
@@ -714,26 +792,52 @@
                     "type": "string"
                   },
                   "target": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "kind": {
-                        "enum": [
-                          "equation"
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "enum": [
+                              "equation"
+                            ],
+                            "type": "string"
+                          },
+                          "name": {
+                            "maxLength": 128,
+                            "minLength": 1,
+                            "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "kind"
                         ],
-                        "type": "string"
+                        "type": "object"
                       },
-                      "name": {
-                        "maxLength": 128,
-                        "minLength": 1,
-                        "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
-                        "type": "string"
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "enum": [
+                              "derived"
+                            ],
+                            "type": "string"
+                          },
+                          "query": {
+                            "maxLength": 128,
+                            "minLength": 1,
+                            "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "query",
+                          "kind"
+                        ],
+                        "type": "object"
                       }
-                    },
-                    "required": [
-                      "name",
-                      "kind"
-                    ],
-                    "type": "object"
+                    ]
                   }
                 },
                 "required": [
@@ -807,26 +911,52 @@
                     "type": "string"
                   },
                   "target": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "kind": {
-                        "enum": [
-                          "equation"
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "enum": [
+                              "equation"
+                            ],
+                            "type": "string"
+                          },
+                          "name": {
+                            "maxLength": 128,
+                            "minLength": 1,
+                            "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "kind"
                         ],
-                        "type": "string"
+                        "type": "object"
                       },
-                      "name": {
-                        "maxLength": 128,
-                        "minLength": 1,
-                        "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
-                        "type": "string"
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "enum": [
+                              "derived"
+                            ],
+                            "type": "string"
+                          },
+                          "query": {
+                            "maxLength": 128,
+                            "minLength": 1,
+                            "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "query",
+                          "kind"
+                        ],
+                        "type": "object"
                       }
-                    },
-                    "required": [
-                      "name",
-                      "kind"
-                    ],
-                    "type": "object"
+                    ]
                   }
                 },
                 "required": [
@@ -871,26 +1001,52 @@
                     ]
                   },
                   "target": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "kind": {
-                        "enum": [
-                          "equation"
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "enum": [
+                              "equation"
+                            ],
+                            "type": "string"
+                          },
+                          "name": {
+                            "maxLength": 128,
+                            "minLength": 1,
+                            "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "kind"
                         ],
-                        "type": "string"
+                        "type": "object"
                       },
-                      "name": {
-                        "maxLength": 128,
-                        "minLength": 1,
-                        "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
-                        "type": "string"
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "enum": [
+                              "derived"
+                            ],
+                            "type": "string"
+                          },
+                          "query": {
+                            "maxLength": 128,
+                            "minLength": 1,
+                            "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "query",
+                          "kind"
+                        ],
+                        "type": "object"
                       }
-                    },
-                    "required": [
-                      "name",
-                      "kind"
-                    ],
-                    "type": "object"
+                    ]
                   },
                   "variable": {
                     "maxLength": 128,
@@ -947,26 +1103,52 @@
                     ]
                   },
                   "target": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "kind": {
-                        "enum": [
-                          "equation"
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "enum": [
+                              "equation"
+                            ],
+                            "type": "string"
+                          },
+                          "name": {
+                            "maxLength": 128,
+                            "minLength": 1,
+                            "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "kind"
                         ],
-                        "type": "string"
+                        "type": "object"
                       },
-                      "name": {
-                        "maxLength": 128,
-                        "minLength": 1,
-                        "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
-                        "type": "string"
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "enum": [
+                              "derived"
+                            ],
+                            "type": "string"
+                          },
+                          "query": {
+                            "maxLength": 128,
+                            "minLength": 1,
+                            "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "query",
+                          "kind"
+                        ],
+                        "type": "object"
                       }
-                    },
-                    "required": [
-                      "name",
-                      "kind"
-                    ],
-                    "type": "object"
+                    ]
                   },
                   "variable": {
                     "maxLength": 128,

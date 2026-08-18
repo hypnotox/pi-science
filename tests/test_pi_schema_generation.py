@@ -130,7 +130,12 @@ def test_generated_pi_schema_preserves_query_and_population_bounds() -> None:
         "limit",
         "asymptotic",
     }
-    assert all("target" not in variant["properties"] for variant in expression_queries)
+    derived_consumers = {
+        variant["properties"]["kind"]["enum"][0]
+        for variant in expression_queries
+        if "target" in variant["properties"]
+    }
+    assert derived_consumers == {"equivalence", "limit"}
     assert all("target" in variant["required"] for variant in system_queries)
     assert all("kind" in variant["required"] for variant in expression_queries)
     property_query = next(

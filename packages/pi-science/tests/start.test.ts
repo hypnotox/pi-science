@@ -114,7 +114,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 6, result: response }),
+            JSON.stringify({ version: 7, result: response }),
           )}))`,
         ],
       }),
@@ -416,7 +416,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 6, result: response }),
+            JSON.stringify({ version: 7, result: response }),
           )}))`,
         ],
       }),

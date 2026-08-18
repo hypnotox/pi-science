@@ -79,15 +79,17 @@ function compactToolText(result: BridgeResult): string {
         ? `; ${answer.check.kind}${"variable" in answer.check ? ` (${answer.check.variable})` : ""}`
         : "";
       const derived =
-        query.kind === "closed_form" &&
-        (answer.conclusion === "proved" ||
-          answer.conclusion === "proved_under_assumptions")
-          ? answer.derived_candidates
-              .slice(0, MAX_COMPACT_DERIVED_CANDIDATES)
-              .map((candidate) =>
-                compactExpression(candidate.interpretation.normalized_sympy),
-              )
-          : [];
+        query.target.kind === "derived" && query.normalized_target
+          ? [compactExpression(query.normalized_target.normalized_sympy)]
+          : query.kind === "closed_form" &&
+              (answer.conclusion === "proved" ||
+                answer.conclusion === "proved_under_assumptions")
+            ? answer.derived_candidates
+                .slice(0, MAX_COMPACT_DERIVED_CANDIDATES)
+                .map((candidate) =>
+                  compactExpression(candidate.interpretation.normalized_sympy),
+                )
+            : [];
       return `- ${query.name} (${query.kind}${check}): ${answer.conclusion}${derived.length === 0 ? "" : `; derived: ${derived.join(", ")}`}`;
     }),
   );

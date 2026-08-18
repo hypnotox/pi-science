@@ -12,12 +12,16 @@ Run `./scripts/check` before every commit. It runs Python pytest, verifies that 
 ## Tiers and lanes
 Python tests cover the transport-free public formula API, qualified equation systems, AFMM-like acceptance, and distribution. `packages/pi-science/tests/` exercises the actual full-request adapter, strict Pi schema and rich result shapes, whole-envelope and output bounds, AFMM system translation through the registered callback, installed-extension schema compilation by the host Pi runtime, stderr draining, process failure, timeout and cancellation cleanup, readiness withholding, immutable checkout identity, package contents, and prerequisite-specific diagnostics. A barrier wrapper around real uv proves concurrent healthy starts reuse one immutable-source cache without modifying the checkout; a synchronized failure proves identical fail-closed results. The combined gate confines transient test data to an external user-cache directory and removes it on exit; direct Pi test runs also remove their temporary package, install, provisioning, and checkout fixtures.
 
-The Pi tier includes protocol-v6 request/result parity and a query-bearing AFMM tail round trip separate from the preserved no-query AFMM system fixture.
+The Pi tier includes protocol-v7 request/result parity and a query-bearing AFMM tail round trip separate from the preserved no-query AFMM system fixture.
+
+Derived query targets cross protocol v7 as strict correlation data only; Python owns earlier-only validation, verified-candidate eligibility, bounded qualification composition, and unavailable-target results.
 
 
 <!-- awf:edit layout: from .awf/docs/parts/testing/layout.md -->
 ## Layout and test shape
 Python tests cover the transport-free public formula API and distribution. `packages/pi-science/tests/` exercises the actual private adapter, strict envelopes and result shapes, UTF-8 request and response bounds, installed-extension schema compilation and tool invocation under the host Pi runtime, stderr draining, process failure, timeout and cancellation cleanup, real Pi command/tool result contracts, mode-aware warnings, immutable checkout identity, health validation, and prerequisite-specific diagnostics. A barrier wrapper around real uv proves two healthy concurrent starts reuse one immutable-source cache without modifying the checkout; a separate synchronized failure proves identical fail-closed results.
 
-Pi regressions also cover protocol-v6 query requests, exact discriminated query-answer results, malformed query transport, and separate no-query and query-bearing AFMM registered-tool round trips. The latter proves a qualified infinite tail without changing submitted direct work.
+Pi regressions also cover protocol-v7 query requests, exact discriminated query-answer results, malformed query transport, and separate no-query and query-bearing AFMM registered-tool round trips. The latter proves a qualified infinite tail without changing submitted direct work.
+
+Derived query targets cross protocol v7 as strict correlation data only; Python owns earlier-only validation, verified-candidate eligibility, bounded qualification composition, and unavailable-target results.
 

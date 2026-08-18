@@ -1,7 +1,7 @@
 import { TextDecoder } from "node:util";
 import { spawnIsolated, terminateTree } from "./process.js";
 
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 export const MAX_FORMULA_BYTES = 65_536;
 export const MAX_ENVELOPE_BYTES = 2_097_152;
 export const MAX_RESPONSE_BYTES = 262_400;
@@ -49,6 +49,7 @@ export type Scenario = {
   bounds?: Record<string, IntervalBound>;
 };
 export type EquationTarget = { kind: "equation"; name: string };
+export type DerivedTarget = { kind: "derived"; query: string };
 export type PropertyCheckRequest =
   | { kind: "sign" }
   | {
@@ -56,7 +57,12 @@ export type PropertyCheckRequest =
       variable: string;
     };
 type QueryCore =
-  | { name: string; kind: "equivalence"; comparison: string }
+  | {
+      name: string;
+      kind: "equivalence";
+      comparison: string;
+      target?: DerivedTarget;
+    }
   | { name: string; kind: "closed_form" }
   | { name: string; kind: "properties"; checks: PropertyCheckRequest[] }
   | {
@@ -65,8 +71,15 @@ type QueryCore =
       variable: string;
       point: ExactScenarioScalar;
       direction: "left" | "right" | "both";
+      target?: DerivedTarget;
     }
-  | { name: string; kind: "limit"; variable: string; point: "oo" | "-oo" }
+  | {
+      name: string;
+      kind: "limit";
+      variable: string;
+      point: "oo" | "-oo";
+      target?: DerivedTarget;
+    }
   | {
       name: string;
       kind: "asymptotic";
@@ -83,7 +96,9 @@ type QueryCore =
       order: number;
     };
 export type ExpressionQueryRequest = QueryCore;
-export type SystemQueryRequest = QueryCore & { target: EquationTarget };
+export type SystemQueryRequest = QueryCore & {
+  target: EquationTarget | DerivedTarget;
+};
 export type QueryRequest = ExpressionQueryRequest | SystemQueryRequest;
 
 type RequestMetadata<Query extends QueryRequest> = {
@@ -199,7 +214,7 @@ export type AnalysisSuccess = {
   queries: QueryResult[];
 };
 export type ResolvedTarget =
-  { kind: "expression" } | { kind: "equation"; name: string };
+  { kind: "expression" } | { kind: "equation"; name: string } | DerivedTarget;
 export type PropertyCheck =
   | { kind: "sign" }
   | {
@@ -229,7 +244,7 @@ export type QueryResult = {
   name: string;
   kind: "equivalence" | "closed_form" | "properties" | "limit" | "asymptotic";
   target: ResolvedTarget;
-  normalized_target: Interpretation;
+  normalized_target: Interpretation | null;
   summary: string;
   answers: QueryAnswer[];
 };
@@ -713,6 +728,10 @@ function ordinaryIdentifier(value: unknown): value is string {
 function validResolvedTarget(value: unknown): boolean {
   if (!isRecord(value)) return false;
   if (value.kind === "expression") return exactKeys(value, ["kind"]);
+  if (value.kind === "derived")
+    return (
+      exactKeys(value, ["kind", "query"]) && ordinaryIdentifier(value.query)
+    );
   return (
     value.kind === "equation" &&
     exactKeys(value, ["kind", "name"]) &&
@@ -899,7 +918,12 @@ function validQueryResult(value: unknown): boolean {
       "asymptotic",
     ].includes(String(value.kind)) ||
     !validResolvedTarget(value.target) ||
-    !validInterpretation(value.normalized_target) ||
+    !(
+      validInterpretation(value.normalized_target) ||
+      (isRecord(value.target) &&
+        value.target.kind === "derived" &&
+        value.normalized_target === null)
+    ) ||
     !boundedQueryText(value.summary) ||
     !Array.isArray(value.answers) ||
     !value.answers.every(validQueryAnswer)
@@ -964,13 +988,23 @@ function validQueryCorrelation(
       result.kind !== query.kind
     )
       return false;
-    if (isExpressionRequest(request)) {
+    if ("target" in query && query.target?.kind === "derived") {
+      if (
+        result.target.kind !== "derived" ||
+        result.target.query !== query.target.query
+      )
+        return false;
+    } else if (isExpressionRequest(request)) {
       if (result.target.kind !== "expression") return false;
-    } else if (
-      result.target.kind !== "equation" ||
-      result.target.name !== (query as SystemQueryRequest).target.name
-    )
-      return false;
+    } else {
+      const target = (query as SystemQueryRequest).target;
+      if (
+        result.target.kind !== "equation" ||
+        target.kind !== "equation" ||
+        result.target.name !== target.name
+      )
+        return false;
+    }
     return (
       query.kind !== "properties" ||
       (result.answers.length === query.checks.length &&

@@ -71,7 +71,7 @@ Nested finite sums and dependent output domains preserve exact direct work with 
 
 ## Ask bounded mathematical queries
 
-Optional `queries` ask explicit general-context questions. Each has a unique `name`. `equivalence` adds `comparison`; `closed_form` adds no operand; `properties` has a nonempty unique list of `sign`, `valid_domain`, `singularities`, or `monotonicity` checks; `limit` has a variable and point; `asymptotic` also has `order` from 1 through 8. A finite point requires `left`, `right`, or `both`; `oo` and `-oo` forbid direction. Expression queries omit `target`; system queries select one named RHS with `{"kind":"equation","name":"..."}`.
+Optional `queries` ask explicit general-context questions. Each has a unique `name`. `equivalence` adds `comparison`; `closed_form` adds no operand; `properties` has a nonempty unique list of `sign`, `valid_domain`, `singularities`, or `monotonicity` checks; `limit` has a variable and point; `asymptotic` also has `order` from 1 through 8. A finite point requires `left`, `right`, or `both`; `oo` and `-oo` forbid direction. Expression queries omit an equation target; system queries select one named RHS with `{"kind":"equation","name":"..."}`. An `equivalence` or `limit` may use `{"kind":"derived","query":"earlier_closed_form"}` in either context. The source is earlier-only and must be a verified single closed-form candidate. Python owns this policy; unavailable operands stay correlated as inapplicable with `normalized_target: null` and never fall back to submitted work.
 
 ```json
 {

@@ -99,43 +99,40 @@ def _query_references(query_schema: JsonObject) -> list[str]:
     return references
 
 
-def _query_target(
-    references: list[str], definitions: dict[str, JsonObject]
-) -> JsonObject:
-    target_references: set[str] = set()
-    for reference in references:
-        definition = _resolve_reference(reference, definitions)
-        target_schema = definition.get("properties", {}).get("target", {})
-        for option in target_schema.get("anyOf", []):
-            if isinstance(option, dict) and "$ref" in option:
-                target_references.add(option["$ref"])
-    if len(target_references) != 1:
-        raise ValueError("AnalysisRequest query variants do not share one equation target")
-    target_reference = target_references.pop()
-    return _normalize(_resolve_reference(target_reference, definitions), definitions)
-
-
 def _query_variants(
     definitions: dict[str, JsonObject], query_schema: JsonObject, *, system: bool
 ) -> list[JsonObject]:
-    references = _query_references(query_schema)
-    target = _query_target(references, definitions)
     variants: list[JsonObject] = []
-    for reference in references:
+    for reference in _query_references(query_schema):
         variant = _normalize(_resolve_reference(reference, definitions), definitions)
         properties = variant["properties"]
         required = list(variant.get("required", []))
+        target = properties.get("target")
         if system:
-            properties["target"] = copy.deepcopy(target)
-            if "target" not in required:
+            if target is not None and "target" not in required:
                 required.append("target")
-        else:
-            properties.pop("target", None)
+        elif target is not None:
+            kind = properties["kind"]["enum"][0]
+            if kind not in {"equivalence", "limit"}:
+                properties.pop("target")
+                variant["required"] = [field for field in required if field != "target"]
+                variants.append(variant)
+                continue
+            # Expression requests may select only a derived operand; equation
+            # targets remain a system-only spelling.
+            options = target.get("anyOf", []) if isinstance(target, dict) else []
+            derived = [
+                item for item in options
+                if item.get("properties", {}).get("kind", {}).get("enum") == ["derived"]
+            ]
+            if derived:
+                properties["target"] = {"anyOf": derived}
+            else:
+                properties.pop("target")
             required = [field for field in required if field != "target"]
         variant["required"] = required
         variants.append(variant)
     return variants
-
 
 def validate_schema(schema: JsonObject, path: str = "$") -> None:
     unsupported = set(schema) - ALLOWED_SCHEMA_KEYS

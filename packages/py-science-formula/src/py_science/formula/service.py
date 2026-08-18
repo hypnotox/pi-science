@@ -40,17 +40,23 @@ from py_science.formula.models import (
     AnalysisRequest,
     AnalysisSuccess,
     AsymptoticQuery,
+    ClosedFormEvidence,
+    ClosedFormResult,
+    DerivedTarget,
     EquationReport,
     EquationRequest,
     EquivalenceQuery,
+    EquivalenceResult,
     ExpressionTarget,
     Interpretation,
     IntervalBound,
     IntervalResult,
     LimitQuery,
+    LimitResult,
     MathematicalDomain,
     OperationCounts,
     PropertiesQuery,
+    QueryAnswer,
     QueryResult,
     RelationshipUse,
     ReuseReport,
@@ -224,7 +230,7 @@ def analyze(request: AnalysisRequest) -> AnalysisOutcome:
 def _attach_queries(
     request: AnalysisRequest, outcome: AnalysisSuccess, knowledge: Knowledge
 ) -> AnalysisOutcome:
-    """Resolve whole-expression/equation RHS targets only after normal analysis succeeds."""
+    """Evaluate queries in request order, retaining only earlier result provenance."""
     results: list[QueryResult] = []
     try:
         reasoning = ReasoningContext.build(
@@ -235,7 +241,15 @@ def _attach_queries(
     except (ExpressionTooComplex, RuntimeError):
         reasoning = None
     for position, query in enumerate(request.queries):
-        if request.expression is not None:
+        if isinstance(query.target, DerivedTarget):
+            assert isinstance(query, (EquivalenceQuery, LimitQuery))
+            source = next(result for result in results if result.name == query.target.query)
+            target_or_none = _derived_target(query.target, source)
+            if target_or_none is None:
+                results.append(_unavailable_derived_result(query, source))
+                continue
+            target = target_or_none
+        elif request.expression is not None:
             parsed = parse_expression(request.expression)
             target = QueryTarget(ExpressionTarget(), parsed, outcome.interpretation) if not isinstance(parsed, (ParseFailure, Equation, Relationship)) else None
         else:
@@ -251,9 +265,54 @@ def _attach_queries(
         evaluated = evaluate_queries((query,), target, reasoning)
         if isinstance(evaluated, AnalysisFailure):
             return evaluated
-        results.extend(evaluated)
+        result = evaluated[0]
+        if isinstance(query.target, DerivedTarget):
+            result = _compose_derived_qualification(result, results[-1])
+        results.append(result)
     return outcome.model_copy(update={"queries": tuple(results)})
 
+
+def _derived_target(target: DerivedTarget, source: QueryResult) -> QueryTarget | None:
+    if not isinstance(source, ClosedFormResult):
+        return None
+    answer = source.answers[0]
+    if (answer.conclusion not in {"proved", "proved_under_assumptions"} or
+        not isinstance(answer.evidence, ClosedFormEvidence) or len(answer.derived_candidates) != 1):
+        return None
+    parsed = parse_expression(answer.derived_candidates[0].interpretation.normalized_sympy)
+    if isinstance(parsed, (ParseFailure, Equation, Relationship)):
+        return None
+    return QueryTarget(target, parsed, answer.derived_candidates[0].interpretation)
+
+
+def _unavailable_derived_result(query: EquivalenceQuery | LimitQuery, source: QueryResult) -> QueryResult:
+    assert isinstance(query.target, DerivedTarget)
+    answer = QueryAnswer(
+        conclusion="inapplicable",
+        blockers=(f"derived target source {source.name} concluded {source.answers[0].conclusion}",),
+    )
+    if isinstance(query, EquivalenceQuery):
+        return EquivalenceResult(name=query.name, target=query.target, normalized_target=None,
+            summary="derived target is unavailable", answers=(answer,))
+    return LimitResult(name=query.name, target=query.target, normalized_target=None,
+        summary="derived target is unavailable", answers=(answer,))
+
+
+def _compose_derived_qualification(result: QueryResult, source: QueryResult) -> QueryResult:
+    answer = result.answers[0]
+    source_answer = source.answers[0]
+    if answer.conclusion not in {"proved", "proved_under_assumptions"}:
+        return result
+    conditions = tuple(dict.fromkeys((*answer.conditions, *source_answer.conditions)))
+    uses = tuple({(item.name, item.relationship): item for item in (*answer.assumptions_used, *source_answer.assumptions_used)}.values())
+    if len(conditions) > 256 or len(uses) > 128:
+        unresolved = QueryAnswer(conclusion="unresolved", blockers=("derived target qualification exceeds its bound",))
+        return result.model_copy(update={"answers": (unresolved,)})
+    return result.model_copy(update={"answers": (answer.model_copy(update={
+        "conclusion": "proved_under_assumptions" if conditions or uses else answer.conclusion,
+        "conditions": conditions, "assumptions_used": uses,
+        "relevant_unsupported_assumptions": tuple(dict.fromkeys((*answer.relevant_unsupported_assumptions, *source_answer.relevant_unsupported_assumptions))),
+    }),)})
 
 def _parse_knowledge(
     request: AnalysisRequest,
@@ -2171,7 +2230,7 @@ def _request_size_failure(request: AnalysisRequest) -> AnalysisFailure | None:
         for query in request.queries:
             sources.append(query.name)
             if query.target is not None:
-                sources.append(query.target.name)
+                sources.append(query.target.query if isinstance(query.target, DerivedTarget) else query.target.name)
             if isinstance(query, EquivalenceQuery):
                 sources.append(query.comparison)
             if isinstance(query, (LimitQuery, AsymptoticQuery)):

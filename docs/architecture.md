@@ -32,7 +32,9 @@ Python publishes the request model from which the repository generates Pi's chec
 
 The adapter owns whole-envelope and serialized-output bounds. The TypeScript bridge owns process, timeout, cancellation, cleanup, malformed-message, response-shape, and protocol diagnostics. On the intentional request-error exit it preserves only an exact bounded current-version Python error envelope; malformed, incompatible, surplus, wrong-status, or unbounded output still fails closed. The Python API remains transport-free and owns request validation, parsing, mathematical applicability, and analysis. Startup uses `uv run --isolated --no-project` with the immutable repository revision and a user cache, so mutable environments never enter the managed Pi checkout. Failed provisioning withholds the tool and product skill together rather than advertising a later-failing capability.
 
-Optional general-context query requests and their exact discriminated qualified results cross the same protocol-v6 boundary. TypeScript and the adapter enforce only strict shape and bounds; target resolution, assumption use, mathematical applicability, and proof policy remain Python-owned. Scenarios specialize submitted work only and do not execute queries.
+Optional general-context query requests and their exact discriminated qualified results cross the same protocol-v7 boundary. TypeScript and the adapter enforce only strict shape and bounds; target resolution, assumption use, mathematical applicability, and proof policy remain Python-owned. Scenarios specialize submitted work only and do not execute queries.
+
+Derived query targets cross protocol v7 as strict correlation data only; Python owns earlier-only validation, verified-candidate eligibility, bounded qualification composition, and unavailable-target results.
 
 
 <!-- awf:edit dependencies: from .awf/docs/parts/architecture/dependencies.md -->

@@ -262,6 +262,18 @@ class ExpressionTarget(StructuredModel):
     kind: Literal["expression"] = "expression"
 
 
+class DerivedTarget(StructuredModel):
+    kind: Literal["derived"] = "derived"
+    query: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
+
+    @field_validator("query")
+    @classmethod
+    def ordinary_name(cls, query: str) -> str:
+        if query == "oo":
+            raise ValueError("oo is reserved for mathematical infinity")
+        return query
+
+
 class VariablePropertyCheck(StructuredModel):
     kind: Literal["valid_domain", "singularities", "monotonicity"]
     variable: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
@@ -283,7 +295,7 @@ type PropertyCheck = Annotated[VariablePropertyCheck | SignPropertyCheck, Field(
 
 class QueryBase(StructuredModel):
     name: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
-    target: EquationTarget | None = None
+    target: EquationTarget | DerivedTarget | None = None
 
     @field_validator("name")
     @classmethod
@@ -365,7 +377,7 @@ class AsymptoticQuery(QueryBase):
 QueryRequest = Annotated[EquivalenceQuery | ClosedFormQuery | PropertiesQuery | LimitQuery | AsymptoticQuery, Field(discriminator="kind")]
 
 
-type ResolvedTarget = Annotated[ExpressionTarget | EquationTarget, Field(discriminator="kind")]
+type ResolvedTarget = Annotated[ExpressionTarget | EquationTarget | DerivedTarget, Field(discriminator="kind")]
 
 
 class DerivedCandidate(StructuredModel):
@@ -474,7 +486,7 @@ class QueryResultCommon(StructuredModel):
         if name == "oo":
             raise ValueError("oo is reserved for mathematical infinity")
         return name
-    normalized_target: "Interpretation"
+    normalized_target: "Interpretation | None"
     summary: str = Field(min_length=1, max_length=4096)
     answers: tuple[QueryAnswer, ...]
 
@@ -591,10 +603,19 @@ class AnalysisRequest(StructuredModel):
         _require_unique((item.name for item in self.queries), "query names")
         if sum(len(item.comparison.encode("utf-8")) if isinstance(item, EquivalenceQuery) else 0 for item in self.queries) > MAX_FORMULA_BYTES:
             raise ValueError("query source exceeds its aggregate bound")
-        if self.expression is not None and any(item.target is not None for item in self.queries):
-            raise ValueError("single-expression queries must omit target")
-        if self.equations and any(item.target is None for item in self.queries):
-            raise ValueError("system queries require a named equation target")
+        for position, item in enumerate(self.queries):
+            if self.expression is not None and isinstance(item.target, EquationTarget):
+                raise ValueError("single-expression queries must omit equation target")
+            if self.equations and item.target is None:
+                raise ValueError("system queries require a named equation target")
+            if isinstance(item.target, DerivedTarget):
+                if not isinstance(item, (EquivalenceQuery, LimitQuery)):
+                    raise ValueError(f"queries[{position}].target: derived targets require equivalence or limit")
+                earlier = next((source for source in self.queries[:position] if source.name == item.target.query), None)
+                if earlier is None:
+                    raise ValueError(f"queries[{position}].target: derived query must reference an earlier query")
+                if not isinstance(earlier, ClosedFormQuery):
+                    raise ValueError(f"queries[{position}].target: derived source must be a closed_form query")
         for item in self.queries:
             if isinstance(item, (LimitQuery, AsymptoticQuery)):
                 infinity = str(item.point) in {"oo", "-oo"}

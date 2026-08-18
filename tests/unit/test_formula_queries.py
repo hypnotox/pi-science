@@ -823,3 +823,18 @@ def test_query_sources_participate_in_whole_request_byte_accounting():
     assert outcome.status == "failure"
     assert outcome.error.code.value == "expression_too_complex"
     assert outcome.error.message == "analysis request exceeds its byte bound"
+
+
+def test_derived_target_reuses_earlier_verified_candidate():
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="Sum(k * 2**k, (k, 0, 3))",
+        queries=(
+            {"name": "closed", "kind": "closed_form"},
+            {"name": "same", "kind": "equivalence", "target": {"kind": "derived", "query": "closed"}, "comparison": "34"},
+        ),
+    ))
+    assert outcome.status == "success"
+    assert outcome.queries[1].target.kind == "derived"
+    assert outcome.queries[1].normalized_target is not None
+    assert outcome.queries[1].answers[0].conclusion == "proved_under_assumptions"

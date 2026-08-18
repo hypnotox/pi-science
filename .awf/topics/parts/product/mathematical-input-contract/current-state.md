@@ -13,5 +13,6 @@ Origin: ADR-0003
 Revised-by: ADR-0010
 
 ### `rule: explicit-mathematical-queries`
-Formula requests may carry an optional bounded `queries` collection of explicitly named `equivalence`, `closed_form`, `properties`, `limit`, or `asymptotic` questions. A query targets the whole expression or a named equation RHS; it cannot select nested syntax or a scenario context. Exact finite points use canonical rational or decimal scalar syntax and signed infinity is explicit. Restricted LaTeX, complex values, dimensions, vector shorthand, differentiation, and scenario-context queries remain future capabilities.
+Formula requests may carry an optional bounded `queries` collection of explicitly named `equivalence`, `closed_form`, `properties`, `limit`, or `asymptotic` questions. An `equivalence` or `limit` query may instead spell `target: {kind: "derived", query: "earlier_name"}` to select exactly one verified candidate from an earlier `closed_form` query. No forward, self, scenario, property, or asymptotic derived target is accepted; derived operands never replace submitted syntax, operation counts, or direct work. Exact finite points use canonical rational or decimal scalar syntax and signed infinity is explicit. Restricted LaTeX, complex values, dimensions, vector shorthand, differentiation, and scenario-context queries remain future capabilities.
 Origin: ADR-0004
+Revised-by: ADR-adopt-explicit-reusable-verified-query-candidates
