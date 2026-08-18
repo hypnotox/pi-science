@@ -14,6 +14,19 @@ RationalFailureKind = Literal[
     "expanded_terms",
 ]
 
+AsymptoticFailureKind = Literal[
+    "nodes",
+    "resource",
+    "term_count",
+    "reconstruction",
+    "rendering",
+    "rational_measure",
+    "rational_normalization",
+    "real_parameters",
+    "parameter_denominator",
+    "specific",
+]
+
 DiagnosticReason = Literal[
     "exceeds bounded rational node limit",
     "is outside the bounded rational family",
@@ -26,6 +39,23 @@ DiagnosticReason = Literal[
     "cannot be cancelled by the bounded rational backend",
     "cannot be split into a bounded rational fraction",
     "is ambiguous",
+    "exceeds its bounded node limit",
+    "has no sibling sums",
+    "has too many sibling sums",
+    "has a negative-infinity upper bound",
+    "contains forbidden structure",
+    "contains unsupported enclosing structure",
+    "exceeds its bounded resource limits",
+    "exceeds its bound",
+    "depend on the summation index",
+    "does not match (a*k+b)*r**k",
+    "exceeds its bounded exponent limit",
+    "is neither a bounded rational expression nor a supported linear-exponential expression",
+    "parameters are not proved real",
+    "denominator depends on non-query parameters",
+    "term count exceeds its bound",
+    "reconstruction exceeds its bound",
+    "rendering exceeds its bound",
 ]
 
 RATIONAL_FAILURE_REASONS: dict[RationalFailureKind, DiagnosticReason] = {

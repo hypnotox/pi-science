@@ -71,7 +71,10 @@ def test_assumption_qualification_named_rhs_and_later_consumers():
     assert system.status == "success"
     assert isinstance(system.queries[0].target, EquationTarget)
     assert system.queries[0].target.name == "value"
-    assert system.queries[1].answers[0].blockers == ("query family is unsupported",)
+    assert system.queries[1].answers[0].blockers == (
+        "closed-form expression has no sibling sums; use one to eight sibling "
+        "(a*k+b)*r**k sums",
+    )
 
 
 def test_closed_form_series_rule_matrix_and_afmm_identity():
@@ -96,7 +99,7 @@ def test_closed_form_series_rule_matrix_and_afmm_identity():
     assert finite.queries[0].answers[0].evidence.verification == "finite_antidifference"  # pyright: ignore[reportAttributeAccessIssue]
     assert finite.queries[0].answers[0].derived_candidates[0].interpretation.normalized_sympy == "34"
 
-    for expression, conclusion, blocker in (("Sum(k * 2**k, (k, 0, oo))", "inapplicable", None), ("Sum(k * q**k, (k, 0, oo))", "unresolved", "series convergence is not proved"), ("Sum(Sum(k * q**k, (k, 0, 1)), (j, 0, 1))", "unresolved", "nested sums are unsupported"), ("Sum(k**2 * q**k, (k, 0, 1))", "unresolved", "query family is unsupported")):
+    for expression, conclusion, blocker in (("Sum(k * 2**k, (k, 0, oo))", "inapplicable", None), ("Sum(k * q**k, (k, 0, oo))", "unresolved", "series convergence is not proved"), ("Sum(Sum(k * q**k, (k, 0, 1)), (j, 0, 1))", "unresolved", "nested sums are unsupported"), ("Sum(k**2 * q**k, (k, 0, 1))", "unresolved", "closed-form summand does not match (a*k+b)*r**k; use a summand in that form")):
         outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression, queries=({"name": "series", "kind": "closed_form"},)))
         assert outcome.status == "success"
         terminal = outcome.queries[0].answers[0]
@@ -230,7 +233,71 @@ def test_closed_form_exponent_preflight_precedes_series_backend(monkeypatch):
         queries=({"name": "closed", "kind": "closed_form"},),
     ))
     assert outcome.status == "success"
-    assert outcome.queries[0].answers[0].blockers == ("query family is unsupported",)
+    assert outcome.queries[0].answers[0].blockers == (
+        "closed-form shell exceeds its bounded exponent limit: observed 33, configured 32; "
+        "simplify the enclosing arithmetic",
+    )
+
+
+def test_closed_form_reports_each_public_family_refusal():
+    def blocker(expression: str) -> str:
+        outcome = analyze(AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression=expression,
+            queries=({"name": "closed", "kind": "closed_form"},),
+        ))
+        assert outcome.status == "success"
+        answer = outcome.queries[0].answers[0]
+        assert answer.conclusion == "unresolved"
+        assert len(answer.blockers) == 1
+        return answer.blockers[0]
+
+    target_terms = ["x"] * 257
+    while len(target_terms) > 1:
+        target_terms = [
+            f"({target_terms[index]} + {target_terms[index + 1]})"
+            if index + 1 < len(target_terms)
+            else target_terms[index]
+            for index in range(0, len(target_terms), 2)
+        ]
+    oversized_target = target_terms[0]
+    sibling_sums = " + ".join(f"Sum(k*{index + 2}**k, (k, 0, 1))" for index in range(9))
+    for expression, expected in (
+        (
+            oversized_target,
+            "closed-form target exceeds its bounded node limit: observed 513, configured 512; "
+            "simplify the target",
+        ),
+        (
+            "x",
+            "closed-form expression has no sibling sums; use one to eight sibling "
+            "(a*k+b)*r**k sums",
+        ),
+        (
+            sibling_sums,
+            "closed-form expression has too many sibling sums: observed 9, configured 8; "
+            "use one to eight sibling (a*k+b)*r**k sums",
+        ),
+        (
+            "Sum(k*q**k, (k, 0, -oo))",
+            "closed-form sum has a negative-infinity upper bound; use a finite upper "
+            "bound or positive infinity",
+        ),
+        (
+            "Sum(sin(k)*q**k, (k, 0, 1))",
+            "closed-form summand contains forbidden structure; use bounded arithmetic "
+            "over the summation index",
+        ),
+        (
+            "Sum(k*q**k, (k, k, 3))",
+            "closed-form sum bounds depend on the summation index; use index-independent bounds",
+        ),
+        (
+            "Sum(k**2*q**k, (k, 0, 1))",
+            "closed-form summand does not match (a*k+b)*r**k; use a summand in that form",
+        ),
+    ):
+        assert blocker(expression) == expected
 
 
 def test_query_contract_rejects_invalid_context_and_points():
@@ -474,7 +541,18 @@ def test_asymptotic_closed_form_replacement_is_qualified_and_unsupported_is_term
     assert answer.conclusion == "proved_under_assumptions"
     assert {use.name for use in answer.assumptions_used} == {"ratio_not_one"}
 
-    for expression, blocker in (("sin(x)", "query family is unsupported"), ("x**9", "query family is unsupported")):
+    for expression, blocker in (
+        (
+            "sin(x)",
+            "asymptotic target is neither a bounded rational expression nor a supported "
+            "linear-exponential expression; use a bounded rational or linear-exponential target",
+        ),
+        (
+            "x**9",
+            "asymptotic rational target exceeds bounded rational degree limit: observed 9, "
+            "configured 8; use a smaller bounded rational target",
+        ),
+    ):
         outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression, queries=({"name": "a", "kind": "asymptotic", "variable": "x", "point": "oo", "order": 1},)))
         assert outcome.status == "success"
         assert outcome.queries[0].answers[0].conclusion == "unresolved"

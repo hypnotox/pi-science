@@ -14,8 +14,12 @@ from py_science.formula.models import (
     QueryAnswer,
     RelationshipUse,
 )
+from py_science.formula.query_diagnostics import RATIONAL_FAILURE_REASONS, QueryDiagnostic
 from py_science.formula.reasoning import ReasoningContext
 from py_science.formula.sympy_backend import (
+    BoundedExponentialDecomposition,
+    BoundedFamilyFailure,
+    BoundedFamilyNoMatch,
     bounded_asymptotic_rational,
     bounded_exponential_decomposition,
 )
@@ -38,7 +42,7 @@ def asymptotic_answer(
     exponential = bounded_exponential_decomposition(
         applied, query.variable, str(query.point), query.order
     )
-    if exponential is not None:
+    if isinstance(exponential, BoundedExponentialDecomposition):
         # The backend has reconstructed and checked the exact submitted decomposition.
         symbols = exponential.symbols
         uses = reasoning.application_uses(symbols)
@@ -73,10 +77,21 @@ def asymptotic_answer(
             if symbol != query.variable and reasoning.real_symbols_hold((symbol,))
         ),
     )
-    if rational is None:
-        return _unresolved("query family is unsupported")
-    if rational.failure is not None:
-        return _unresolved(rational.failure)
+    if isinstance(rational, BoundedFamilyNoMatch):
+        if isinstance(exponential, BoundedFamilyFailure):
+            return _unresolved(_exponential_failure_blocker(exponential))
+        return _unresolved(
+            QueryDiagnostic(
+                "asymptotic target",
+                "is neither a bounded rational expression nor a supported "
+                "linear-exponential expression",
+                recovery="use a bounded rational or linear-exponential target",
+            ).render()
+        )
+    if isinstance(rational, BoundedFamilyFailure):
+        if isinstance(exponential, BoundedFamilyFailure) and exponential.kind != "resource":
+            return _unresolved(_exponential_failure_blocker(exponential))
+        return _unresolved(_rational_failure_blocker(rational))
     uses = reasoning.application_uses(rational.symbols)
     # A denominator condition or provenance is an assumption-qualified proof.
     return QueryAnswer(
@@ -93,6 +108,67 @@ def asymptotic_answer(
             ),
         ),
     )
+
+
+def _exponential_failure_blocker(failure: BoundedFamilyFailure) -> str:
+    if failure.kind == "term_count":
+        return QueryDiagnostic(
+            "asymptotic linear-exponential term count",
+            "exceeds its bound",
+            failure.observed,
+            failure.configured,
+            "reduce the number of linear-exponential terms",
+        ).render()
+    if failure.kind == "rendering":
+        return QueryDiagnostic(
+            "asymptotic linear-exponential rendering",
+            "exceeds its bound",
+            recovery="simplify the linear-exponential target",
+        ).render()
+    if failure.kind == "nodes":
+        return QueryDiagnostic(
+            "asymptotic linear-exponential target",
+            "exceeds its bounded node limit",
+            failure.observed,
+            failure.configured,
+            "simplify the linear-exponential target",
+        ).render()
+    return QueryDiagnostic(
+        "asymptotic linear-exponential reconstruction",
+        "exceeds its bound",
+        recovery="simplify the linear-exponential target",
+    ).render()
+
+
+def _rational_failure_blocker(failure: BoundedFamilyFailure) -> str:
+    if failure.kind == "rational_measure" and failure.rational_failure is not None:
+        measured = failure.rational_failure
+        return QueryDiagnostic(
+            "asymptotic rational target",
+            RATIONAL_FAILURE_REASONS[measured.kind],
+            measured.observed,
+            measured.configured,
+            "use a smaller bounded rational target",
+        ).render()
+    if failure.kind == "real_parameters":
+        return QueryDiagnostic(
+            "asymptotic rational",
+            "parameters are not proved real",
+            recovery="declare non-query parameters real",
+        ).render()
+    if failure.kind == "parameter_denominator":
+        return QueryDiagnostic(
+            "asymptotic rational",
+            "denominator depends on non-query parameters",
+            recovery="use a denominator independent of non-query parameters",
+        ).render()
+    if failure.kind == "specific" and failure.message is not None:
+        return failure.message
+    return QueryDiagnostic(
+        "asymptotic rational normalization",
+        "exceeds its bound",
+        recovery="use a smaller bounded rational target",
+    ).render()
 
 
 def _expression_symbols(expression: Expression) -> set[str]:

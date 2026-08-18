@@ -30,11 +30,14 @@ from py_science.formula.models import (
     QueryAnswer,
 )
 from py_science.formula.parser import ParseFailure, parse_expression
+from py_science.formula.query_diagnostics import RATIONAL_FAILURE_REASONS, QueryDiagnostic
 from py_science.formula.reasoning import ReasoningContext
 from py_science.formula.sympy_backend import (
+    RationalMeasureFailure,
     bounded_linear_coefficients,
     bounded_series_candidate,
     bounded_series_verify,
+    rational_ir_measure,
     rational_ir_preflight,
     render,
 )
@@ -55,22 +58,73 @@ def derive_closed_form(expression: Expression, reasoning: ReasoningContext | Non
     if reasoning is None:
         return _unresolved("query reasoning exceeds its bound")
     # This is the common pre-call gate, including sibling (not total descendant) sums.
-    if (
-        expression_node_count(expression) > MAX_TARGET_NODES
-        or not _series_preflight(expression)
-        or not rational_ir_preflight(_shell_projection(expression))
-    ):
-        return _unresolved("query family is unsupported")
+    nodes = expression_node_count(expression)
+    if nodes > MAX_TARGET_NODES:
+        return _unresolved(
+            QueryDiagnostic(
+                "closed-form target",
+                "exceeds its bounded node limit",
+                nodes,
+                MAX_TARGET_NODES,
+                "simplify the target",
+            ).render()
+        )
+    sums = _sums(expression)
+    if not sums:
+        return _unresolved(
+            QueryDiagnostic(
+                "closed-form expression",
+                "has no sibling sums",
+                recovery="use one to eight sibling (a*k+b)*r**k sums",
+            ).render()
+        )
+    if len(sums) > 8:
+        return _unresolved(
+            QueryDiagnostic(
+                "closed-form expression",
+                "has too many sibling sums",
+                len(sums),
+                8,
+                "use one to eight sibling (a*k+b)*r**k sums",
+            ).render()
+        )
+    if any(_has_nested_sum(item.body) for item in sums):
+        return _unresolved("nested sums are unsupported")
+    if any(isinstance(item.upper, InfinityLiteral) and item.upper.sign < 0 for item in sums):
+        return _unresolved(
+            QueryDiagnostic(
+                "closed-form sum",
+                "has a negative-infinity upper bound",
+                recovery="use a finite upper bound or positive infinity",
+            ).render()
+        )
+    shell_measure = rational_ir_measure(_shell_projection(expression))
+    if isinstance(shell_measure, RationalMeasureFailure):
+        reason = (
+            "exceeds its bounded exponent limit"
+            if shell_measure.kind == "exponent"
+            else RATIONAL_FAILURE_REASONS[shell_measure.kind]
+        )
+        return _unresolved(
+            QueryDiagnostic(
+                "closed-form shell",
+                reason,
+                shell_measure.observed,
+                shell_measure.configured,
+                "simplify the enclosing arithmetic",
+            ).render()
+        )
+    if not _supported_shell(expression):
+        return _unresolved(
+            QueryDiagnostic(
+                "closed-form shell",
+                "contains unsupported enclosing structure",
+                recovery="simplify the enclosing arithmetic",
+            ).render()
+        )
     # Preserve denominator obligations from the submitted shell before candidates
     # can be normalized or cancelled.
     original_denominators = _denominators(expression)
-    sums = _sums(expression)
-    if not sums or len(sums) > 8:
-        return _unresolved("query family is unsupported")
-    if any(_has_nested_sum(item.body) for item in sums):
-        return _unresolved("nested sums are unsupported")
-    if not _supported_shell(expression):
-        return _unresolved("query family is unsupported")
     rules: list[SeriesRule] = []
     for item in sums:
         rule = _derive_sum(item, reasoning)
@@ -141,12 +195,30 @@ def derive_closed_form(expression: Expression, reasoning: ReasoningContext | Non
 
 
 def _derive_sum(item: Sum, reasoning: ReasoningContext) -> SeriesRule | QueryAnswer:
-    if (
-        _contains_forbidden(item.body)
-        or _contains_index(item.lower, item.index)
-        or _contains_index(item.upper, item.index)
-    ):
-        return _unresolved("query family is unsupported")
+    if _contains_forbidden(item.body):
+        return _unresolved(
+            QueryDiagnostic(
+                "closed-form summand",
+                "contains forbidden structure",
+                recovery="use bounded arithmetic over the summation index",
+            ).render()
+        )
+    if _contains_index(item.lower, item.index) or _contains_index(item.upper, item.index):
+        return _unresolved(
+            QueryDiagnostic(
+                "closed-form sum bounds",
+                "depend on the summation index",
+                recovery="use index-independent bounds",
+            ).render()
+        )
+    if not _series_preflight(item):
+        return _unresolved(
+            QueryDiagnostic(
+                "closed-form summand",
+                "exceeds its bounded resource limits",
+                recovery="use a smaller bounded summand",
+            ).render()
+        )
     try:
         lower, upper, body = (
             reasoning.apply(item.lower),
@@ -164,7 +236,13 @@ def _derive_sum(item: Sum, reasoning: ReasoningContext) -> SeriesRule | QueryAns
         return _unresolved("series bounds are not proved integral")
     parsed = _linear_geometric(body, item.index)
     if parsed is None:
-        return _unresolved("query family is unsupported")
+        return _unresolved(
+            QueryDiagnostic(
+                "closed-form summand",
+                "does not match (a*k+b)*r**k",
+                recovery="use a summand in that form",
+            ).render()
+        )
     a, b, r = parsed
     uses: tuple[Any, ...] = replacement_uses
     if not isinstance(upper, InfinityLiteral):
@@ -198,7 +276,13 @@ def _derive_sum(item: Sum, reasoning: ReasoningContext) -> SeriesRule | QueryAns
         negative_condition = ()
     if isinstance(upper, InfinityLiteral):
         if upper.sign < 0:
-            return _unresolved("query family is unsupported")
+            return _unresolved(
+                QueryDiagnostic(
+                    "closed-form sum",
+                    "has a negative-infinity upper bound",
+                    recovery="use a finite upper bound or positive infinity",
+                ).render()
+            )
         converges, convergence_uses = reasoning.proves_abs_less_one_expression(r)
         if not converges:
             divergent, divergence_uses = reasoning.proves_abs_at_least_one(r)

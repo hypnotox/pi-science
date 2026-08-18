@@ -24,7 +24,7 @@ from py_science.formula.expressions import (
     expression_children,
     expression_node_count,
 )
-from py_science.formula.query_diagnostics import RationalFailureKind
+from py_science.formula.query_diagnostics import AsymptoticFailureKind, RationalFailureKind
 
 
 class SympyExpression(Protocol):
@@ -85,7 +85,22 @@ class BoundedAsymptoticRational:
     local_parameter: str
     conditions: tuple[str, ...]
     symbols: tuple[str, ...]
-    failure: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class BoundedFamilyNoMatch:
+    """The expression does not use a recognized family grammar."""
+
+
+@dataclass(frozen=True, slots=True)
+class BoundedFamilyFailure:
+    """A recognized family refused for one bounded, safe reason."""
+
+    kind: AsymptoticFailureKind
+    observed: int | None = None
+    configured: int | None = None
+    message: str | None = None
+    rational_failure: RationalMeasureFailure | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -751,24 +766,27 @@ def _endpoint_tail_tends_to_zero(tail: Any, endpoint: Any, ratio: Any) -> bool:
 
 def bounded_exponential_decomposition(
     expression: Expression, variable: str, point: str, order: int
-) -> BoundedExponentialDecomposition | None:
+) -> BoundedExponentialDecomposition | BoundedFamilyFailure | BoundedFamilyNoMatch:
     """Recognize and independently reconstruct finite linear-exponential terms."""
-    if point not in {"oo", "-oo"} or expression_node_count(expression) > 512:
-        return None
+    if point not in {"oo", "-oo"}:
+        return BoundedFamilyNoMatch()
+    nodes = expression_node_count(expression)
+    if nodes > 512:
+        return BoundedFamilyFailure("nodes", nodes, 512)
     terms = _exp_add_terms(expression)
     decoded: list[tuple[Any, Any, Expression]] = []
     for term in terms:
         factors = _exp_multiply_factors(term)
         powers = [factor for factor in factors if _exp_power_base(factor, variable) is not None]
         if len(powers) != 1:
-            return None
+            return BoundedFamilyNoMatch()
         base = _exp_power_base(powers[0], variable)
         if base is None:
-            return None
+            return BoundedFamilyNoMatch()
         remaining = [factor for factor in factors if factor is not powers[0]]
         linear = _exp_linear_product(remaining, variable)
         if linear is None:
-            return None
+            return BoundedFamilyNoMatch()
         slope, intercept = linear
         decoded.append((slope, intercept, base))
     # Each submitted additive term must reconstruct exactly; do not merge bases.
@@ -776,25 +794,27 @@ def bounded_exponential_decomposition(
     bases: list[Expression] = []
     coefficient_symbols: set[str] = set()
     reconstructed: Any = sympy.Integer(0)
-    source: Any = _to_query_sympy(expression)
     query_symbol = sympy.Symbol(variable)
     try:
+        source: Any = _to_query_sympy(expression)
         if not _exponential_value_is_bounded(source, query_symbol):
-            return None
+            return BoundedFamilyFailure("resource")
         for slope, intercept, base in decoded:
             base_value = _to_query_sympy(base)
             if not _property_value_is_bounded(base_value):
-                return None
+                return BoundedFamilyFailure("resource")
             coefficient_symbols.update(
-                str(item) for item in (slope.free_symbols | intercept.free_symbols) if str(item) != variable
+                str(item)
+                for item in (slope.free_symbols | intercept.free_symbols)
+                if str(item) != variable
             )
             polynomial = slope * query_symbol + intercept
             piece = polynomial * base_value ** query_symbol
             if not _exponential_value_is_bounded(piece, query_symbol):
-                return None
+                return BoundedFamilyFailure("reconstruction")
             reconstructed += piece
             if not _exponential_value_is_bounded(reconstructed, query_symbol):
-                return None
+                return BoundedFamilyFailure("reconstruction")
             degree = 1 if slope != 0 else 0
             rendered_terms.append(
                 (degree, f"({sympy.sstr(polynomial)})*({sympy.sstr(base_value)})**{variable}")
@@ -804,21 +824,30 @@ def bounded_exponential_decomposition(
         # difference before independently cancelling the exact identity.
         difference = source - reconstructed
         if not _exponential_value_is_bounded(difference, query_symbol):
-            return None
+            return BoundedFamilyFailure("reconstruction")
         cancelled = sympy.cancel(difference)
         if not _exponential_value_is_bounded(cancelled, query_symbol) or cancelled != 0:
-            return None
+            return BoundedFamilyFailure("reconstruction")
         if len(decoded) > order:
             # Each accepted source addend is one polynomial-times-exponential term.
-            return None
-        rendered = " + ".join(item[1] for item in sorted(rendered_terms, key=lambda item: item[0], reverse=True))
+            return BoundedFamilyFailure("term_count", len(decoded), order)
+        rendered = " + ".join(
+            item[1] for item in sorted(rendered_terms, key=lambda item: item[0], reverse=True)
+        )
         source_text = sympy.sstr(source)
         if max(len(source_text), len(rendered)) > 4096:
-            return None
+            return BoundedFamilyFailure("rendering")
         symbols = tuple(sorted(str(item) for item in source.free_symbols))
-        return BoundedExponentialDecomposition(source_text, rendered, tuple(bases), tuple(sorted(coefficient_symbols)), (), symbols)
+        return BoundedExponentialDecomposition(
+            source_text,
+            rendered,
+            tuple(bases),
+            tuple(sorted(coefficient_symbols)),
+            (),
+            symbols,
+        )
     except Exception:
-        return None
+        return BoundedFamilyFailure("reconstruction")
 
 
 def _exponential_value_is_bounded(value: Any, variable: Any) -> bool:
@@ -908,28 +937,35 @@ def bounded_asymptotic_rational(
     order: int,
     direction: object,
     real_parameters: frozenset[str],
-) -> BoundedAsymptoticRational | None:
+) -> BoundedAsymptoticRational | BoundedFamilyFailure | BoundedFamilyNoMatch:
     """Translate, divide, verify, and render one guarded rational expansion.
 
     This is deliberately the sole asymptotic polynomial/SymPy seam.  It validates
     both the submitted and transformed values before and after each operation.
     """
+    measurement = rational_ir_measure(expression)
+    if isinstance(measurement, RationalMeasureFailure):
+        if measurement.kind == "unsupported_form":
+            return BoundedFamilyNoMatch()
+        return BoundedFamilyFailure("rational_measure", rational_failure=measurement)
     normalized = bounded_rational_difference(expression, IntegerLiteral(0))
     if normalized is None:
-        return None
+        return BoundedFamilyFailure("rational_normalization")
     variable = sympy.Symbol(variable_name)
     parameter_symbols = {str(item) for item in normalized.symbols} - {variable_name}
     if not parameter_symbols <= real_parameters:
-        return None
+        return BoundedFamilyFailure("real_parameters")
     try:
         numerator = sympy.Poly(normalized.left.as_numer_denom()[0], variable)
         denominator = sympy.Poly(normalized.left.as_numer_denom()[1], variable)
         # Parameter-dependent denominator roots need path ordering that this
         # bounded recurrence intentionally does not model.
         if {str(item) for item in denominator.as_expr().free_symbols} - {variable_name}:
-            return None
+            return BoundedFamilyFailure("parameter_denominator")
         if denominator.is_zero:
-            return BoundedAsymptoticRational("", "", (), (), "query denominator is identically zero")
+            return BoundedFamilyFailure(
+                "specific", message="query denominator is identically zero"
+            )
         # SymPy gives the zero polynomial degree -oo; it is an exact expansion,
         # never an integer degree conversion.
         if numerator.is_zero:
@@ -940,54 +976,97 @@ def bounded_asymptotic_rational(
             else:
                 parsed = _parse_backend_scalar(point)
                 if parsed is None:
-                    return BoundedAsymptoticRational("", "", (), (), "asymptotic point is invalid")
+                    return BoundedFamilyFailure(
+                        "specific", message="asymptotic point is invalid"
+                    )
                 center = sympy.Rational(parsed.numerator, parsed.denominator)
-                local, approach = f"{variable_name} - {center}", f"{variable_name} -> {center} ({direction})"
+                local = f"{variable_name} - {center}"
+                approach = f"{variable_name} -> {center} ({direction})"
             conditions = _asymptotic_denominator_conditions(original)
             if conditions is None:
-                return BoundedAsymptoticRational("", "", (), (), "original denominator exceeds its bound")
+                return BoundedFamilyFailure(
+                    "specific", message="original denominator exceeds its bound"
+                )
             statement = f"0 = 0 + O(t**{order}) as {approach}, t = {local}"
             if len(statement) > 4096:
-                return BoundedAsymptoticRational("", "", (), (), "query result rendering exceeds its bound")
-            return BoundedAsymptoticRational(statement, local, (approach, *conditions), (), None)
-        if max(int(numerator.degree()), int(denominator.degree())) > 8:
-            return None
+                return BoundedFamilyFailure(
+                    "specific", message="query result rendering exceeds its bound"
+                )
+            return BoundedAsymptoticRational(statement, local, (approach, *conditions), ())
+        degree = max(int(numerator.degree()), int(denominator.degree()))
+        if degree > 8:
+            return BoundedFamilyFailure(
+                "rational_measure",
+                rational_failure=RationalMeasureFailure("degree", degree, 8),
+            )
         if point in {"oo", "-oo"}:
             sign = 1 if point == "oo" else -1
-            local, approach = ((f"1/{variable_name}", f"{variable_name} -> oo") if sign > 0 else (f"-1/{variable_name}", f"{variable_name} -> -oo"))
+            local, approach = (
+                (f"1/{variable_name}", f"{variable_name} -> oo")
+                if sign > 0
+                else (f"-1/{variable_name}", f"{variable_name} -> -oo")
+            )
             top = _asymptotic_reversed(numerator, sign)
             bottom = _asymptotic_reversed(denominator, sign)
             shift = int(denominator.degree()) - int(numerator.degree())
         else:
             parsed = _parse_backend_scalar(point)
             if parsed is None:
-                return BoundedAsymptoticRational("", "", (), (), "asymptotic point is invalid")
+                return BoundedFamilyFailure(
+                    "specific", message="asymptotic point is invalid"
+                )
             center = sympy.Rational(parsed.numerator, parsed.denominator)
-            local, approach = f"{variable_name} - {center}", f"{variable_name} -> {center} ({direction})"
-            top, bottom = _asymptotic_shifted(numerator, center), _asymptotic_shifted(denominator, center)
+            local = f"{variable_name} - {center}"
+            approach = f"{variable_name} -> {center} ({direction})"
+            top = _asymptotic_shifted(numerator, center)
+            bottom = _asymptotic_shifted(denominator, center)
             top_order, bottom_order = _asymptotic_valuation(top), _asymptotic_valuation(bottom)
             if bottom_order is None:
-                return BoundedAsymptoticRational("", "", (), (), "query denominator is identically zero")
+                return BoundedFamilyFailure(
+                    "specific", message="query denominator is identically zero"
+                )
             shift = (top_order or 0) - bottom_order
             top, bottom = top[top_order or 0 :], bottom[bottom_order:]
         if not bottom or bottom[0] == 0:
-            return BoundedAsymptoticRational("", "", (), (), "asymptotic local denominator is unsupported")
+            return BoundedFamilyFailure(
+                "specific", message="asymptotic local denominator is unsupported"
+            )
         count = order - shift
         coefficients = [] if count <= 0 else _asymptotic_divide(top, bottom, count)
         if coefficients is None:
-            return BoundedAsymptoticRational("", "", (), (), "asymptotic intermediate exceeds its bound")
+            return BoundedFamilyFailure(
+                "specific", message="asymptotic intermediate exceeds its bound"
+            )
         if not _asymptotic_verify(top, bottom, coefficients):
-            return BoundedAsymptoticRational("", "", (), (), "asymptotic remainder verification failed")
+            return BoundedFamilyFailure(
+                "specific", message="asymptotic remainder verification failed"
+            )
         terms = _asymptotic_render_terms(coefficients, shift)
         conditions = _asymptotic_denominator_conditions(original)
         if conditions is None:
-            return BoundedAsymptoticRational("", "", (), (), "original denominator exceeds its bound")
-        statement = f"{sympy.sstr(normalized.left)} = {terms} + O(t**{order}) as {approach}, t = {local}"
-        if len(statement) > 4096 or any(len(sympy.sstr(value)) > 4096 for value in coefficients):
-            return BoundedAsymptoticRational("", "", (), (), "query result rendering exceeds its bound")
-        return BoundedAsymptoticRational(statement, local, (approach, *conditions), tuple(str(item) for item in normalized.symbols), None)
+            return BoundedFamilyFailure(
+                "specific", message="original denominator exceeds its bound"
+            )
+        statement = (
+            f"{sympy.sstr(normalized.left)} = {terms} + O(t**{order}) "
+            f"as {approach}, t = {local}"
+        )
+        if len(statement) > 4096 or any(
+            len(sympy.sstr(value)) > 4096 for value in coefficients
+        ):
+            return BoundedFamilyFailure(
+                "specific", message="query result rendering exceeds its bound"
+            )
+        return BoundedAsymptoticRational(
+            statement,
+            local,
+            (approach, *conditions),
+            tuple(str(item) for item in normalized.symbols),
+        )
     except Exception:
-        return BoundedAsymptoticRational("", "", (), (), "asymptotic intermediate exceeds its bound")
+        return BoundedFamilyFailure(
+            "specific", message="asymptotic intermediate exceeds its bound"
+        )
 
 
 def _parse_backend_scalar(value: str) -> Any:

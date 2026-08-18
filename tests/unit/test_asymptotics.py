@@ -99,3 +99,72 @@ def test_exponential_checker_rejects_corrupted_or_oversized_intermediates(monkey
 def test_exponential_checker_enforces_the_1024_bit_base_cap():
     oversized_base = 1 << 1024
     assert _answer(f"{oversized_base}**x", "oo", order=1).conclusion == "unresolved"
+
+
+def test_asymptotic_reports_each_public_family_refusal():
+    def blocker(expression: str, *, variables=None) -> str:
+        answer = _answer(expression, "oo", variables=variables)
+        assert answer.conclusion == "unresolved"
+        assert len(answer.blockers) == 1
+        return answer.blockers[0]
+
+    real_a = {"a": VariableDeclaration(domain=MathematicalDomain.REAL)}
+    for expression, variables, expected in (
+        (
+            "sin(x)",
+            None,
+            "asymptotic target is neither a bounded rational expression nor a supported "
+            "linear-exponential expression; use a bounded rational or linear-exponential target",
+        ),
+        (
+            "x**9",
+            None,
+            "asymptotic rational target exceeds bounded rational degree limit: observed 9, "
+            "configured 8; use a smaller bounded rational target",
+        ),
+        (
+            "a/(x + 1)",
+            None,
+            "asymptotic rational parameters are not proved real; declare non-query "
+            "parameters real",
+        ),
+        (
+            "1/(x - a)",
+            real_a,
+            "asymptotic rational denominator depends on non-query parameters; use a "
+            "denominator independent of non-query parameters",
+        ),
+    ):
+        assert blocker(expression, variables=variables) == expected
+
+
+def test_asymptotic_linear_exponential_backend_refusals_are_reason_specific(monkeypatch):
+    # Inject each backend seam after recognition so no public expression has to
+    # accidentally reach a particular resource or reconstruction branch.
+    with monkeypatch.context() as injected:
+        injected.setattr(sympy_backend, "_exp_add_terms", lambda value: [value, value])
+        injected.setattr(sympy_backend.sympy, "cancel", lambda *_args: sympy_backend.sympy.Integer(0))
+        term_count = _answer("(x + 1)*2**x", "oo", order=1)
+    assert term_count.conclusion == "unresolved"
+    assert term_count.blockers == (
+        "asymptotic linear-exponential term count exceeds its bound: observed 2, configured 1; "
+        "reduce the number of linear-exponential terms",
+    )
+
+    with monkeypatch.context() as injected:
+        injected.setattr(sympy_backend.sympy, "cancel", lambda *_args: sympy_backend.sympy.Integer(1))
+        reconstruction = _answer("(x + 1)*2**x", "oo", order=1)
+    assert reconstruction.conclusion == "unresolved"
+    assert reconstruction.blockers == (
+        "asymptotic linear-exponential reconstruction exceeds its bound; "
+        "simplify the linear-exponential target",
+    )
+
+    with monkeypatch.context() as injected:
+        injected.setattr(sympy_backend.sympy, "sstr", lambda *_args, **_kwargs: "x" * 4097)
+        rendering = _answer("(x + 1)*2**x", "oo", order=1)
+    assert rendering.conclusion == "unresolved"
+    assert rendering.blockers == (
+        "asymptotic linear-exponential rendering exceeds its bound; "
+        "simplify the linear-exponential target",
+    )
