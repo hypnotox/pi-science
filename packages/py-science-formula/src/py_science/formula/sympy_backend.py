@@ -80,6 +80,30 @@ RationalMeasure = tuple[int, int, int, int, int, int]
 
 
 @dataclass(frozen=True, slots=True)
+class _RationalMeasure:
+    numerator_degree: int
+    denominator_degree: int
+    numerator_bits: int
+    denominator_bits: int
+    numerator_terms: int
+    denominator_terms: int
+    degree_is_observed: bool
+    coefficient_bits_are_observed: bool
+    terms_are_observed: bool
+    known_nonzero: bool
+
+    def values(self) -> RationalMeasure:
+        return (
+            self.numerator_degree,
+            self.denominator_degree,
+            self.numerator_bits,
+            self.denominator_bits,
+            self.numerator_terms,
+            self.denominator_terms,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class BoundedAsymptoticRational:
     statement: str
     local_parameter: str
@@ -318,14 +342,14 @@ def rational_ir_measure(
     if nodes > max_nodes:
         return RationalMeasureFailure("nodes", nodes, max_nodes)
 
-    def measure(value: Expression) -> RationalMeasure | RationalMeasureFailure:
+    def measure(value: Expression) -> _RationalMeasure | RationalMeasureFailure:
         if isinstance(value, IntegerLiteral):
             bits = max(1, abs(value.value).bit_length())
             if bits > max_coefficient_bits:
                 return RationalMeasureFailure(
                     "coefficient_bits", bits, max_coefficient_bits
                 )
-            return 0, 0, bits, 1, 1, 1
+            return _RationalMeasure(0, 0, bits, 1, 1, 1, True, True, True, value.value != 0)
         if isinstance(value, RationalLiteral):
             numerator_bits = max(1, abs(value.numerator).bit_length())
             denominator_bits = value.positive_denominator.bit_length()
@@ -334,9 +358,20 @@ def rational_ir_measure(
                 return RationalMeasureFailure(
                     "coefficient_bits", bits, max_coefficient_bits
                 )
-            return 0, 0, numerator_bits, denominator_bits, 1, 1
+            return _RationalMeasure(
+                0,
+                0,
+                numerator_bits,
+                denominator_bits,
+                1,
+                1,
+                True,
+                True,
+                True,
+                value.numerator != 0,
+            )
         if isinstance(value, Symbol):
-            return 1, 0, 1, 1, 1, 1
+            return _RationalMeasure(1, 0, 1, 1, 1, 1, True, True, True, True)
         if not isinstance(value, BinaryExpression):
             return RationalMeasureFailure("unsupported_form")
         left_measure = measure(value.left)
@@ -352,7 +387,7 @@ def rational_ir_measure(
             left_den_bits,
             left_num_terms,
             left_den_terms,
-        ) = left_measure
+        ) = left_measure.values()
         (
             right_num,
             right_den,
@@ -360,33 +395,51 @@ def rational_ir_measure(
             right_den_bits,
             right_num_terms,
             right_den_terms,
-        ) = right_measure
+        ) = right_measure.values()
         if value.operator in {BinaryOperator.ADD, BinaryOperator.SUBTRACT}:
-            result = (
+            result = _RationalMeasure(
                 max(left_num + right_den, right_num + left_den),
                 left_den + right_den,
                 max(left_num_bits + right_den_bits, right_num_bits + left_den_bits) + 1,
                 left_den_bits + right_den_bits,
                 left_num_terms * right_den_terms + right_num_terms * left_den_terms,
                 left_den_terms * right_den_terms,
+                False,
+                False,
+                False,
+                False,
             )
         elif value.operator is BinaryOperator.MULTIPLY:
-            result = (
+            known_nonzero = left_measure.known_nonzero and right_measure.known_nonzero
+            result = _RationalMeasure(
                 left_num + right_num,
                 left_den + right_den,
                 left_num_bits + right_num_bits,
                 left_den_bits + right_den_bits,
                 left_num_terms * right_num_terms,
                 left_den_terms * right_den_terms,
+                left_measure.degree_is_observed
+                and right_measure.degree_is_observed
+                and known_nonzero,
+                False,
+                False,
+                known_nonzero,
             )
         elif value.operator is BinaryOperator.DIVIDE:
-            result = (
+            known_nonzero = left_measure.known_nonzero and right_measure.known_nonzero
+            result = _RationalMeasure(
                 left_num + right_den,
                 left_den + right_num,
                 left_num_bits + right_den_bits,
                 left_den_bits + right_num_bits,
                 left_num_terms * right_den_terms,
                 left_den_terms * right_num_terms,
+                left_measure.degree_is_observed
+                and right_measure.degree_is_observed
+                and known_nonzero,
+                False,
+                False,
+                known_nonzero,
             )
         else:
             exponent = (
@@ -401,38 +454,55 @@ def rational_ir_measure(
                 return RationalMeasureFailure("unsupported_form")
             if abs(exponent) > max_exponent:
                 return RationalMeasureFailure("exponent", abs(exponent), max_exponent)
+            known_nonzero = exponent == 0 or left_measure.known_nonzero
             if exponent >= 0:
-                result = (
+                result = _RationalMeasure(
                     left_num * exponent,
                     left_den * exponent,
                     left_num_bits * exponent,
                     left_den_bits * exponent,
                     left_num_terms**exponent,
                     left_den_terms**exponent,
+                    left_measure.degree_is_observed and known_nonzero,
+                    exponent == 1 and left_measure.coefficient_bits_are_observed,
+                    exponent in {0, 1} and left_measure.terms_are_observed,
+                    known_nonzero,
                 )
             else:
-                result = (
+                result = _RationalMeasure(
                     left_den * -exponent,
                     left_num * -exponent,
                     left_den_bits * -exponent,
                     left_num_bits * -exponent,
                     left_den_terms**-exponent,
                     left_num_terms**-exponent,
+                    left_measure.degree_is_observed and known_nonzero,
+                    exponent == -1 and left_measure.coefficient_bits_are_observed,
+                    exponent == -1 and left_measure.terms_are_observed,
+                    known_nonzero,
                 )
-        degree = max(result[:2])
+        values = result.values()
+        degree = max(values[:2])
         if degree > max_degree:
-            return RationalMeasureFailure("degree", degree, max_degree)
-        coefficient_bits = max(result[2:4])
+            return RationalMeasureFailure(
+                "degree", degree if result.degree_is_observed else None, max_degree
+            )
+        coefficient_bits = max(values[2:4])
         if coefficient_bits > max_coefficient_bits:
             return RationalMeasureFailure(
-                "coefficient_bits", coefficient_bits, max_coefficient_bits
+                "coefficient_bits",
+                coefficient_bits if result.coefficient_bits_are_observed else None,
+                max_coefficient_bits,
             )
-        terms = max(result[4:])
+        terms = max(values[4:])
         if terms > max_terms:
-            return RationalMeasureFailure("expanded_terms", terms, max_terms)
+            return RationalMeasureFailure(
+                "expanded_terms", terms if result.terms_are_observed else None, max_terms
+            )
         return result
 
-    return measure(expression)
+    measured = measure(expression)
+    return measured if isinstance(measured, RationalMeasureFailure) else measured.values()
 
 
 def rational_ir_preflight(
