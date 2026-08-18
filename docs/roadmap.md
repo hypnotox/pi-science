@@ -27,6 +27,10 @@ Scenario-context queries, restricted LaTeX input, complex values, dimensions, ve
 
 Future candidates include rational-function coefficients; multiple or mixed trees; infinite nesting; higher depth, node, or degree limits; conditional or piecewise range forms; direct implicit property, limit, and asymptotic consumers; staged derived-to-closed-form composition; safe cross-equation inlining; and deeper whole-system optimization analysis.
 
+### Constrained-domain extensions
+
+Future candidates include constraint-only domain definitions; non-unit target coefficients with floor or divisibility semantics; chained relations; general disjunctions; disconnected absolute-value regions; general bounded affine integer-polyhedron lattice counting; and nonlinear products, powers, variable division, and function constraints.
+
 
 <!-- awf:edit deferred: from .awf/docs/parts/roadmap/deferred.md -->
 ## Deferred
