@@ -12,11 +12,11 @@ ADR-0004 requires supported query answers to localize unsupported facts and bloc
 
 The public query result already carries blockers as strings. Adding public diagnostic codes or transport fields would widen the result schema without being necessary for safe recovery. Numeric details are trustworthy only when bounded inspection actually measured them; backend refusal alone cannot justify an observed value.
 
-ADR-0004 is Implemented, so its current-state claims are terminal history. Strengthening those claims requires this successor decision rather than a correction to the frozen record.
+ADR-0004 and its applied operation history are terminal. Its active current-state claims may change only through a successor decision rather than a correction to the frozen record.
 
 ## Decision
 
-1. `decision: actionable-bounded-query-blockers` Within the existing query-answer blocker contract, an unresolved supported query identifies the failed supported family, structural or resource bound, ambiguous axis, or missing precondition and gives a safe reformulation direction when one exists. A blocker includes observed and configured values only when bounded inspection measured them. Recovery guidance neither certifies equivalence nor promises broader evaluator support, and unsupported questions remain localized `unresolved` or `inapplicable` answers rather than request failures.
+1. `decision: actionable-bounded-query-blockers` Within the existing query-answer blocker contract, an unresolved supported query identifies the failed supported family, structural or resource bound, ambiguous axis, or missing precondition and gives a safe reformulation direction when one exists. An observed value appears only when bounded inspection measured it and may be paired with the configured bound used by that inspection. Recovery guidance neither certifies equivalence nor promises broader evaluator support. Valid unsupported questions remain localized `unresolved` or `inapplicable` answers; request-validation failures remain separate from query-answer blockers.
 
 ## State changes
 
@@ -35,7 +35,8 @@ Diagnostic wording becomes part of inspectable product behavior even though exac
 |---|---|
 | Keep one generic unsupported-family blocker | It does not tell an agent which bounded reformulation is relevant. |
 | Add public diagnostic codes and fields | The existing blocker contract can carry the required guidance without widening the schema. |
-| Change ADR-0004 and its claims in place | Implemented ADR content and terminal claim history are frozen. |
+| Leave the current-state claims unchanged | The approved durable contract requires successor authority for both claim updates, not implementation or guidance alone. |
+| Change ADR-0004 and its claims in place | Implemented ADR content and applied operation history are frozen. |
 
 ## Status history
 
