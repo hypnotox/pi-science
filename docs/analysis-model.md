@@ -81,7 +81,7 @@ An optional `queries` collection remains separate from submitted work and scenar
 
 Finite points require `left`, `right`, or `both`; `oo` and `-oo` forbid direction. An expression query omits `target`. A system query selects one named equation RHS with `{ "kind": "equation", "name": "..." }`. Queries use global assumptions only and do not execute in scenario contexts.
 
-Accepted query shape is broader than bounded evaluator applicability. The shipped evaluators cover conservative rational equivalence; geometric-linear finite or convergent infinite closed forms; supported rational sign, valid-domain, singularity, and monotonicity properties; supported rational limits; and bounded rational or linear-exponential asymptotics. Valid questions outside these families return localized `unresolved` or `inapplicable` answers rather than invented mathematics.
+Accepted query shape is broader than bounded evaluator applicability. The shipped evaluators cover conservative rational equivalence; geometric-linear finite or convergent infinite closed forms; supported rational sign, valid-domain, singularity, and monotonicity properties; supported rational limits; and bounded rational or linear-exponential asymptotics. Valid questions outside these families return localized `unresolved` or `inapplicable` answers rather than invented mathematics. Their blockers identify the failed supported family, structural or resource bound, ambiguous axis, or missing precondition and give a safe reformulation direction when one exists. Observed and configured values appear only when bounded inspection measured them; a recovery hint neither certifies equivalence nor promises broader evaluator support.
 
 For example, this request asks for a closed form of a convergent geometric-linear tail under explicit assumptions:
 
@@ -104,7 +104,7 @@ Each answer reports `proved`, `proved_under_assumptions`, `disproved`, `unresolv
 
 ## Diagnostics and non-goals
 
-Request diagnostics provide a Python-owned message, identify a field path when available, and may include a source span or supported alternative. Correct the localized request from the available details rather than broadening the dialect. Query blockers and proof qualifications remain part of the answer, not warnings to discard.
+Request diagnostics provide a Python-owned message, identify a field path when available, and may include a source span or supported alternative. Correct the localized request from the available details rather than broadening the dialect. Query blockers and proof qualifications remain part of a valid query answer, not request-validation diagnostics or warnings to discard.
 
 The implemented analyzer does not accept LaTeX input, infer formulas from source, evaluate represented values numerically, validate physics, profile implementations, predict runtime or hardware behavior, model dimensions or implicit vectors, differentiate, approximate numerically, prove arbitrary theorems, solve general systems, generate recurrences, or generate code.
 

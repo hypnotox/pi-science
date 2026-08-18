@@ -19,8 +19,9 @@ Direct Python equation systems resolve unique named producers into a determinist
 Origin: ADR-0003
 
 ### `rule: assumption-aware-query-reasoning`
-The Python query evaluator, not Pi transport, combines declared domains and global assumptions for the supported bounded mathematical families. Answers conservatively identify used assumptions, relevant unsupported assumptions, conditions, blockers, and proof status; valid unsupported questions remain localized unresolved or inapplicable results rather than transport failures.
+The Python query evaluator, not Pi transport, combines declared domains and global assumptions for the supported bounded mathematical families. Answers conservatively identify used assumptions, relevant unsupported assumptions, conditions, blockers, and proof status; localized blockers distinguish failed supported families, structural or resource bounds, ambiguous axes, and missing preconditions. Valid unsupported questions remain unresolved or inapplicable results rather than transport failures or implied broader evaluator support.
 Origin: ADR-0004
+Revised-by: ADR-require-actionable-bounded-query-blockers
 
 ### `rule: exact-query-values-and-infinity`
 Query and scenario finite scalars are bounded exact rationals, including exact decimal syntax, while `oo` and `-oo` are explicit mathematical infinity. Infinite mathematical expressions remain analyzable but never imply finite direct-evaluation work.

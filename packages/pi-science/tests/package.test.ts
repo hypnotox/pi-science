@@ -20,6 +20,8 @@ describe("npm package boundary", () => {
     expect(skill).toContain("Parser acceptance, request-context validity");
     expect(skill).toContain("any returned field path, source span");
     expect(skill).toContain("proof qualifications");
+    expect(skill).toMatch(/unresolved query blocker[\s\S]+recovery hint/);
+    expect(skill).toMatch(/Recovery hints[\s\S]+do not certify equivalence/);
     expect(skill).toContain("py_science.formula");
     expect(skill).toContain("PEP 723");
     expect(skill).not.toContain("pi_science");

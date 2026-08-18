@@ -456,7 +456,7 @@
       "templateId": "docs/local.md.tmpl",
       "templateHash": "sha256:f09ab3b6e84fa2d6a10c6f2ac2a6e1552ad8cada8855c9e378f432a96b7c733d",
       "configHash": "sha256:576779d655d5fdd2c1b6d77a84fc15a9ea9000c1fb229501b15a6401c1d5d3e9",
-      "outputHash": "sha256:1c742fcdfa54bffbbb968c2b79e0474f191e1e9ff9f26c6b5121284adf4d8381",
+      "outputHash": "sha256:67ce4353a39a401e7b577512d4c9e0748e5354d177ea6e33ca99a58fa906419c",
       "regenChecked": true
     },
     "docs/architecture.md": {
@@ -482,7 +482,7 @@
       "templateId": "",
       "templateHash": "",
       "configHash": "sha256:619a4dec6900da1feb21570a9a316b719f4802bf7686ce13e6cd6114d391b3e6",
-      "outputHash": "sha256:5d055f3963e4a9e2023e264247187e7214bea05788ea61ffe54a3f62da940189",
+      "outputHash": "sha256:143105c6c04034f0e1458219504c60d4598c0029b96f4636d3b4de74b90117ec",
       "regenChecked": true
     },
     "docs/decisions/README.md": {
@@ -567,8 +567,8 @@
     "docs/topics/product/analysis-report-contract.md": {
       "templateId": "topics/topic.md.tmpl",
       "templateHash": "sha256:25b4ec23c7a22667f9d78b1e5883af8702d82f67896c3a42ac0ad19032d7c7bb",
-      "configHash": "sha256:5b31437ed01f98dce00fe0cabb6af4537efd204ef67e0fcb2f4843ebfb637dfd",
-      "outputHash": "sha256:435764673ab4d202e228789a5af6e999bf580af65f94eb700e93b26d6edd77ea"
+      "configHash": "sha256:fc7c232b0e56739a58e35d836fd2245af242765b52cf044f7c0db40df0490f78",
+      "outputHash": "sha256:dce0cdd252fece788a08995911a83d9aa49d5e65cf0a9c30fe7458fd0065f6a0"
     },
     "docs/topics/product/distribution-model.md": {
       "templateId": "topics/topic.md.tmpl",
@@ -585,8 +585,8 @@
     "docs/topics/product/mathematical-analysis-model.md": {
       "templateId": "topics/topic.md.tmpl",
       "templateHash": "sha256:25b4ec23c7a22667f9d78b1e5883af8702d82f67896c3a42ac0ad19032d7c7bb",
-      "configHash": "sha256:8298e7b3cec597baf722ba96ab7a75705245cdd0942ac6b7569694e99fe4fb2d",
-      "outputHash": "sha256:f374a16a00f679fd4d4af8978d4e2ea4e79a13ecece7086c768e784b057be9ca"
+      "configHash": "sha256:b8c5e238468a965550c2b4a426f29c062e9821a9f63ba233eb7f92981405c51c",
+      "outputHash": "sha256:064391709fbf412bb5659710f4de2b23fe30613f2c441a76e7b42f9d6ece0ac4"
     },
     "docs/topics/product/mathematical-input-contract.md": {
       "templateId": "topics/topic.md.tmpl",
