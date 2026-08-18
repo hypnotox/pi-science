@@ -7,7 +7,16 @@
 
 Pitfalls are durable hazards, not backlog items. Author sources under `.awf/docs/pitfalls/*.md`.
 
-_No pitfalls recorded yet. Add a Markdown source under `.awf/docs/pitfalls/`._
+| Pitfall | Domains | Tags | Related ADRs |
+| --- | --- | --- | --- |
+| [Conservative bounds are not observations](pitfalls/conservative-bounds-are-not-observations.md) | Unassigned |  |  |
+
+## By domain
+
+### Unassigned
+
+- [Conservative bounds are not observations](pitfalls/conservative-bounds-are-not-observations.md)
+
 
 <!-- awf:edit append: default; create .awf/docs/parts/pitfalls/append.md to override -->
 

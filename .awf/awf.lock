@@ -531,8 +531,14 @@
     "docs/pitfalls.md": {
       "templateId": "docs/pitfalls.md.tmpl",
       "templateHash": "sha256:d6475aaeadbbed6f56bfc85c4716b8636fea0d5922661201890334a6429b4f85",
-      "configHash": "sha256:ce3229f3ef6e335289b18ffc5a39da1b6e366fcd6536608dfbb6df57e24adfc0",
-      "outputHash": "sha256:906a8129b95bf84462ec2b8145a2bca859fa340aec0e4059e34f67cd265202b3"
+      "configHash": "sha256:86a2e8d0185b6ec007a654ebe3911459319a67cc337b467f78576ab96f4b4815",
+      "outputHash": "sha256:ee62093ec230eec2c8bd7384b503de057aa3c4b257b9fa03f9833683d96792d8"
+    },
+    "docs/pitfalls/conservative-bounds-are-not-observations.md": {
+      "templateId": "pitfalls/entry.md.tmpl",
+      "templateHash": "sha256:23ea7baa4f2cd0e3a7319448093f2612ca5a7beab8cb0bfc631015eef99be786",
+      "configHash": "sha256:f09bdbdd6839a60be6c84c1a1b41ab49cfb560e51a3c497fdfe4d8a4d5ef38c1",
+      "outputHash": "sha256:9fe576a29cb8a1355185ff4a0fee9f8878d4efb0e27b74b37c873288a5518523"
     },
     "docs/plans/README.md": {
       "templateId": "plans-readme/README.md.tmpl",
