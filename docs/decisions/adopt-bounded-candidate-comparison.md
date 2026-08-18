@@ -16,10 +16,9 @@ Candidate comparison must remain general mathematical tooling. AFMM is a motivat
 
 ## Decision
 
-1. `decision: bounded-general-candidate-comparison` Add a domain-neutral operation that compares exactly two supported mathematical candidates under shared request metadata. Each candidate may use the existing restricted expression or acyclic indexed-equation-system language, and explicitly mapped outputs must have compatible mathematical interfaces.
+1. `decision: bounded-general-candidate-comparison` Add a domain-neutral operation that compares exactly two supported mathematical candidates. Each candidate may use the existing restricted expression or acyclic indexed-equation-system language, and explicitly mapped outputs must have compatible mathematical interfaces.
 2. `decision: semantic-comparison-precedes-work-preference` Establish the semantic relationship of every mapped output before deriving a work preference. Use bounded acyclic dependency expansion only for semantic comparison, preserve the submitted candidate graphs for reuse-aware work accounting, and abstain when output correspondence or equivalence cannot be established within supported rules and resource limits.
 3. `decision: qualified-abstract-work-comparison` Compare each candidate's canonical aggregate abstract mathematical work under ADR-0003, return the symbolic delta, and derive a winner or crossover condition only within a bounded supported sign or inequality family. Unknown costs or unsupported ordering remain explicit unresolved results, and no conclusion claims implementation speed, storage behavior, numerical-machine equivalence, or global optimality.
-4. `decision: python-owned-bounded-comparison-policy` Keep candidate validation, semantic expansion, equivalence, work comparison, qualifications, and aggregate resource limits in the transport-free Python package. Pi transports the versioned structured request and evidence without recreating mathematical policy.
 
 ## State changes
 
@@ -32,7 +31,7 @@ Candidate comparison must remain general mathematical tooling. AFMM is a motivat
 
 Agents can submit two general mathematical formulations once and receive one deterministic semantic-and-work relationship rather than manually correlating independent reports. Named intermediate reuse can participate in cost comparison even when candidates use different internal names, because semantic expansion and work accounting deliberately use different views of the same validated candidate.
 
-The public request, report, generated provider schema, private Pi protocol, compact presentation, and agent guidance all acquire a coordinated comparison variant. Bounds apply across the complete comparison request and combined evidence, not independently per candidate. Unsupported expansion, equivalence, sign reasoning, crossover solving, or opaque cost knowledge produces an inspectable abstention rather than a winner.
+The public request, report, generated provider schema, private Pi protocol, compact presentation, and agent guidance all acquire a coordinated comparison variant under their existing ownership boundaries. Unsupported expansion, equivalence, sign reasoning, crossover solving, or opaque cost knowledge produces an inspectable abstention rather than a winner.
 
 The operation retains the existing abstract mathematical-work model. It does not introduce resource vectors, memory or schedule accounting, rewrite generation, parameter optimization, runtime prediction, selectable IEEE 754 semantics, general cross-equation query inlining, or expanded AFMM modeling. Those capabilities require separate decisions if pursued.
 
@@ -40,6 +39,7 @@ The operation retains the existing abstract mathematical-work model. It does not
 
 | Alternative | Why not chosen |
 |---|---|
+| Retain separate analyses with agent-managed alignment and correlation | It cannot provide one bounded, deterministic, provenance-preserving semantic-and-work relationship. |
 | Compare only expressions or self-contained terminal equations | It validates transport and scalar deltas but cannot cover the named reuse patterns that make whole-candidate comparison valuable. |
 | Require agents to submit separate semantic expressions alongside cost systems | The duplicated representation could drift, leaving the analyzer to compare semantics that are not tied to the costed computation. |
 | Introduce configurable arithmetic profiles and resource vectors first | Those broaden the model substantially and are not required to compare candidates under the already accepted abstract-work semantics. |
