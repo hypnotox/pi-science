@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-_No decisions are in flight._
+- [ADR-0006: Use SymPy behind checked analysis boundaries](0006-use-sympy-behind-checked-analysis-boundaries.md) (Proposed)
 
 ## History
 
