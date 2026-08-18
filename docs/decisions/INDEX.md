@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-_No decisions are in flight._
+- [ADR-adopt-explicit-reusable-verified-query-candidates: Adopt explicit reusable verified query candidates](adopt-explicit-reusable-verified-query-candidates.md) (Proposed)
 
 ## History
 
