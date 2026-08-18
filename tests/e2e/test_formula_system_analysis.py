@@ -21,8 +21,10 @@ from py_science.formula import (
     IndexDomain,
     MathematicalDomain,
     PrimitiveCost,
+    PropertiesQuery,
     Scenario,
     VariableDeclaration,
+    VariablePropertyCheck,
     analyze,
 )
 from py_science.formula.domains import build_output_domains
@@ -159,6 +161,22 @@ def test_constrained_minimum_bounds_have_integral_clamped_cardinality_and_specia
     assert outcome.scenarios[0].effective_domains[0].domains[0].upper == "-1"
 
 
+@pytest.mark.parametrize(
+    ("domain", "relationship"),
+    ((IndexDomain(lower="1", upper="1"), "i == 1"),
+     (IndexDomain(lower="0", upper="1"), "i <= 1"),
+     (IndexDomain(lower="1", upper="2"), "i >= 1")),
+)
+def test_nonempty_tightened_local_domains_are_not_refused(
+    domain: IndexDomain, relationship: str,
+) -> None:
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(EquationRequest(name="valid", expression="Eq(A[i], i)", domains={"i": domain}, constraints=(DomainConstraint(name="tight", target="i", relationship=relationship),)),),
+    ))
+    assert isinstance(outcome, AnalysisSuccess)
+
+
 def test_uniformly_empty_local_constraint_is_rejected_but_unresolved_one_is_retained() -> None:
     invalid = analyze(AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,
@@ -175,6 +193,24 @@ def test_uniformly_empty_local_constraint_is_rejected_but_unresolved_one_is_reta
     assert isinstance(unresolved, AnalysisSuccess)
 
 
+def test_domain_constraint_text_participates_in_direct_python_request_byte_accounting() -> None:
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(EquationRequest(
+            name="bounded",
+            expression="Eq(A[i], i)",
+            domains={"i": IndexDomain(lower="0", upper="1")},
+            constraints=tuple(
+                DomainConstraint(name=f"cap{position}", target="i", relationship="i <= 1" + " " * 65_000)
+                for position in range(5)
+            ),
+        ),),
+    ))
+    assert outcome.status == "failure"
+    assert outcome.error.code.value == "expression_too_complex"
+    assert outcome.error.message == "analysis request exceeds its byte bound"
+
+
 def test_equation_targeted_query_reports_only_its_consumed_local_constraints() -> None:
     outcome = analyze(AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,
@@ -189,7 +225,32 @@ def test_equation_targeted_query_reports_only_its_consumed_local_constraints() -
         ),
     ))
     assert isinstance(outcome, AnalysisSuccess)
-    assert [use.name for use in outcome.queries[0].answers[0].constraint_uses] == ["cap"]
+    # Identity evaluation did not consume the local cap, so it must not receive
+    # post-hoc target-symbol provenance.
+    assert outcome.queries[0].answers[0].constraint_uses == ()
+    assert outcome.queries[1].answers[0].constraint_uses == ()
+
+
+def test_equation_targeted_query_uses_local_constraint_for_its_mathematical_proof() -> None:
+    outcome = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(
+            EquationRequest(
+                name="bounded",
+                expression="Eq(A[i], 1 / i)",
+                domains={"i": IndexDomain(lower="0", upper="2")},
+                constraints=(DomainConstraint(name="one", target="i", relationship="i == 1"),),
+            ),
+            EquationRequest(name="other", expression="Eq(B[j], 1 / j)", domains={"j": IndexDomain(lower="0", upper="2")}),
+        ),
+        queries=(
+            PropertiesQuery(name="bounded_domain", target=EquationTarget(name="bounded"), checks=(VariablePropertyCheck(kind="valid_domain", variable="i"),)),
+            PropertiesQuery(name="other_domain", target=EquationTarget(name="other"), checks=(VariablePropertyCheck(kind="valid_domain", variable="j"),)),
+        ),
+    ))
+    assert isinstance(outcome, AnalysisSuccess)
+    assert outcome.queries[0].answers[0].conclusion == "proved_under_assumptions"
+    assert [use.name for use in outcome.queries[0].answers[0].constraint_uses] == ["one"]
     assert outcome.queries[1].answers[0].constraint_uses == ()
 
 

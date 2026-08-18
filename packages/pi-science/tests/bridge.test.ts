@@ -1127,6 +1127,116 @@ describe("private formula bridge", () => {
     );
   });
 
+  it("rejects fabricated local uses and incomplete effective-domain populations", async () => {
+    const constraint = { name: "cap", target: "i", relationship: "i <= 1" };
+    const domain = { index: "i", lower: "0", upper: "1" };
+    const equation = {
+      ...richSuccess.system.equations[0],
+      name: "stage",
+      constraints: [constraint],
+      effective_domains: [domain],
+      constraint_uses: [{ equation: "stage", ...constraint }],
+    };
+    const answer = {
+      check: null,
+      conclusion: "proved" as const,
+      conditions: [],
+      assumptions_used: [],
+      relevant_unsupported_assumptions: [],
+      blockers: [],
+      evidence: { kind: "identity" as const, statement: "i = i" },
+      derived_candidates: [],
+      constraint_uses: [{ equation: "stage", ...constraint }],
+    };
+    const request = {
+      syntax: "sympy" as const,
+      equations: [
+        {
+          name: "stage",
+          expression: "Eq(A[i], i)",
+          domains: { i: { lower: "0", upper: "1" } },
+          constraints: [constraint],
+        },
+      ],
+      queries: [
+        {
+          name: "local",
+          kind: "equivalence" as const,
+          target: { kind: "equation" as const, name: "stage" },
+          comparison: "i",
+        },
+      ],
+    };
+    const result = {
+      ...richSuccess,
+      system: { ...richSuccess.system, equations: [equation] },
+      scenarios: [
+        {
+          ...richSuccess.scenarios[0],
+          choice_work: {},
+          choice_effective_domains: {},
+          effective_domains: [{ equation: "stage", domains: [domain] }],
+        },
+      ],
+      queries: [
+        {
+          name: "local",
+          kind: "equivalence" as const,
+          target: { kind: "equation" as const, name: "stage" },
+          normalized_target: success.interpretation,
+          summary: "local",
+          answers: [answer],
+        },
+      ],
+    };
+    await expect(
+      invokeAdapter(node, responder(result), request),
+    ).resolves.toMatchObject({ queries: result.queries });
+    for (const invalid of [
+      {
+        ...result,
+        queries: [
+          {
+            ...result.queries[0],
+            answers: [
+              {
+                ...answer,
+                constraint_uses: [
+                  { ...answer.constraint_uses[0], equation: "other" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      {
+        ...result,
+        queries: [
+          {
+            ...result.queries[0],
+            answers: [{ ...answer, constraint_uses: [] }],
+          },
+        ],
+        system: {
+          ...result.system,
+          equations: [{ ...equation, constraint_uses: [] }],
+        },
+      },
+      {
+        ...result,
+        system: {
+          ...result.system,
+          equations: [{ ...equation, effective_domains: [] }],
+        },
+      },
+      {
+        ...result,
+        scenarios: [{ ...result.scenarios[0], effective_domains: [] }],
+      },
+    ])
+      await kind(invokeAdapter(node, responder(invalid), request), "protocol");
+  });
+
   it("strictly correlates finite and non-finite direct-work variants", async () => {
     const invalid = [
       { ...success, abstract_work: null },

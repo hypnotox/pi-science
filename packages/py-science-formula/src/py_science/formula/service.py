@@ -268,19 +268,24 @@ def _attach_queries(
             target = QueryTarget(query.target, parsed.right, report.interpretation) if isinstance(parsed, Equation) else None
         if target is None:
             return _invalid("query target could not be resolved", source=SourceReference(path=f"queries[{position}].target"))
-        evaluated = evaluate_queries((query,), target, reasoning)
+        query_reasoning = reasoning
+        owning: EquationRequest | None = None
+        if request.expression is None and not isinstance(query.target, DerivedTarget):
+            assert query.target is not None
+            owning = next(item for item in request.equations if item.name == query.target.name)
+            # Equation-local facts are deliberately constructed only for this
+            # target. They augment the bounded scalar reasoner; they are never
+            # request-wide solver facts and cannot leak to another equation.
+            query_reasoning = _equation_query_reasoning(request, knowledge, owning)
+        evaluated = evaluate_queries((query,), target, query_reasoning)
         if isinstance(evaluated, AnalysisFailure):
             return evaluated
         result = evaluated[0]
-        if request.expression is None and not isinstance(query.target, DerivedTarget):
-            assert query.target is not None
-            owning = next(
-                item for item in request.equations if item.name == query.target.name
-            )
-            # Local facts are not global assumptions.  A targeted query consumes
-            # only the owning constraints whose target participates in its
-            # expression; this preserves equation isolation and provenance.
-            target_symbols = _symbol_names(target.expression)
+        if owning is not None:
+            local_uses = {
+                (constraint.name, constraint.relationship)
+                for constraint in owning.constraints
+            }
             consumed = tuple(
                 ConstraintUse(
                     equation=owning.name,
@@ -289,12 +294,23 @@ def _attach_queries(
                     relationship=constraint.relationship,
                 )
                 for constraint in owning.constraints
-                if constraint.target in target_symbols
+                if any(
+                    (use.name, use.relationship) in local_uses and
+                    use.name == constraint.name and use.relationship == constraint.relationship
+                    for answer in result.answers for use in answer.assumptions_used
+                )
             )
             if consumed:
                 result = result.model_copy(update={
                     "answers": tuple(
-                        answer.model_copy(update={"constraint_uses": consumed})
+                        answer.model_copy(update={"constraint_uses": tuple(
+                            use for use in consumed
+                            if any(
+                                relationship.name == use.name and
+                                relationship.relationship == use.relationship
+                                for relationship in answer.assumptions_used
+                            )
+                        )})
                         for answer in result.answers
                     )
                 })
@@ -303,6 +319,38 @@ def _attach_queries(
             result = _compose_derived_qualification(result, source)
         results.append(result)
     return outcome.model_copy(update={"queries": tuple(results)})
+
+
+def _equation_query_reasoning(
+    request: AnalysisRequest, knowledge: Knowledge, equation: EquationRequest,
+) -> ReasoningContext | None:
+    """Build the supported scalar context for one equation-qualified query.
+
+    Base output intervals and submitted local relations are separate from global
+    assumptions.  The bounded reasoner may consume only affine facts it already
+    supports; unsupported coupled relations remain qualifications, not solver facts.
+    """
+    domains = {name: declaration.domain for name, declaration in request.variables.items()}
+    domains.update({name: MathematicalDomain.INTEGER for name in equation.domains})
+    local: list[NamedRelationship] = []
+    for name, domain in equation.domains.items():
+        lower = parse_expression(domain.lower)
+        upper = parse_expression(domain.upper)
+        if isinstance(lower, (ParseFailure, Equation, Relationship)) or isinstance(upper, (ParseFailure, Equation, Relationship)):
+            return None
+        local.extend((
+            NamedRelationship(f"{equation.name}:{name}:lower", f"{name} >= {domain.lower}", Relationship(RelationshipOperator.GREATER_EQUAL, Symbol(name), lower)),
+            NamedRelationship(f"{equation.name}:{name}:upper", f"{name} <= {domain.upper}", Relationship(RelationshipOperator.LESS_EQUAL, Symbol(name), upper)),
+        ))
+    for constraint in equation.constraints:
+        parsed = parse_expression(constraint.relationship)
+        if not isinstance(parsed, Relationship):
+            return None
+        local.append(NamedRelationship(constraint.name, constraint.relationship, parsed))
+    try:
+        return ReasoningContext.build(domains, knowledge.definitions, (*knowledge.assumptions, *local))
+    except (ExpressionTooComplex, RuntimeError):
+        return None
 
 
 def _derived_target(target: DerivedTarget, source: QueryResult) -> QueryTarget | None:
@@ -1117,7 +1165,9 @@ def _analyze_system(
         return system_interpretation
     used_relationships = tuple(relationship_uses[key] for key in sorted(relationship_uses))
     system = _system_report(
-        tuple(reports[name] for name in order),
+        # Analysis follows dependency order, but report correlation preserves the
+        # caller's submitted equation order.
+        tuple(reports[equation.request.name] for equation in equations),
         combined,
         tuple((dependency, name) for name in order for dependency in sorted(edges[name])),
         reuse,
@@ -1253,9 +1303,12 @@ def _globally_empty_constraint_domain(
         for domain in equation.output_domains:
             if not any(target == domain.index for _, target, _ in equation.constraints):
                 continue
+            # An inclusive integer interval is empty only when lower > upper.
+            # `extent` proves nonnegativity, so reverse an extent shifted by two:
+            # lower - (upper + 2) + 1 == lower - upper - 1.
             reverse = OutputDomain(
                 domain.index,
-                domain.upper,
+                BinaryExpression(BinaryOperator.ADD, domain.upper, IntegerLiteral(2)),
                 domain.lower,
                 domain.upper_path,
                 domain.lower_path,
@@ -2381,6 +2434,8 @@ def _request_size_failure(request: AnalysisRequest) -> AnalysisFailure | None:
             sources.append(equation.expression)
             for name, domain in equation.domains.items():
                 sources.extend((name, domain.lower, domain.upper))
+            for constraint in equation.constraints:
+                sources.extend((constraint.name, constraint.target, constraint.relationship))
         for name in request.variables:
             sources.append(name)
         for definition in request.functions:

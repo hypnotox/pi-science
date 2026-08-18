@@ -1164,6 +1164,62 @@ function samePropertyCheck(
       (request.kind !== "sign" && result.variable === request.variable))
   );
 }
+function sameConstraintUse(
+  use: ConstraintUse,
+  constraint: DomainConstraint,
+  equation: string,
+): boolean {
+  return (
+    use.equation === equation &&
+    use.name === constraint.name &&
+    use.target === constraint.target &&
+    use.relationship === constraint.relationship
+  );
+}
+
+function validQueryConstraintUses(
+  request: AnalysisRequest,
+  query: QueryRequest,
+  result: QueryResult,
+  results: QueryResult[],
+  index: number,
+): boolean {
+  const uses = result.answers.flatMap((answer) => answer.constraint_uses);
+  if (uses.length !== new Set(uses.map((use) => JSON.stringify(use))).size)
+    return false;
+  if (isExpressionRequest(request)) return uses.length === 0;
+  const target = "target" in query ? query.target : undefined;
+  if (target?.kind === "equation") {
+    const equation = request.equations.find(
+      (item) => item.name === target.name,
+    );
+    return (
+      equation !== undefined &&
+      uses.every((use) =>
+        (equation.constraints ?? []).some((constraint) =>
+          sameConstraintUse(use, constraint, equation.name),
+        ),
+      )
+    );
+  }
+  if (target?.kind === "derived") {
+    const sourceIndex =
+      request.queries?.findIndex((item) => item.name === target.query) ?? -1;
+    const source =
+      sourceIndex >= 0 && sourceIndex < index
+        ? results[sourceIndex]
+        : undefined;
+    const sourceUses =
+      source?.answers.flatMap((answer) => answer.constraint_uses) ?? [];
+    return uses.every((use) =>
+      sourceUses.some(
+        (sourceUse) => JSON.stringify(use) === JSON.stringify(sourceUse),
+      ),
+    );
+  }
+  return uses.length === 0;
+}
+
 function validQueryCorrelation(
   request: AnalysisRequest,
   results: QueryResult[],
@@ -1214,13 +1270,39 @@ function validQueryCorrelation(
         return false;
     }
     return (
-      query.kind !== "properties" ||
-      (result.answers.length === query.checks.length &&
-        query.checks.every((check, checkIndex) =>
-          samePropertyCheck(result.answers[checkIndex]?.check ?? null, check),
-        ))
+      (query.kind !== "properties" ||
+        (result.answers.length === query.checks.length &&
+          query.checks.every((check, checkIndex) =>
+            samePropertyCheck(result.answers[checkIndex]?.check ?? null, check),
+          ))) &&
+      validQueryConstraintUses(request, query, result, results, index)
     );
   });
+}
+
+function validEffectiveDomainCorrelation(
+  value: unknown,
+  equations: EquationRequest[],
+): boolean {
+  const submitted = equations;
+  return (
+    Array.isArray(value) &&
+    value.length === submitted.length &&
+    value.every(
+      (entry, equationIndex) =>
+        isRecord(entry) &&
+        entry.equation === submitted[equationIndex]?.name &&
+        Array.isArray(entry.domains) &&
+        entry.domains.length ===
+          Object.keys(submitted[equationIndex]?.domains ?? {}).length &&
+        entry.domains.every(
+          (domain, domainIndex) =>
+            isRecord(domain) &&
+            domain.index ===
+              Object.keys(submitted[equationIndex]?.domains ?? {})[domainIndex],
+        ),
+    )
+  );
 }
 
 function validSystemCorrelation(
@@ -1235,19 +1317,51 @@ function validSystemCorrelation(
     return isExpressionRequest(request);
   return (
     system.equations.length === request.equations.length &&
-    system.equations.every((equation) => {
-      if (!isRecord(equation) || typeof equation.name !== "string")
-        return false;
-      const submitted = request.equations.find(
-        (candidate) => candidate.name === equation.name,
-      );
-      return (
-        submitted !== undefined &&
+    system.equations.every(
+      (equation, index) =>
+        isRecord(equation) &&
+        equation.name === request.equations[index]?.name &&
         JSON.stringify(equation.constraints) ===
-          JSON.stringify(submitted.constraints ?? [])
-      );
-    })
+          JSON.stringify(request.equations[index]?.constraints ?? []) &&
+        Array.isArray(equation.effective_domains) &&
+        equation.effective_domains.length ===
+          Object.keys(request.equations[index]?.domains ?? {}).length &&
+        equation.effective_domains.every(
+          (domain, domainIndex) =>
+            isRecord(domain) &&
+            domain.index ===
+              Object.keys(request.equations[index]?.domains ?? {})[domainIndex],
+        ),
+    )
   );
+}
+
+function validScenarioCorrelation(
+  request: AnalysisRequest,
+  scenarios: unknown[],
+): boolean {
+  if (isExpressionRequest(request)) return true;
+  return scenarios.every((scenario) => {
+    if (!isRecord(scenario) || !isRecord(scenario.choice_work)) return false;
+    const choiceKeys = Object.keys(scenario.choice_work);
+    if (choiceKeys.length === 0)
+      return validEffectiveDomainCorrelation(
+        scenario.effective_domains,
+        request.equations,
+      );
+    if (!isRecord(scenario.choice_effective_domains)) return false;
+    const choiceEffectiveDomains = scenario.choice_effective_domains;
+    return (
+      Array.isArray(scenario.effective_domains) &&
+      scenario.effective_domains.length === 0 &&
+      choiceKeys.every((key) =>
+        validEffectiveDomainCorrelation(
+          choiceEffectiveDomains[key],
+          request.equations,
+        ),
+      )
+    );
+  });
 }
 
 function validResult(
@@ -1287,6 +1401,7 @@ function validResult(
           validSystemCorrelation(request, value.system))) &&
       Array.isArray(value.scenarios) &&
       value.scenarios.every(validScenarioResult) &&
+      validScenarioCorrelation(request, value.scenarios) &&
       Array.isArray(value.queries) &&
       value.queries.every(validQueryResult) &&
       validQueryCorrelation(request, value.queries as QueryResult[])
