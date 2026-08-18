@@ -2,6 +2,7 @@
 # pyright: basic, reportArgumentType=false, reportOptionalMemberAccess=false
 from types import SimpleNamespace
 
+import py_science.formula.equivalence as formula_equivalence
 import py_science.formula.query as formula_query
 import py_science.formula.series as formula_series
 import py_science.formula.service as formula_query_service
@@ -1158,7 +1159,7 @@ def test_query_preflight_rejects_before_denominator_rendering(monkeypatch):
         called = True
         raise AssertionError("denominator rendering must remain behind whole-query preflight")
 
-    monkeypatch.setattr(formula_query, "render", forbidden)
+    monkeypatch.setattr(formula_equivalence, "render", forbidden)
     result = formula_query.evaluate_queries(
         (EquivalenceQuery(name="q", comparison="0"),),
         target,
@@ -1322,7 +1323,7 @@ def test_equivalence_reports_operand_expansion_and_normalization_refusals(monkey
         "equivalence expansion is outside the bounded rational family; use bounded rational operands",
     )
 
-    monkeypatch.setattr(formula_query, "bounded_rational_difference", lambda *_args: None)
+    monkeypatch.setattr(formula_equivalence, "bounded_rational_difference", lambda *_args: None)
     normalization = analyze(request(queries=({"name": "q", "kind": "equivalence", "comparison": "x"},)))
     assert normalization.status == "success"
     normalization_answer = normalization.queries[0].answers[0]

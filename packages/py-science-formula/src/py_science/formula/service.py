@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass
 from fractions import Fraction
 from itertools import product
 from math import ceil, floor
+from types import MappingProxyType
 
 from py_science.formula.analyzer import OperationTally, count_operations
 from py_science.formula.domains import OutputDomain, build_output_domains
@@ -152,6 +154,20 @@ class Knowledge:
     definitions: tuple[NamedDefinition, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class _AnalyzedComputation:
+    """Private retained state for one validated ordinary analysis."""
+
+    success: AnalysisSuccess
+    expression: Expression | None
+    equations: tuple[ParsedEquation, ...]
+    producers: Mapping[str, Producer]
+    dependency_order: tuple[str, ...]
+    equation_analyses: Mapping[str, WorkAnalysis]
+    aggregate_analysis: WorkAnalysis
+    knowledge: Knowledge
+
+
 class FormulaLoader:
     def __init__(self) -> None:
         self.nodes = 0
@@ -223,21 +239,22 @@ def analyze(request: AnalysisRequest) -> AnalysisOutcome:
             return scenario_failure
     try:
         if request.expression is not None:
-            outcome = _analyze_single(
-                request, request.expression, loader, context, request_unknown_arities, knowledge
-            )
+            analyzed = _analyze_single(request, request.expression, loader, context, request_unknown_arities, knowledge)
         else:
-            outcome = _analyze_system(request, loader, context, request_unknown_arities, knowledge)
+            analyzed = _analyze_system(request, loader, context, request_unknown_arities, knowledge)
     except ExpressionTooComplex as error:
         return _complexity_failure(str(error))
-    if isinstance(outcome, AnalysisSuccess) and request.queries:
-        outcome = _attach_queries(request, outcome, knowledge)
+    if isinstance(analyzed, AnalysisFailure):
+        return _bound_result(analyzed)
+    outcome: AnalysisOutcome = analyzed.success
+    if request.queries:
+        outcome = _attach_queries(request, analyzed)
     return _bound_result(outcome)
 
 
-def _attach_queries(
-    request: AnalysisRequest, outcome: AnalysisSuccess, knowledge: Knowledge
-) -> AnalysisOutcome:
+def _attach_queries(request: AnalysisRequest, analyzed: _AnalyzedComputation) -> AnalysisOutcome:
+    outcome = analyzed.success
+    knowledge = analyzed.knowledge
     """Evaluate queries in request order, retaining only earlier result provenance."""
     results: list[QueryResult] = []
     try:
@@ -272,16 +289,16 @@ def _attach_queries(
                     if item.name == source.target.name
                 )
         elif request.expression is not None:
-            parsed = parse_expression(request.expression)
-            target = QueryTarget(ExpressionTarget(), parsed, outcome.interpretation) if not isinstance(parsed, (ParseFailure, Equation, Relationship)) else None
+            parsed = analyzed.expression
+            target = QueryTarget(ExpressionTarget(), parsed, outcome.interpretation) if parsed is not None else None
         else:
             assert query.target is not None
             selected = next((item for item in request.equations if item.name == query.target.name), None)
             report = next((item for item in outcome.system.equations if item.name == query.target.name), None) if outcome.system is not None else None
             if selected is None or report is None:
                 return _invalid("query target is unknown", source=SourceReference(path=f"queries[{position}].target"))
-            parsed = parse_expression(selected.expression)
-            target = QueryTarget(query.target, parsed.right, report.interpretation) if isinstance(parsed, Equation) else None
+            parsed = next((item.formula for item in analyzed.equations if item.request.name == selected.name), None)
+            target = QueryTarget(query.target, parsed.right, report.interpretation) if parsed is not None else None
         if target is None:
             return _invalid("query target could not be resolved", source=SourceReference(path=f"queries[{position}].target"))
         query_reasoning = reasoning
@@ -1018,7 +1035,7 @@ def _analyze_single(
     context: WorkContext,
     request_unknown_arities: dict[str, int],
     knowledge: Knowledge,
-) -> AnalysisOutcome:
+) -> _AnalyzedComputation | AnalysisFailure:
     parsed = loader.parse(source, "expression")
     if isinstance(parsed, AnalysisFailure):
         return parsed
@@ -1053,11 +1070,9 @@ def _analyze_single(
         or _contains_advanced(parsed)
     )
     if not advanced:
-        return AnalysisSuccess(
-            interpretation=interpretation,
-            operation_counts=_counts(tally),
-            abstract_work=tally.total,
-        )
+        success = AnalysisSuccess(interpretation=interpretation, operation_counts=_counts(tally), abstract_work=tally.total)
+        analysis = analyze_work(parsed, context)
+        return _AnalyzedComputation(success, parsed, (), MappingProxyType({}), (), MappingProxyType({"expression": analysis}), analysis, knowledge)
     index_error, index_unresolved = _validate_index_scopes(parsed, set(), context)
     if index_error is not None:
         return _invalid(index_error)
@@ -1098,17 +1113,8 @@ def _analyze_single(
             source=SourceReference(path="scenarios"),
             supported_alternative="remove scenarios to inspect non-finite mathematical structure",
         )
-    return AnalysisSuccess(
-        interpretation=interpretation,
-        operation_counts=_counts(tally),
-        abstract_work=None if blockers else tally.total,
-        direct_work_applicability="not_finite" if blockers else "finite",
-        direct_work_blockers=blockers,
-        system=system,
-        scenarios=_scenario_results(
-            request, analysis, work_render_budget, relationships, knowledge
-        ),
-    )
+    success = AnalysisSuccess(interpretation=interpretation, operation_counts=_counts(tally), abstract_work=None if blockers else tally.total, direct_work_applicability="not_finite" if blockers else "finite", direct_work_blockers=blockers, system=system, scenarios=_scenario_results(request, analysis, work_render_budget, relationships, knowledge))
+    return _AnalyzedComputation(success, parsed, (), MappingProxyType({}), (), MappingProxyType({"expression": analysis}), analysis, knowledge)
 
 
 def _analyze_system(
@@ -1117,7 +1123,7 @@ def _analyze_system(
     context: WorkContext,
     request_unknown_arities: dict[str, int],
     knowledge: Knowledge,
-) -> AnalysisOutcome:
+) -> _AnalyzedComputation | AnalysisFailure:
     parsed_or_failure = _parse_equations(request, loader)
     if isinstance(parsed_or_failure, AnalysisFailure):
         return parsed_or_failure
@@ -1289,21 +1295,8 @@ def _analyze_system(
             source=SourceReference(path="scenarios"),
             supported_alternative="remove scenarios to inspect non-finite mathematical structure",
         )
-    return AnalysisSuccess(
-        interpretation=system_interpretation,
-        operation_counts=_counts(submitted),
-        abstract_work=None if blockers else submitted.total,
-        direct_work_applicability="not_finite" if blockers else "finite",
-        direct_work_blockers=tuple(
-            f"equation {report.name}: {blocker}"
-            for report in system.equations if report.direct_work_blockers
-            for blocker in report.direct_work_blockers
-        ) if blockers else (),
-        system=system,
-        scenarios=_scenario_results(
-            request, combined, work_render_budget, used_relationships, knowledge, equations
-        ),
-    )
+    success = AnalysisSuccess(interpretation=system_interpretation, operation_counts=_counts(submitted), abstract_work=None if blockers else submitted.total, direct_work_applicability="not_finite" if blockers else "finite", direct_work_blockers=tuple(f"equation {report.name}: {blocker}" for report in system.equations if report.direct_work_blockers for blocker in report.direct_work_blockers) if blockers else (), system=system, scenarios=_scenario_results(request, combined, work_render_budget, used_relationships, knowledge, equations))
+    return _AnalyzedComputation(success, None, equations, MappingProxyType(producers), tuple(order), MappingProxyType(analyses), combined, knowledge)
 
 
 def _parse_equations(

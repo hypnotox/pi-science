@@ -1,7 +1,7 @@
 ---
 format: current-state-v4
 slug: adopt-bounded-candidate-comparison
-status: Proposed
+status: Accepted
 date: 2026-08-19
 ---
 # ADR-adopt-bounded-candidate-comparison: Adopt bounded candidate comparison
@@ -48,3 +48,4 @@ The operation retains the existing abstract mathematical-work model. It does not
 ## Status history
 
 - 2026-08-19: Proposed
+- 2026-08-19: Accepted; content-sha256: fc0b639561cb669fbbe7ff6eaf3f6657f56defe1b313392167ce3a39b4a8d971

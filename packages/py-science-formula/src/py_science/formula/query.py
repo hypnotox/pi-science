@@ -4,19 +4,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from itertools import product
-from typing import Any
 
-import sympy
 from py_science.formula.asymptotics import asymptotic_answer
-from py_science.formula.exact_values import ExactRational, render_exact
+from py_science.formula.equivalence import equivalence_answer
 from py_science.formula.expressions import (
     Equation,
     Expression,
-    IntegerLiteral,
     Relationship,
     Sum,
-    Symbol,
     expression_children,
 )
 from py_science.formula.models import (
@@ -26,10 +21,8 @@ from py_science.formula.models import (
     AsymptoticResult,
     ClosedFormQuery,
     ClosedFormResult,
-    CounterexampleEvidence,
     EquivalenceQuery,
     EquivalenceResult,
-    IdentityEvidence,
     Interpretation,
     LimitQuery,
     LimitResult,
@@ -45,18 +38,10 @@ from py_science.formula.models import (
 )
 from py_science.formula.parser import ParseFailure, parse_expression
 from py_science.formula.properties import afmm_tail_property_answer, limit_answer, property_answer
-from py_science.formula.query_diagnostics import RATIONAL_FAILURE_REASONS, QueryDiagnostic
-from py_science.formula.reasoning import ReasoningContext, collect_denominators
+from py_science.formula.reasoning import ReasoningContext
 from py_science.formula.series import derive_closed_form
-from py_science.formula.sympy_backend import (
-    RationalMeasureFailure,
-    bounded_rational_difference,
-    rational_ir_measure,
-    render,
-)
 
 UNIMPLEMENTED = "query kind is not implemented in this release slice"
-MAX_COUNTEREXAMPLE_STEPS = 256
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,177 +211,15 @@ def _equivalence(
         )
     if isinstance(parsed, (Equation, Relationship)):
         return _failure("equivalence comparison must be an expression", f"queries[{position}].comparison", query.comparison)
-    if reasoning is None:
-        return _unresolved_with("query reasoning exceeds its bound")
-    operand_failure = _rational_diagnostic(expression, "equivalence operand")
-    if operand_failure is None:
-        operand_failure = _rational_diagnostic(parsed, "equivalence operand")
-    if operand_failure is not None:
-        return _unresolved_with(operand_failure.render())
-    original_symbols = _symbol_names(expression) | _symbol_names(parsed)
-    try:
-        left = reasoning.apply(expression)
-        right = reasoning.apply(parsed)
-    except Exception:
-        return _unresolved_with("query reasoning exceeds its bound")
-    expansion_failure = _rational_diagnostic(left, "equivalence expansion")
-    if expansion_failure is None:
-        expansion_failure = _rational_diagnostic(right, "equivalence expansion")
-    if expansion_failure is not None:
-        return _unresolved_with(expansion_failure.render())
-    symbols = _symbol_names(left) | _symbol_names(right)
-    relevant_symbols = symbols | original_symbols
-    unsupported = reasoning.relevant_unsupported(relevant_symbols)
-    original_denominators = (*collect_denominators(left), *collect_denominators(right))
-    normalized = bounded_rational_difference(left, right)
-    if normalized is None:
-        return _unresolved_with("query rational normalization exceeds its bound", unsupported)
-    conditions: list[str] = []
-    obligation_uses = []
-    for denominator in original_denominators:
-        denominator_normalized = bounded_rational_difference(
-            denominator,
-            IntegerLiteral(0),
-        )
-        if denominator_normalized is None:
-            return _unresolved_with("query denominator exceeds its bound", unsupported)
-        if denominator_normalized.numerator == 0:
-            return _unresolved_with("query denominator is identically zero", unsupported)
-        try:
-            statement = f"{render(denominator).sympy} != 0"
-        except Exception:
-            return _unresolved_with("query denominator cannot be rendered", unsupported)
-        if len(statement) > 4096:
-            return _unresolved_with("query denominator rendering exceeds its bound", unsupported)
-        if statement not in conditions:
-            conditions.append(statement)
-        proved, uses = reasoning.prove_nonzero(denominator)
-        if proved:
-            obligation_uses.extend(uses)
-    used = reasoning.relevant_uses(relevant_symbols, include_facts=bool(original_denominators))
-    used = _unique_uses((*used, *obligation_uses))
-    if len(used) > 128:
-        return _unresolved_with("query assumption provenance exceeds its bound", unsupported)
-    if normalized.numerator == 0:
-        conclusion = "proved_under_assumptions" if used or conditions else "proved"
-        return QueryAnswer(
-            conclusion=conclusion,
-            conditions=tuple(conditions),
-            assumptions_used=used,
-            relevant_unsupported_assumptions=unsupported,
-            evidence=IdentityEvidence(statement="normalized difference is zero"),
-        )
-    if (
-        not normalized.left.free_symbols
-        and not normalized.right.free_symbols
-        and normalized.numerator.is_number
-    ):
-        if not normalized.left.is_Rational or not normalized.right.is_Rational:
-            return _unresolved_with("query evidence is not a finite exact value", unsupported)
-        target_rendered = str(normalized.left)
-        comparison_rendered = str(normalized.right)
-        if max(len(target_rendered), len(comparison_rendered)) > 4096:
-            return _unresolved_with("query evidence rendering exceeds its bound", unsupported)
-        return QueryAnswer(
-            conclusion="disproved",
-            conditions=tuple(conditions),
-            assumptions_used=used,
-            relevant_unsupported_assumptions=unsupported,
-            evidence=CounterexampleEvidence(
-                substitutions={},
-                target_value=target_rendered,
-                comparison_value=comparison_rendered,
-            ),
-        )
-    candidates = (
-        sympy.Rational(0), sympy.Rational(1), sympy.Rational(-1),
-        sympy.Rational(2), sympy.Rational(-2), sympy.Rational(1, 2), sympy.Rational(-1, 2),
-    )
-    steps = 0
-    for items in product(candidates, repeat=len(normalized.symbols)):
-        steps += 1
-        if steps > MAX_COUNTEREXAMPLE_STEPS:
-            break
-        values = dict(zip(normalized.symbols, items, strict=True))
-        try:
-            if not reasoning.assignment_valid(values):
-                continue
-            if any(_sympy_denominator(denominator).subs(values) == 0 for denominator in original_denominators):
-                continue
-            if normalized.denominator.subs(values) == 0 or normalized.numerator.subs(values) == 0:
-                continue
-            target_value = normalized.left.subs(values)
-            comparison_value = normalized.right.subs(values)
-            if target_value.free_symbols or comparison_value.free_symbols:
-                continue
-            if not target_value.is_Rational or not comparison_value.is_Rational:
-                continue
-            target_rendered = str(target_value)
-            comparison_rendered = str(comparison_value)
-            if max(len(target_rendered), len(comparison_rendered)) > 4096:
-                return _unresolved_with("query evidence rendering exceeds its bound", unsupported)
-            candidate_uses = reasoning.relevant_uses(relevant_symbols, include_facts=True)
-            if len(candidate_uses) > 128:
-                return _unresolved_with("query assumption provenance exceeds its bound", unsupported)
-            return QueryAnswer(
-                conclusion="disproved",
-                conditions=tuple(conditions),
-                assumptions_used=candidate_uses,
-                relevant_unsupported_assumptions=unsupported,
-                evidence=CounterexampleEvidence(
-                    substitutions={str(key): _canonical_exact(value) for key, value in values.items()},
-                    target_value=target_rendered,
-                    comparison_value=comparison_rendered,
-                ),
-            )
-        except Exception:
-            continue
-    return _unresolved_with("no bounded counterexample satisfies the supported assumptions", unsupported)
+    return equivalence_answer(expression, parsed, reasoning)
 
 
-def _rational_diagnostic(
-    expression: Expression, subject: str
-) -> QueryDiagnostic | None:
-    measurement = rational_ir_measure(expression)
-    if not isinstance(measurement, RationalMeasureFailure):
-        return None
-    return QueryDiagnostic(
-        subject,
-        RATIONAL_FAILURE_REASONS[measurement.kind],
-        measurement.observed,
-        measurement.configured,
-        "use bounded rational operands",
-    )
-
-
-def _symbol_names(expression: Expression) -> set[str]:
-    names = {expression.name} if isinstance(expression, Symbol) else set()
-    for child in expression_children(expression):
-        names |= _symbol_names(child)
-    return names
-
-
-def _sympy_denominator(expression: Expression) -> Any:
-    normalized = bounded_rational_difference(expression, IntegerLiteral(0))
-    if normalized is None:
-        raise ValueError("unsupported denominator")
-    return normalized.left
-
-
-def _canonical_exact(value: Any) -> str:
-    return render_exact(ExactRational(int(value.p), int(value.q)))
-
-
-def _unique_uses(values: tuple[Any, ...]) -> tuple[Any, ...]:
+def _unique_uses(values: tuple[object, ...]) -> tuple[object, ...]:
     seen: set[tuple[str, str]] = set()
-    result = []
+    result: list[object] = []
     for value in values:
-        key = (value.name, value.relationship)
-        if key not in seen:
-            seen.add(key)
+        name, relationship = value.name, value.relationship  # type: ignore[attr-defined]
+        if (name, relationship) not in seen:
+            seen.add((name, relationship))
             result.append(value)
     return tuple(result)
-
-
-def _unresolved_with(blocker: str, unsupported: tuple[str, ...] = ()) -> QueryAnswer:
-    return QueryAnswer(conclusion="unresolved", blockers=(blocker,), relevant_unsupported_assumptions=unsupported)
