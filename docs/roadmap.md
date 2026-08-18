@@ -11,9 +11,9 @@ Add optional stage metadata without weakening the normalized mathematical model 
 
 Report piecewise dominance, scaling variables, and terms that remain relevant over concrete ranges.
 
-### Hoisting and comparison
+### Hoisting effects
 
-Estimate the symbolic effect of extracting reported repeated expressions or hoisting invariant work. Compare candidate formulations under shared metadata, including symbolic differences, concrete winners, crossover conditions, and unresolved trade-offs.
+Estimate the symbolic effect of extracting reported repeated expressions or hoisting invariant work.
 
 ### Local mathematical rewrites
 
