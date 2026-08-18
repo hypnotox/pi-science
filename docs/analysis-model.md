@@ -10,6 +10,8 @@ Python owns request validation, restricted-expression parsing, and mathematical 
 
 The public Python boundary bounds request populations, aggregate source bytes and nodes, expression depth, integers, generated scenario results, rendering, and reports. Submitted formula, assumption, definition, query, and cost text is converted from restricted Python AST data only: it is never evaluated or passed to a SymPy string parser.
 
+SymPy is the bounded backend for normalized algebra, rendering, and verification after project-owned syntax, family, and resource checks. Extend checked SymPy seams instead of recreating algebra when the backend already supplies the required mechanism. The typed internal model, work and reuse semantics, assumptions and provenance, supported-query policy, qualification, and fail-closed outcomes remain project-owned; unrestricted or unverified SymPy behavior never defines the public contract or constitutes proof.
+
 ## Restricted expression dialect
 
 The parser accepts integer and exact decimal literals, ordinary symbols, `oo` and `-oo`, arithmetic `+`, `-`, `*`, `/`, and `**`, indexed scalar values, and ordinary named calls with positional arguments. It accepts one-limit inclusive sums spelled `Sum(body, (index, lower, upper))`, equations spelled `Eq(lhs, rhs)` with a scalar or indexed result on the left, and one unchained `==`, `<`, `<=`, `>`, or `>=` relationship.

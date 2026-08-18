@@ -1,7 +1,7 @@
 ---
 format: current-state-v4
 slug: use-sympy-behind-checked-analysis-boundaries
-status: Proposed
+status: Implemented
 date: 2026-08-18
 ---
 # ADR-0006: Use SymPy behind checked analysis boundaries
@@ -40,3 +40,4 @@ The project retains adapter and verification code around SymPy and may expose le
 ## Status history
 
 - 2026-08-18: Proposed
+- 2026-08-18: Implemented; content-sha256: a542195bb5d4d927a8e3522d0bcddc6c437cf9109073e9aef31a80be05d404a9

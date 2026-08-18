@@ -3,8 +3,9 @@ The repository develops independently importable Python analysis packages alongs
 ## Claims
 
 ### `rule: concern-oriented-analysis-packages`
-Reusable mathematical analysis capabilities are distributed as independently importable `py-science-<concern>` Python packages. The first, `py-science-formula`, exposes its typed analysis API through `py_science.formula`; its parser, backend-independent expression tree, analysis policy, and SymPy renderer remain cohesive internal components.
+Reusable mathematical analysis capabilities are distributed as independently importable `py-science-<concern>` Python packages. The first, `py-science-formula`, exposes its typed analysis API through `py_science.formula`; its parser, backend-independent expression tree, analysis policy, and bounded SymPy backend remain cohesive internal components.
 Origin: ADR-0002
+Revised-by: ADR-0006
 
 ### `rule: pinned-public-source`
 A compatible repository release snapshot distributes the Pi bridge, product guidance, and Python packages from public Git source. Pi and Python environments pin that snapshot separately; full commit SHAs and resolved locks are immutable, while tags are readable release identifiers.

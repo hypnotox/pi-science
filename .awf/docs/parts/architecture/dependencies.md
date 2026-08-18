@@ -2,7 +2,7 @@
 |---|---|
 | Python 3.13 | Formula analysis runtime. |
 | uv | Isolated Pi backend provisioning and workspace commands. |
-| Pydantic v2 / SymPy | Formula contracts and normalized rendering. |
+| Pydantic v2 / SymPy | Formula contracts and bounded algebra, rendering, and verification. |
 | Pi host API | Aggregate tool and diagnostic-command host (peer dependency). |
 | TypeScript / Vitest / ESLint / Prettier | Pi bridge checking and tests. |
 | awf | Generates and verifies workflow and documentation state. |

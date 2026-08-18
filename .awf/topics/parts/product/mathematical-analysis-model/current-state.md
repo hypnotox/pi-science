@@ -3,8 +3,9 @@ The mathematical analysis model separates public syntax and analysis semantics f
 ## Claims
 
 ### `rule: shared-backend-independent-model`
-Both mathematical frontends normalize into one internal model. Parsing, cost semantics, and analysis policy remain separable from SymPy-specific representation, which neither defines the public protocol nor inseparably owns every analysis concern.
+Accepted mathematical syntax normalizes into one internal model. Parsing, cost semantics, and analysis policy remain separable from SymPy-specific representation, which neither defines the public protocol nor owns product policy. SymPy is the established algebra, rendering, and verification backend behind checked, resource-bounded seams; prefer extending these seams over recreating backend algebra, and never treat a general or unverified CAS result as supported behavior, proof, or qualification.
 Origin: ADR-0001
+Revised-by: ADR-0006
 
 ### `rule: ideal-equation-dependency-work`
 Direct Python equation systems resolve unique named producers into a deterministic acyclic graph. Each equation is charged once per local output-domain point, downstream references reuse that result, and inclusive bounded sums use nonnegative mathematical cardinality; unresolved primitive costs remain explicit.
