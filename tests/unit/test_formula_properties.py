@@ -514,7 +514,9 @@ def test_rational_shape_reasoning_refusal_remains_actionable(monkeypatch):
             "checks": ({"kind": "valid_domain", "variable": "x"},),
         },
     )
-    assert properties_outcome.queries[0].answers[0].blockers == (
+    properties_answer = properties_outcome.queries[0].answers[0]
+    assert properties_answer.conclusion == "unresolved"
+    assert properties_answer.blockers == (
         "properties target cannot be prepared by bounded query reasoning; "
         "use a smaller univariate rational target",
     )
@@ -528,7 +530,9 @@ def test_rational_shape_reasoning_refusal_remains_actionable(monkeypatch):
             "direction": "both",
         },
     )
-    assert limit_outcome.queries[0].answers[0].blockers == (
+    limit_answer = limit_outcome.queries[0].answers[0]
+    assert limit_answer.conclusion == "unresolved"
+    assert limit_answer.blockers == (
         "limit target cannot be prepared by bounded query reasoning; "
         "use a smaller univariate rational target",
     )
