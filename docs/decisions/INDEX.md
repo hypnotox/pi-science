@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-- [ADR-adopt-acyclic-dependent-output-domains: Adopt acyclic dependent output domains](adopt-acyclic-dependent-output-domains.md) (Accepted)
+- [ADR-adopt-acyclic-dependent-output-domains: Adopt acyclic dependent output domains](adopt-acyclic-dependent-output-domains.md) (Implementing)
 
 ## History
 

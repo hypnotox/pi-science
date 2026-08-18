@@ -60,7 +60,7 @@ const { syntax: _syntax, ...parameters } = afmmRequest;
 export const afmmParameters = parameters;
 
 export const afmmTotalWork =
-  "B*p*(2*C - 1) + N*dim + 2*N*p + N*Sum(k + 1, (k, 0, p - 1)) + p*Sum(Max(0, n[b] - 1), (b, 0, B - 1)) + Sum(C_translate(M[neighbor[b, c], k]), (c, 0, C - 1), (b, 0, B - 1), (k, 0, p - 1))";
+  "B*p*(2*C - 1) + N*dim + N*p*(p + 1)/2 + p*Sum(2*n[b], (b, 0, B - 1)) + p*Sum(Max(0, n[b] - 1), (b, 0, B - 1)) + Sum(C_translate(M[neighbor[b, c], k]), (c, 0, C - 1), (k, 0, p - 1), (b, 0, B - 1))";
 
 export const afmmTailParameters = {
   expression: "Sum((k + 1) * q**k, (k, p, oo))",

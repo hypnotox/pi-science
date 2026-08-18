@@ -297,7 +297,7 @@ def test_assumption_replacement_respects_bound_sum_indices() -> None:
 
     assert result.status == "success"
     assert result.system is not None
-    assert result.system.total_work == "Sum(i, (i, 0, N - 1))"
+    assert result.system.total_work == "N*(N - 1)/2"
     assert result.system.relationships_used == ()
     assert result.system.unused_assumptions == ("free_i",)
 

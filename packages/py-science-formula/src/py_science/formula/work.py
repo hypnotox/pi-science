@@ -21,7 +21,7 @@ from py_science.formula.expressions import (
     substitute,
 )
 from py_science.formula.models import MathematicalDomain, SymbolicOperationCounts
-from py_science.formula.sympy_backend import render
+from py_science.formula.sympy_backend import render, render_affine_direct_work
 
 _ZERO = IntegerLiteral(0)
 _ONE = IntegerLiteral(1)
@@ -64,14 +64,18 @@ class WorkContext:
     primitives: dict[str, PrimitiveRule]
     variable_domains: dict[str, MathematicalDomain]
     integer_symbols: frozenset[str] = frozenset()
+    nonnegative_symbols: frozenset[str] = frozenset()
     call_stack: tuple[str, ...] = ()
 
-    def with_integer_symbol(self, name: str) -> WorkContext:
+    def with_integer_symbol(self, name: str, *, nonnegative: bool = False) -> WorkContext:
         return WorkContext(
             definitions=self.definitions,
             primitives=self.primitives,
             variable_domains=self.variable_domains,
             integer_symbols=self.integer_symbols | {name},
+            nonnegative_symbols=(
+                self.nonnegative_symbols | {name} if nonnegative else self.nonnegative_symbols
+            ),
             call_stack=self.call_stack,
         )
 
@@ -85,6 +89,7 @@ class WorkContext:
             primitives=self.primitives,
             variable_domains=self.variable_domains,
             integer_symbols=self.integer_symbols | extra_integer_symbols,
+            nonnegative_symbols=self.nonnegative_symbols,
             call_stack=(*self.call_stack, name),
         )
 
@@ -223,6 +228,9 @@ def cardinality(
     if extent_value is not None:
         return extent_value, None
     if is_integer_expression(lower, context) and is_integer_expression(upper, context):
+        symmetric = _symmetric_nonnegative_extent(lower, upper, context)
+        if symmetric is not None:
+            return symmetric, None
         extent = _add(_subtract(upper, lower), _ONE)
         return Call("Max", (extent, _ZERO)), None
     return (
@@ -237,10 +245,30 @@ def _contains_infinity(expression: Expression) -> bool:
     )
 
 
+def _symmetric_nonnegative_extent(
+    lower: Expression, upper: Expression, context: WorkContext
+) -> Expression | None:
+    if not isinstance(upper, Symbol) or upper.name not in context.nonnegative_symbols:
+        return None
+    if not (
+        isinstance(lower, BinaryExpression)
+        and lower.operator is BinaryOperator.MULTIPLY
+        and isinstance(lower.left, IntegerLiteral)
+        and lower.left.value == -1
+        and lower.right == upper
+    ):
+        return None
+    return _add(_multiply(IntegerLiteral(2), upper), _ONE)
+
+
 def _zero_to_nonnegative_extent(
     lower: Expression, upper: Expression, context: WorkContext
 ) -> Expression | None:
-    if not _is_zero(lower) or not isinstance(upper, BinaryExpression):
+    if not _is_zero(lower):
+        return None
+    if is_integer_expression(upper, context) and is_nonnegative_expression(upper, context):
+        return _add(upper, _ONE)
+    if not isinstance(upper, BinaryExpression):
         return None
     if upper.operator is not BinaryOperator.SUBTRACT or not _is_one(upper.right):
         return None
@@ -256,6 +284,8 @@ def is_nonnegative_expression(expression: Expression, context: WorkContext) -> b
     if isinstance(expression, RationalLiteral):
         return expression.numerator >= 0
     if isinstance(expression, (Symbol, IndexedValue)):
+        if isinstance(expression, Symbol) and expression.name in context.nonnegative_symbols:
+            return True
         declaration = context.variable_domains.get(expression.name)
         return declaration in {
             MathematicalDomain.NONNEGATIVE_INTEGER,
@@ -302,6 +332,14 @@ def is_positive_expression(expression: Expression, context: WorkContext) -> bool
         replacements = dict(zip(definition.parameters, expression.arguments, strict=True))
         return is_positive_expression(
             substitute(definition.body, replacements, max_nodes=MAX_WORK_NODES), context
+        )
+    if isinstance(expression, BinaryExpression) and expression.operator is BinaryOperator.ADD:
+        return (
+            is_positive_expression(expression.left, context)
+            and is_nonnegative_expression(expression.right, context)
+        ) or (
+            is_nonnegative_expression(expression.left, context)
+            and is_positive_expression(expression.right, context)
         )
     if isinstance(expression, BinaryExpression) and expression.operator is BinaryOperator.MULTIPLY:
         return is_positive_expression(expression.left, context) and is_positive_expression(
@@ -366,7 +404,8 @@ def render_work(expression: Expression, budget: WorkRenderBudget) -> str:
     if expression_node_count(expression) > MAX_WORK_NODES:
         raise ExpressionTooComplex("aggregate work exceeds its structural bound")
     budget.accept(expression)
-    return render(expression).sympy
+    polynomial = render_affine_direct_work(expression, max_nodes=MAX_WORK_NODES)
+    return polynomial if polynomial is not None else render(expression).sympy
 
 
 def _rendered_size_upper_bound(expression: Expression) -> int:
@@ -445,10 +484,20 @@ def aggregate_analysis(
     upper: Expression,
     context: WorkContext,
     label: str,
+    *,
+    proven_extent: Expression | None = None,
+    ordering_unresolved: str | None = None,
 ) -> tuple[WorkAnalysis, str | None]:
     """Aggregate over an output domain without erasing index-dependent work."""
-    count, unresolved = cardinality(lower, upper, context, label)
-
+    if proven_extent is None:
+        count, unresolved = cardinality(lower, upper, context, label)
+    else:
+        count, unresolved = proven_extent, None
+    if ordering_unresolved is not None:
+        return map_analysis(
+            analysis,
+            lambda value: Sum(value, index, lower, upper),
+        ), ordering_unresolved
     return map_analysis(
         analysis,
         lambda value: _aggregate_value(value, index, lower, upper, count),
@@ -463,8 +512,40 @@ def _aggregate_value(
     count: Expression,
 ) -> Expression:
     if index in _free_symbol_names(value):
-        return factor_independent(Sum(value, index, lower, upper), index)
+        return _close_affine_sum(factor_independent(Sum(value, index, lower, upper), index))
     return _multiply(count, value)
+
+
+def _close_affine_sum(expression: Expression) -> Expression:
+    """Close only bounded polynomial direct-work sums; retain all other sums exactly."""
+    if isinstance(expression, BinaryExpression):
+        return simplify_constants(BinaryExpression(
+            expression.operator,
+            _close_affine_sum(expression.left),
+            _close_affine_sum(expression.right),
+        ))
+    if not isinstance(expression, Sum):
+        return expression
+    try:
+        from py_science.formula.expressions import Equation, Relationship
+        from py_science.formula.parser import ParseFailure, parse_expression
+        from py_science.formula.sympy_backend import close_direct_work_sum
+
+        closed = close_direct_work_sum(
+            expression.body,
+            expression.index,
+            expression.lower,
+            expression.upper,
+            max_nodes=MAX_WORK_NODES,
+        )
+        if closed is None:
+            return expression
+        parsed = parse_expression(closed)
+        if isinstance(parsed, (ParseFailure, Equation, Relationship)):
+            return expression
+        return parsed
+    except Exception:
+        return expression
 
 
 def factor_independent(expression: Expression, index: str) -> Expression:
@@ -671,7 +752,10 @@ def substitute_analysis(
 
 
 def _analyze_sum(expression: Sum, context: WorkContext) -> WorkAnalysis:
-    scoped = context.with_integer_symbol(expression.index)
+    index_nonnegative = _is_zero(expression.lower) and is_nonnegative_expression(
+        expression.upper, context
+    )
+    scoped = context.with_integer_symbol(expression.index, nonnegative=index_nonnegative)
     body = analyze_work(expression.body, scoped)
     count, unresolved = cardinality(
         expression.lower,

@@ -1295,6 +1295,47 @@ def _to_query_sympy(expression: Expression) -> SympyExpression:
     return power(left, right)
 
 
+def render_affine_direct_work(expression: Expression, *, max_nodes: int) -> str | None:
+    """Factor a call-free polynomial direct-work expression within its work budget."""
+    try:
+        # Reparse only this internally rendered, already restricted IR to allow
+        # SymPy to evaluate the deliberately inert construction nodes.
+        symbolic = sympy.sympify(str(_to_sympy(expression)))
+        if not symbolic.is_polynomial():
+            return None
+        factored = sympy.factor(symbolic)
+        if sum(1 for _ in sympy.preorder_traversal(factored)) > max_nodes:
+            return None
+        return str(factored)
+    except Exception:
+        return None
+
+
+def close_direct_work_sum(
+    body: Expression,
+    index_name: str,
+    lower: Expression,
+    upper: Expression,
+    *,
+    max_nodes: int,
+) -> str | None:
+    """Close a bounded degree-two polynomial sum for direct-work accounting only."""
+    try:
+        index = sympy.Symbol(index_name)
+        symbolic_body = _to_sympy(body)
+        polynomial = sympy.Poly(symbolic_body, index)
+        if polynomial.degree() > 2:
+            return None
+        closed = sympy.factor(
+            sympy.summation(symbolic_body, (index, _to_sympy(lower), _to_sympy(upper)))
+        )
+        if sum(1 for _ in sympy.preorder_traversal(closed)) > max_nodes:
+            return None
+        return str(closed)
+    except Exception:
+        return None
+
+
 def _to_sympy(formula: Expression | Equation) -> SympyExpression:
     if isinstance(formula, IntegerLiteral):
         constructor = cast(Callable[[int], SympyExpression], sympy.Integer)

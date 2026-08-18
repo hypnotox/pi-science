@@ -1,5 +1,5 @@
 # ruff: noqa: E501
-# pyright: basic, reportArgumentType=false, reportOptionalMemberAccess=false, reportAttributeAccessIssue=false, reportOperatorIssue=false, reportUnknownMemberType=false, reportUnknownVariableType=false
+# pyright: basic, reportArgumentType=false, reportOptionalMemberAccess=false, reportOptionalSubscript=false, reportAttributeAccessIssue=false, reportOperatorIssue=false, reportCallIssue=false, reportUnknownMemberType=false, reportUnknownVariableType=false
 from typing import Any, cast
 
 import py_science.formula.service as formula_service
@@ -24,7 +24,7 @@ from py_science.formula import (
 )
 from py_science.formula.expressions import IntegerLiteral, Sum, Symbol
 from pydantic import ValidationError
-from sympy import Max, sympify  # type: ignore[import-untyped]
+from sympy import Max, simplify, sympify  # type: ignore[import-untyped]
 from sympy import Sum as SympySum  # type: ignore[import-untyped]
 
 
@@ -331,14 +331,31 @@ def test_system_validation_rejects_duplicate_results_cycles_and_bad_indices() ->
         assert outcome.status == "failure"
 
 
-def test_dependent_output_domains_are_rejected_and_output_indices_are_integral() -> None:
-    dependent = analyze(
+def test_dependent_output_domains_preserve_lhs_order_and_close_triangular_work() -> None:
+    triangular = analyze(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
             equations=(
                 EquationRequest(
                     name="a",
-                    expression="Eq(A[i, j], x[i])",
+                    expression="Eq(A[n, m], x + 1)",
+                    domains={
+                        "n": IndexDomain(lower="0", upper="p"),
+                        "m": IndexDomain(lower="-n", upper="n"),
+                    },
+                ),
+            ),
+            variables=variables("p", "x"),
+            scenarios=(Scenario(name="p12", fixed={"p": 12}), Scenario(name="p20", fixed={"p": 20})),
+        )
+    )
+    reversed_order = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=(
+                EquationRequest(
+                    name="b",
+                    expression="Eq(B[i, j], x + 1)",
                     domains={
                         "i": IndexDomain(lower="0", upper="j"),
                         "j": IndexDomain(lower="0", upper="N"),
@@ -348,24 +365,123 @@ def test_dependent_output_domains_are_rejected_and_output_indices_are_integral()
             variables=variables("N", "x"),
         )
     )
-    independent = analyze(
-        AnalysisRequest(
-            syntax=FormulaSyntax.SYMPY,
-            equations=(
-                EquationRequest(
-                    name="a",
-                    expression="Eq(A[i], x[i])",
-                    domains={"i": IndexDomain(lower="0", upper="N")},
-                ),
-            ),
-            variables=variables("N", "x"),
-        )
+    assert triangular.status == "success"
+    assert triangular.system is not None
+    report = triangular.system.equations[0]
+    assert report.interpretation.normalized_sympy.startswith("Eq(A[n, m]")
+    assert report.aggregate_work == "(p + 1)**2"
+    assert triangular.system.total_work == "(p + 1)**2"
+    assert [item.substituted_work for item in triangular.scenarios] == ["169", "441"]
+    assert all(name not in triangular.system.total_work for name in ("Max", "Sum"))
+    assert reversed_order.status == "success"
+    assert reversed_order.system is not None
+    assert reversed_order.system.equations[0].interpretation.normalized_sympy.startswith("Eq(B[i, j]")
+    assert reversed_order.system.total_work == "(N + 1)*(N + 2)/2"
+
+
+def test_dependent_output_domain_cycles_and_non_affine_bounds_are_local_errors() -> None:
+    requests = (
+        ({"i": IndexDomain(lower="0", upper="i")}, "domains.i.upper"),
+        ({"i": IndexDomain(lower="0", upper="j"), "j": IndexDomain(lower="0", upper="i")}, "domains"),
+        ({"i": IndexDomain(lower="0", upper="f(j)"), "j": IndexDomain(lower="0", upper="N")}, "domains.i.upper"),
+        ({"i": IndexDomain(lower="0", upper="j**2"), "j": IndexDomain(lower="0", upper="N")}, "domains.i.upper"),
     )
-    assert dependent.status == "failure"
-    assert "cannot depend on output indices: j" in dependent.error.message
-    assert independent.status == "success"
-    assert independent.system is not None
-    assert independent.system.unresolved == ()
+    for domains, path in requests:
+        indices = ", ".join(domains)
+        outcome = analyze(AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=(EquationRequest(name="bad", expression=f"Eq(A[{indices}], x)", domains=domains),),
+            variables=variables("N", "x"),
+        ))
+        assert outcome.status == "failure"
+        location = outcome.error.source.path if outcome.error.source is not None else outcome.error.message
+        assert path in location or "output-domain bounds cannot depend" in outcome.error.message
+
+
+def test_affine_domain_ordering_uses_named_relationship_provenance() -> None:
+    qualified = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(EquationRequest(
+            name="c",
+            expression="Eq(C[i], x[i] + 1)",
+            domains={"i": IndexDomain(lower="0", upper="sigma - h")},
+        ),),
+        variables={
+            "h": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER),
+            "sigma": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER),
+            "x": VariableDeclaration(domain=MathematicalDomain.REAL),
+        },
+        assumptions=(Assumption(name="h_le_sigma", relationship="h <= sigma"),),
+    ))
+    unresolved = analyze(AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(EquationRequest(
+            name="c",
+            expression="Eq(C[i], x[i] + 1)",
+            domains={"i": IndexDomain(lower="0", upper="sigma - h")},
+        ),),
+        variables={
+            "h": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER),
+            "sigma": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER),
+            "x": VariableDeclaration(domain=MathematicalDomain.REAL),
+        },
+    ))
+    assert qualified.status == "success" and qualified.system is not None
+    assert qualified.system.total_work == "-h + sigma + 1"
+    assert [item.name for item in qualified.system.relationships_used] == ["h_le_sigma"]
+    assert qualified.system.unresolved == ()
+    assert unresolved.status == "success" and unresolved.system is not None
+    assert "Sum" in unresolved.system.total_work
+    assert "ordering or finiteness is unproved" in " ".join(unresolved.system.unresolved)
+
+
+def test_harmonic_style_system_closes_dependent_domain_work_without_special_semantics() -> None:
+    positive_real = VariableDeclaration(domain=MathematicalDomain.POSITIVE_REAL)
+    request = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(
+            EquationRequest(name="ratio_t", expression="Eq(r_t, h_t / sigma)"),
+            EquationRequest(name="ratio_s", expression="Eq(r_s, h_s / sigma)"),
+            EquationRequest(name="factor_t", expression="Eq(a[n], r_t**n)", domains={"n": IndexDomain(lower="0", upper="p")}),
+            EquationRequest(name="factor_s", expression="Eq(b[k], r_s**k)", domains={"k": IndexDomain(lower="0", upper="p")}),
+            EquationRequest(name="scale", expression="Eq(S[n, k], a[n] * b[k])", domains={"n": IndexDomain(lower="0", upper="p"), "k": IndexDomain(lower="0", upper="p")}),
+            EquationRequest(
+                name="translation",
+                expression="Eq(L[n, m], a[n] * Sum(b[k] * Sum(conjugate(M[k, l]) * harmonic(n + k, m + l), (l, -k, k)), (k, 0, p)))",
+                domains={"n": IndexDomain(lower="0", upper="p"), "m": IndexDomain(lower="-n", upper="n")},
+            ),
+        ),
+        variables={
+            "p": VariableDeclaration(domain=MathematicalDomain.POSITIVE_INTEGER),
+            "h_t": positive_real,
+            "h_s": positive_real,
+            "sigma": positive_real,
+            "M": VariableDeclaration(domain=MathematicalDomain.REAL),
+        },
+        primitive_costs=(
+            PrimitiveCost(name="conjugate", parameters=("value",), work="1"),
+            PrimitiveCost(name="harmonic", parameters=("degree", "order"), work="1"),
+        ),
+    )
+    outcome = analyze(request)
+    assert outcome.status == "success" and outcome.system is not None
+    system = outcome.system
+    assert system.dependency_edges == (
+        ("ratio_s", "factor_s"), ("ratio_t", "factor_t"),
+        ("factor_s", "scale"), ("factor_t", "scale"),
+        ("factor_s", "translation"), ("factor_t", "translation"),
+    )
+    assert all(item.references == 1 for item in system.reuse)
+    translation = next(item for item in system.equations if item.name == "translation")
+    assert translation.interpretation.normalized_sympy.startswith("Eq(L[n, m]")
+    expected = sympify("(p + 1)**2*(6*p**2 + 13*p + 7)")
+    assert simplify(sympify(translation.aggregate_work) - expected) == 0
+    assert translation.primitive_invocations == {
+        "conjugate": "(p + 1)**4", "harmonic": "(p + 1)**4"
+    }
+    for value, work, invocations in ((12, 173563, 28561), (20, 1176147, 194481)):
+        assert int(expected.subs({"p": value})) == work
+        assert int(sympify(translation.primitive_invocations["harmonic"]).subs({"p": value})) == invocations
 
 
 def test_request_wide_generic_arities_and_parameter_scopes_are_validated() -> None:
@@ -730,14 +846,14 @@ def test_afmm_like_request_reports_structural_work_scenarios_and_uncertainty() -
     ]
     assert system.equations[0].aggregate_work == "D_dim*N"
     assert system.equations[1].aggregate_work == (
-        "N*Sum(2*a + 1, (a, 0, -1 + p**2)) + N*p**2 + "
+        "N*p**2 + N*(p**2)**2 + "
         "Sum(Max(0, n[b] - 1), (b, 0, B_leaf - 1))*p**2"
     )
     assert system.total_work is not None
     assert system.primitive_invocations is not None
     assert system.equations[1].primitive_invocations is not None
     assert system.equations[2].aggregate_work is not None
-    assert system.total_work.startswith("D_dim*N + N*Sum(2*a + 1")
+    assert system.total_work.startswith("D_dim*N + N*p**2 + N*(p**2)**2")
     assert system.primitive_invocations["basis"] == "N*p**2"
     assert [item.name for item in system.relationships_used] == [
         "function:K",
@@ -751,7 +867,7 @@ def test_afmm_like_request_reports_structural_work_scenarios_and_uncertainty() -
     assert len(outcome.scenarios) == 3
     scenarios = {item.name: item for item in outcome.scenarios}
     assert scenarios["particles_scale"].substitutions["p"] == "8"
-    assert "67*N" in scenarios["particles_scale"].substituted_work
+    assert "4163*N" in scenarios["particles_scale"].substituted_work
     assert scenarios["order_scales"].substitutions["N"] == "1000"
     assert "1000*p**2" in scenarios["order_scales"].substituted_work
     assert [item.name for item in scenarios["particles_scale"].relationships_used] == [

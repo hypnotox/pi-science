@@ -400,7 +400,6 @@ def test_non_utf8_expression_returns_consumer_facing_malformed_syntax() -> None:
         "True",
         "x and y",
         "x < y",
-        "-x",
         "--1",
         "x // y",
     ],

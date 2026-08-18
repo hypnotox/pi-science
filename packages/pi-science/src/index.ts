@@ -98,9 +98,9 @@ export async function start(
     name: "analyze_formula",
     label: "Analyze formula",
     description:
-      "Analyze one restricted SymPy expression or named equation system with bounded nested finite-work analysis",
+      "Analyze one restricted SymPy expression or named equation system with bounded nested finite-work and acyclic affine output-domain analysis",
     promptSnippet:
-      "Analyze restricted-SymPy formulas for normalized interpretation and qualified symbolic work with nested finite binders",
+      "Analyze restricted-SymPy formulas for normalized interpretation and qualified symbolic work with nested binders and dependent affine output domains",
     promptGuidelines: [
       "Before first using analyze_formula, read the available pi-science-formula-analysis skill for the accepted dialect, request modeling, and result interpretation.",
       "When analyze_formula rejects a request, use its Python-owned message and any returned path, span, or supported alternative to correct the request.",

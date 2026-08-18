@@ -36,7 +36,7 @@ A minimal expression call is:
 
 ## Model an equation system
 
-Represent vectors and tensors as indexed scalar algebra, for example `x[i, d]`. Give every free output index a local equation `domains` entry and every external symbol an intrinsic `variables` domain. A `Sum` iterator is local to its body, and its bounds are inclusive. Use a mathematical `functions` body when a call's formula is known, a scalar `primitive_costs` expression when only its work is known, or neither when its cost must remain unresolved. A function cannot have both. Add only explicit named `assumptions`, acyclic directed `definitions`, and scenario treatments; never ask the tool to infer them.
+Represent vectors and tensors as indexed scalar algebra, for example `x[i, d]`. Give every free output index a local equation `domains` entry and every external symbol an intrinsic `variables` domain. Output bounds may reference other output indices when the inferred dependency graph is acyclic and each dependent bound is an affine integer sum; LHS order remains coordinate order and only breaks topological ties. Reject self/cyclic dependencies and dependent calls, indexed values, symbolic products, powers, division, or aggregate operators; independent bounds retain their established family. A `Sum` iterator is local to its body, and its bounds are inclusive. Use a mathematical `functions` body when a call's formula is known, a scalar `primitive_costs` expression when only its work is known, or neither when its cost must remain unresolved. A function cannot have both. Add only explicit named `assumptions`, acyclic directed `definitions`, and scenario treatments; never ask the tool to infer them.
 
 ```json
 {
@@ -67,7 +67,7 @@ Represent vectors and tensors as indexed scalar algebra, for example `x[i, d]`. 
 }
 ```
 
-Nested finite sums preserve exact direct work with each iterator lexically bound in symbolic operation counts, opaque work, and primitive invocations; a symbolic `Sum` is an exact populated work value, while an unproved cardinality remains explicitly unresolved. This direct-work behavior does not make nested mathematical closed-form queries supported. Scenarios may select fixed exact values, finite choices, finite bounds, directed definitions, or asymptotic variables without changing the general report. Exact scalars use JavaScript-safe JSON integers or strings such as `1/2` and `1.20`.
+Nested finite sums and dependent output domains preserve exact direct work with each iterator lexically bound in symbolic operation counts, opaque work, and primitive invocations. Domains aggregate in reverse stable dependency order; bounded affine sums close from intrinsic, submitted, and predecessor-domain facts with relationship provenance. A symbolic `Sum` remains an exact populated fallback, while unproved cardinality, ordering, or finiteness stays explicitly unresolved. This direct-work behavior does not make nested mathematical closed-form queries supported. Scenarios may select fixed exact values, finite choices, finite bounds, directed definitions, or asymptotic variables without changing the general report. Exact scalars use JavaScript-safe JSON integers or strings such as `1/2` and `1.20`.
 
 ## Ask bounded mathematical queries
 

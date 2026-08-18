@@ -264,6 +264,15 @@ def _convert(node: ast.expr, numeric_lexemes: dict[tuple[int, int], str]) -> Par
     if (isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub)
             and isinstance(node.operand, ast.Name) and node.operand.id == "oo"):
         return InfinityLiteral(-1)
+    if (
+        isinstance(node, ast.UnaryOp)
+        and isinstance(node.op, ast.USub)
+        and isinstance(node.operand, ast.Name)
+    ):
+        symbol = _symbol(node.operand)
+        if isinstance(symbol, ParseFailure):
+            return symbol
+        return BinaryExpression(BinaryOperator.MULTIPLY, IntegerLiteral(-1), symbol)
     if isinstance(node, ast.Name):
         if node.id == "oo":
             return InfinityLiteral(1)

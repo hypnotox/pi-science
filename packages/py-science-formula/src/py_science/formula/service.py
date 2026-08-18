@@ -8,6 +8,9 @@ from itertools import product
 from math import ceil, floor
 
 from py_science.formula.analyzer import OperationTally, count_operations
+from py_science.formula.domains import OutputDomain, build_output_domains
+from py_science.formula.domains import extent as domain_extent
+from py_science.formula.domains import free_symbols as domain_free_symbols
 from py_science.formula.exact_values import parse_exact_scalar
 from py_science.formula.expressions import (
     BinaryExpression,
@@ -103,6 +106,8 @@ class ParsedEquation:
     request: EquationRequest
     formula: Equation
     domains: dict[str, tuple[Expression, Expression]]
+    output_domains: tuple[OutputDomain, ...]
+    domain_order: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -844,6 +849,14 @@ def _analyze_system(
     reports: dict[str, EquationReport] = {}
     analyses: dict[str, WorkAnalysis] = {}
     relationship_uses: dict[str, RelationshipUse] = {}
+    try:
+        domain_reasoning = ReasoningContext.build(
+            {name: declaration.domain for name, declaration in request.variables.items()},
+            knowledge.definitions,
+            knowledge.assumptions,
+        )
+    except ExpressionTooComplex:
+        return _complexity_failure("output-domain assumptions exceed the reasoning bound")
     all_extractions: list[str] = []
     for name in order:
         equation = by_name[name]
@@ -863,14 +876,37 @@ def _analyze_system(
         _bound_substitution_expansion(equation.formula.right, scoped_context.definitions)
         analysis = analyze_work(equation.formula.right, scoped_context)
         analysis.unresolved.update(index_unresolved.get(name, ()))
-        for index, (lower, upper) in equation.domains.items():
+        by_index = {domain.index: domain for domain in equation.output_domains}
+        domain_uses: list[RelationshipUse] = []
+        for index in reversed(equation.domain_order):
+            domain = by_index[index]
+            count, ordered, uses = domain_extent(domain, by_index, domain_reasoning)
+            domain_uses.extend(uses)
+            for dependency in sorted(domain.dependencies):
+                predecessor = by_index[dependency]
+                domain_uses.append(RelationshipUse(
+                    name=f"domain:{dependency}",
+                    relationship=(
+                        f"{render(predecessor.lower).sympy} <= {dependency} <= "
+                        f"{render(predecessor.upper).sympy}"
+                    ),
+                ))
+            external_bound_symbols = (
+                domain_free_symbols(domain.lower) | domain_free_symbols(domain.upper)
+            ) - set(by_index)
+            relational_domain = bool(domain.dependencies) or len(external_bound_symbols) > 1
             analysis, unresolved = aggregate_analysis(
                 analysis,
                 index,
-                lower,
-                upper,
+                domain.lower,
+                domain.upper,
                 scoped_context,
                 f"equation {name} output index {index}",
+                proven_extent=count if ordered and relational_domain else None,
+                ordering_unresolved=(
+                    f"equation {name} output index {index} ordering or finiteness is unproved"
+                    if relational_domain and not ordered else None
+                ),
             )
             if unresolved is not None:
                 analysis.unresolved.add(unresolved)
@@ -881,6 +917,12 @@ def _analyze_system(
             report_unmatched=False,
             mathematical_expression=equation.formula.right,
         )
+        used = tuple({item.name: item for item in (*domain_uses, *used)}.values())
+        domain_use_names = {item.name for item in domain_uses}
+        analysis.unresolved = {
+            item for item in analysis.unresolved
+            if not any(item.startswith(f"assumption {used_name}:") for used_name in domain_use_names)
+        }
         relationship_uses.update({item.name: item for item in used})
         analyses[name] = analysis
         tally = count_operations(equation.formula.right)
@@ -1001,15 +1043,22 @@ def _parse_equations(
                     supported_alternative="use a finite computational domain bound",
                 )
             domains[index] = (lower, upper)
-        output_indices = set(domains)
-        for lower, upper in domains.values():
-            dependent = (_symbol_names(lower) | _symbol_names(upper)) & output_indices
-            if dependent:
-                return _invalid(
-                    f"equation {item.name} output-domain bounds cannot depend on output indices: "
-                    + ", ".join(sorted(dependent))
-                )
-        result.append(ParsedEquation(item, parsed, domains))
+        built = build_output_domains(
+            domains,
+            lhs_indices_or_failure,
+            equation_position,
+            frozenset(
+                name for name, declaration in request.variables.items()
+                if declaration.domain.is_integer
+            ),
+        )
+        if not isinstance(built, tuple):
+            return _invalid(
+                f"equation {item.name}: {built.message}",
+                source=SourceReference(path=built.path),
+            )
+        output_domains, domain_order = built
+        result.append(ParsedEquation(item, parsed, domains, output_domains, domain_order))
     return tuple(result)
 
 

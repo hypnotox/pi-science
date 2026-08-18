@@ -73,6 +73,7 @@ class ReasoningContext:
     replacement_uses: tuple[RelationshipUse, ...]
     facts: dict[str, DomainFact]
     unsupported: tuple[tuple[str, frozenset[str]], ...]
+    affine_relationships: tuple[Any, ...]
 
     @classmethod
     def build(
@@ -126,6 +127,7 @@ class ReasoningContext:
             tuple(replacement_uses),
             facts,
             tuple(unsupported),
+            tuple(inequalities),
         )
 
     def apply(self, expression: Expression) -> Expression:
@@ -273,6 +275,9 @@ class ReasoningContext:
         sign, uses = self._affine_sign(value)
         if sign is not None and sign >= 0:
             return True, uses
+        relationship_use = self._submitted_nonnegative_use(value)
+        if relationship_use is not None:
+            return True, (relationship_use,)
         try:
             if not rational_ir_preflight(value, max_degree=1):
                 return False, ()
@@ -295,6 +300,35 @@ class ReasoningContext:
             return True, fact.sources
         except Exception:
             return False, ()
+
+    def _submitted_nonnegative_use(self, expression: Expression) -> RelationshipUse | None:
+        """Match a normalized affine difference to one submitted directed inequality."""
+        try:
+            target = sympy.expand(_to_sympy(expression))
+            if not rational_ir_preflight(expression, max_degree=1):
+                return None
+            for item in self.affine_relationships:
+                relationship: Relationship = item.value
+                left = sympy.expand(_to_sympy(self.apply(relationship.left)))
+                right = sympy.expand(_to_sympy(self.apply(relationship.right)))
+                if relationship.operator in {
+                    RelationshipOperator.LESS,
+                    RelationshipOperator.LESS_EQUAL,
+                }:
+                    candidate = sympy.expand(right - left)
+                elif relationship.operator in {
+                    RelationshipOperator.GREATER,
+                    RelationshipOperator.GREATER_EQUAL,
+                }:
+                    candidate = sympy.expand(left - right)
+                else:
+                    continue
+                remainder = sympy.expand(target - candidate)
+                if remainder.is_Rational and remainder >= 0:
+                    return RelationshipUse(name=item.name, relationship=item.source)
+        except Exception:
+            return None
+        return None
 
     def _affine_sign(
         self, expression: Expression

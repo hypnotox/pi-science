@@ -8,6 +8,7 @@ import { Value } from "typebox/value";
 import { describe, expect, it, vi } from "vitest";
 import {
   type FormulaParameters,
+  formulaSchema,
   resolvePinnedRevision,
   resolvePinnedSource,
   start,
@@ -418,6 +419,143 @@ describe("readiness gate", () => {
           ),
         },
       ],
+    });
+  });
+
+  it("round trips an acyclic affine output domain through the registered tool", async () => {
+    const current = host();
+    const adapter = fileURLToPath(
+      new URL("../bridge/formula_adapter.py", import.meta.url),
+    );
+    await start(
+      current.api,
+      Promise.resolve({
+        ready: true,
+        command: "uv",
+        args: ["run", "--locked", "python", adapter],
+      }),
+    );
+    const parameters: FormulaParameters = {
+      equations: [
+        {
+          name: "triangular",
+          expression: "Eq(A[n, m], x + 1)",
+          domains: {
+            n: { lower: "0", upper: "p" },
+            m: { lower: "-n", upper: "n" },
+          },
+        },
+      ],
+      variables: {
+        p: { domain: "nonnegative_integer" },
+        x: { domain: "real" },
+      },
+      scenarios: [
+        { name: "p12", fixed: { p: 12 } },
+        { name: "p20", fixed: { p: 20 } },
+      ],
+    };
+    expect(Value.Check(formulaSchema, parameters)).toBe(true);
+    const result = await current.tools[0]!.execute("id", parameters);
+    expect(result.details).toMatchObject({
+      status: "success",
+      system: {
+        total_work: "(p + 1)**2",
+        unresolved: [],
+        equations: [
+          {
+            interpretation: { normalized_sympy: "Eq(A[n, m], x + 1)" },
+            aggregate_work: "(p + 1)**2",
+          },
+        ],
+      },
+      scenarios: [
+        { name: "p12", substituted_work: "169", unresolved: [] },
+        { name: "p20", substituted_work: "441", unresolved: [] },
+      ],
+    });
+  });
+
+  it("round trips the harmonic-style affine acceptance system through Python policy", async () => {
+    const current = host();
+    const adapter = fileURLToPath(
+      new URL("../bridge/formula_adapter.py", import.meta.url),
+    );
+    await start(
+      current.api,
+      Promise.resolve({
+        ready: true,
+        command: "uv",
+        args: ["run", "--locked", "python", adapter],
+      }),
+    );
+    const result = await current.tools[0]!.execute("id", {
+      equations: [
+        { name: "ratio_t", expression: "Eq(r_t, h_t / sigma)" },
+        { name: "ratio_s", expression: "Eq(r_s, h_s / sigma)" },
+        {
+          name: "factor_t",
+          expression: "Eq(a[n], r_t**n)",
+          domains: { n: { lower: "0", upper: "p" } },
+        },
+        {
+          name: "factor_s",
+          expression: "Eq(b[k], r_s**k)",
+          domains: { k: { lower: "0", upper: "p" } },
+        },
+        {
+          name: "scale",
+          expression: "Eq(S[n, k], a[n] * b[k])",
+          domains: {
+            n: { lower: "0", upper: "p" },
+            k: { lower: "0", upper: "p" },
+          },
+        },
+        {
+          name: "translation",
+          expression:
+            "Eq(L[n, m], a[n] * Sum(b[k] * Sum(conjugate(M[k, l]) * harmonic(n + k, m + l), (l, -k, k)), (k, 0, p)))",
+          domains: {
+            n: { lower: "0", upper: "p" },
+            m: { lower: "-n", upper: "n" },
+          },
+        },
+      ],
+      variables: {
+        p: { domain: "positive_integer" },
+        h_t: { domain: "positive_real" },
+        h_s: { domain: "positive_real" },
+        sigma: { domain: "positive_real" },
+        M: { domain: "real" },
+      },
+      primitive_costs: [
+        { name: "conjugate", parameters: ["value"], work: "1" },
+        { name: "harmonic", parameters: ["degree", "order"], work: "1" },
+      ],
+    });
+    expect(result.details).toMatchObject({
+      status: "success",
+      system: {
+        dependency_edges: [
+          ["ratio_s", "factor_s"],
+          ["ratio_t", "factor_t"],
+          ["factor_s", "scale"],
+          ["factor_t", "scale"],
+          ["factor_s", "translation"],
+          ["factor_t", "translation"],
+        ],
+        unresolved: [],
+        equations: expect.arrayContaining([
+          expect.objectContaining({
+            name: "translation",
+            aggregate_work: "(p + 1)**3*(6*p + 7)",
+            primitive_invocations: {
+              conjugate: "(p + 1)**4",
+              harmonic: "(p + 1)**4",
+            },
+          }),
+        ]),
+      },
     });
   });
 
