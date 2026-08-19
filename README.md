@@ -48,6 +48,14 @@ Use one expression for an isolated calculation. Use named equations when results
 {"expression":"Sum(x[i]**2, (i, 0, N - 1))","variables":{"N":{"domain":"positive_integer"},"x":{"domain":"real"}}}
 ```
 
+To compare exactly two formulations, map each logical output once to each candidate:
+
+```json
+{"operation":"compare_candidates","candidates":[{"name":"first","expression":"x + 1"},{"name":"second","expression":"1 + x"}],"outputs":[{"name":"value","targets":[{"candidate":"first","target":{"kind":"expression"}},{"candidate":"second","target":{"kind":"expression"}}]}]}
+```
+
+Inspect mapped-output semantics before the aggregate-work relation. The reported delta is `second - first`; a preference or crossover is returned only when semantics and the bounded sign family support it. Otherwise blockers and unknown costs preserve abstention. Aggregate abstract work is not runtime, storage, machine arithmetic, or global optimality. Comparison requests exclude scenarios, general queries, transformations, resource vectors, parameter search, and expanded AFMM modeling.
+
 The shipped dialect accepts exact literals, ordinary symbols and positional calls, indexed scalars, arithmetic, one-limit inclusive `Sum`, `Eq`, single relationships, and `oo` or `-oo`. The product skill owns the full accepted and rejected spelling guide. Express vector and tensor components through indexed scalar algebra, declare every free output index and external variable domain, and attach only explicit mathematical knowledge:
 
 - a function body when the mathematical definition is known;
