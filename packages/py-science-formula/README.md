@@ -72,7 +72,38 @@ result = compare_candidates(CandidateComparisonRequest(
 ))
 ```
 
-Named systems may map an `EquationTarget` instead; comparison-only bounded expansion follows mapped producer references while each candidate's original reuse-aware graph supplies its work. Pi transport remains future work.
+Named systems map an `EquationTarget`; comparison-only bounded expansion follows mapped producer references while each candidate's original reuse-aware graph supplies its work:
+
+```python
+from py_science.formula import (
+    CandidateComparisonRequest, CandidateComputation, CandidateOutputMapping,
+    CandidateTargetReference, EquationRequest, EquationTarget, FormulaSyntax,
+    MathematicalDomain, VariableDeclaration, compare_candidates,
+)
+
+named = compare_candidates(CandidateComparisonRequest(
+    syntax=FormulaSyntax.SYMPY,
+    variables={
+        "x": VariableDeclaration(domain=MathematicalDomain.REAL),
+        "d": VariableDeclaration(domain=MathematicalDomain.REAL),
+    },
+    candidates=(
+        CandidateComputation(name="factored", equations=(
+            EquationRequest(name="reciprocal", expression="Eq(r, 1 / d)"),
+            EquationRequest(name="value", expression="Eq(y, x * r)"),
+        )),
+        CandidateComputation(name="direct", equations=(
+            EquationRequest(name="value", expression="Eq(z, x / d)"),
+        )),
+    ),
+    outputs=(CandidateOutputMapping(name="value", targets=(
+        CandidateTargetReference(candidate="factored", target=EquationTarget(name="value")),
+        CandidateTargetReference(candidate="direct", target=EquationTarget(name="value")),
+    )),),
+))
+```
+
+Pi transport remains future work.
 
 ## Bounded queries
 

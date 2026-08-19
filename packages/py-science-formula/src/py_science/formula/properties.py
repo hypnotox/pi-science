@@ -540,33 +540,62 @@ def _factor_sign_at(
 def _domain_interior_point(
     left: Any | None, right: Any | None, fact: DomainFact | None
 ) -> Any | None:
-    lower = Fraction(int(left.p), int(left.q)) if left is not None else None
-    upper = Fraction(int(right.p), int(right.q)) if right is not None else None
-    if fact is not None:
-        if fact.lower is not None and (lower is None or fact.lower > lower):
-            lower = fact.lower
-        if fact.upper is not None and (upper is None or fact.upper < upper):
-            upper = fact.upper
+    chart_lower = Fraction(int(left.p), int(left.q)) if left is not None else None
+    chart_upper = Fraction(int(right.p), int(right.q)) if right is not None else None
     if fact is not None and fact.integer:
-        # Open chart cells need an integer representative, not merely a rational
-        # midpoint (for example (-1/2, oo) contains 0).
-        candidate = (
-            Fraction((lower.numerator // lower.denominator) + 1)
-            if lower is not None
-            else Fraction(0)
+        # Chart boundaries are open, while active-domain boundaries retain their
+        # own inclusive/strict spelling. Pick an actual integer in the
+        # intersection instead of accidentally discarding an inclusive endpoint.
+        least = (
+            chart_lower.numerator // chart_lower.denominator + 1
+            if chart_lower is not None
+            else None
         )
-        if upper is not None and candidate >= upper:
+        greatest = (
+            -((-chart_upper.numerator) // chart_upper.denominator) - 1
+            if chart_upper is not None
+            else None
+        )
+        if fact.lower is not None:
+            domain_least = (
+                fact.lower.numerator // fact.lower.denominator + 1
+                if fact.lower_strict
+                else -((-fact.lower.numerator) // fact.lower.denominator)
+            )
+            least = domain_least if least is None else max(least, domain_least)
+        if fact.upper is not None:
+            domain_greatest = (
+                -((-fact.upper.numerator) // fact.upper.denominator) - 1
+                if fact.upper_strict
+                else fact.upper.numerator // fact.upper.denominator
+            )
+            greatest = (
+                domain_greatest
+                if greatest is None
+                else min(greatest, domain_greatest)
+            )
+        if least is not None and greatest is not None and least > greatest:
             return None
-    elif lower is not None and upper is not None:
-        if lower >= upper:
-            return None
-        candidate = (lower + upper) / 2
-    elif lower is not None:
-        candidate = lower + 1
-    elif upper is not None:
-        candidate = upper - 1
+        integer = least if least is not None else min(0, greatest or 0)
+        candidate = Fraction(integer)
     else:
-        candidate = Fraction(0)
+        lower = chart_lower
+        upper = chart_upper
+        if fact is not None:
+            if fact.lower is not None and (lower is None or fact.lower > lower):
+                lower = fact.lower
+            if fact.upper is not None and (upper is None or fact.upper < upper):
+                upper = fact.upper
+        if lower is not None and upper is not None:
+            if lower >= upper:
+                return None
+            candidate = (lower + upper) / 2
+        elif lower is not None:
+            candidate = lower + 1
+        elif upper is not None:
+            candidate = upper - 1
+        else:
+            candidate = Fraction(0)
     point = sympy.Rational(candidate.numerator, candidate.denominator)
     if (left is not None and point <= left) or (right is not None and point >= right):
         return None
