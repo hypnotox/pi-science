@@ -189,10 +189,8 @@ def _refused(
 
 def _roots(value: Any, variable: Any) -> tuple[tuple[Any, int], ...] | None:
     roots = property_factor_roots(value, variable)
-    if roots is None:
+    if roots is None or not all(root.is_Rational for root, _ in roots):
         return None
-    if not all(root.is_Rational for root, _ in roots):
-        return roots
     return tuple(sorted(roots, key=lambda item: _fraction(item[0])))
 
 

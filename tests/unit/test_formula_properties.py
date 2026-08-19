@@ -73,6 +73,20 @@ def test_structural_chart_retains_canceled_denominators_and_refuses_unknown_root
     assert unsupported.refusal is not None
     assert unsupported.refusal.reason == "original denominator roots are unsupported"
 
+    parameter_reasoning = ReasoningContext.build(
+        {"x": MathematicalDomain.REAL, "a": MathematicalDomain.REAL}, (), ()
+    )
+    moving_root = properties.structural_sign_chart(
+        parse_expression("x - a"), "x", parameter_reasoning
+    )
+    moving_obligation = properties.structural_sign_chart(
+        parse_expression("(x - a) / (x - a)"), "x", parameter_reasoning
+    )
+    assert moving_root.refusal is not None
+    assert moving_root.refusal.reason == "exact factor sign chart is unsupported"
+    assert moving_obligation.refusal is not None
+    assert moving_obligation.refusal.reason == "original denominator roots are unsupported"
+
 
 def test_structural_chart_honors_axis_kind_roots_and_active_domain():
     integer_reasoning = ReasoningContext.build(
@@ -232,8 +246,21 @@ def test_exact_domain_singularities_and_factor_sign_chart():
     answers = outcome.queries[0].answers
     assert answers[0].conclusion == answers[1].conclusion == answers[2].conclusion == "proved"
     assert answers[0].evidence.value == "exclude 1"
-    assert "pole of order 1" in answers[1].evidence.value
-    assert answers[2].evidence.intervals
+    assert answers[1].model_dump_json() == (
+        '{"check":{"kind":"singularities","variable":"x"},"conclusion":"proved",'
+        '"conditions":[],"assumptions_used":[],"relevant_unsupported_assumptions":[],'
+        '"blockers":[],"evidence":{"kind":"property",'
+        '"value":"x = 1: pole of order 1","intervals":[]},'
+        '"derived_candidates":[],"constraint_uses":[]}'
+    )
+    assert answers[2].model_dump_json() == (
+        '{"check":{"kind":"sign"},"conclusion":"proved","conditions":[],'
+        '"assumptions_used":[],"relevant_unsupported_assumptions":[],"blockers":[],'
+        '"evidence":{"kind":"property","value":"sign chart",'
+        '"intervals":["(-oo, -1): positive","(-1, 1): negative",'
+        '"(1, oo): positive","-1: zero"]},'
+        '"derived_candidates":[],"constraint_uses":[]}'
+    )
 
 
 def test_cancelled_roots_are_not_singular_and_directional_poles_are_exact():
