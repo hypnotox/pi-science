@@ -279,6 +279,7 @@ def _dominance_fixed_assumption_failure(
         # Dominance policy will return qualified abstention for unavailable
         # supplemental reasoning; do not turn that into a confident rejection.
         return None
+    fixed_expressions = {name: _scenario_literal(raw) for name, raw in request.fixed.items()}
     for name, raw in request.fixed.items():
         value = _exact_fraction(raw)
         fact = reasoning.facts.get(name)
@@ -287,14 +288,64 @@ def _dominance_fixed_assumption_failure(
             or (fact.lower is not None and (value < fact.lower or (value == fact.lower and fact.lower_strict)))
             or (fact.upper is not None and (value > fact.upper or (value == fact.upper and fact.upper_strict)))
         )
-        replacement = reasoning.replacements.get(name)
-        replacement_value = _constant_value(replacement) if replacement is not None else None
+        try:
+            resolved = substitute(
+                reasoning.apply(Symbol(name)), fixed_expressions, max_nodes=4_096
+            )
+        except Exception:
+            resolved = Symbol(name)
+        replacement_value = _constant_value(resolved)
         if contradicts_fact or (replacement_value is not None and replacement_value != value):
             return _invalid(
                 f"fixed substitution contradicts assumptions for {name}",
                 source=SourceReference(path=f"fixed.{name}"),
             )
+    for assumption in computed.knowledge.assumptions:
+        try:
+            left = _constant_value(
+                substitute(
+                    reasoning.apply(assumption.value.left),
+                    fixed_expressions,
+                    max_nodes=4_096,
+                )
+            )
+            right = _constant_value(
+                substitute(
+                    reasoning.apply(assumption.value.right),
+                    fixed_expressions,
+                    max_nodes=4_096,
+                )
+            )
+        except Exception:
+            continue
+        if left is None or right is None or _fixed_relationship_holds(
+            assumption.value.operator, left, right
+        ):
+            continue
+        relevant = sorted(
+            (_symbol_names(assumption.value.left) | _symbol_names(assumption.value.right))
+            & request.fixed.keys()
+        )
+        name = relevant[0] if relevant else next(iter(request.fixed))
+        return _invalid(
+            f"fixed substitution contradicts assumptions for {name}",
+            source=SourceReference(path=f"fixed.{name}"),
+        )
     return None
+
+
+def _fixed_relationship_holds(
+    operator: RelationshipOperator, left: Fraction, right: Fraction
+) -> bool:
+    if operator is RelationshipOperator.EQUAL:
+        return left == right
+    if operator is RelationshipOperator.LESS:
+        return left < right
+    if operator is RelationshipOperator.LESS_EQUAL:
+        return left <= right
+    if operator is RelationshipOperator.GREATER:
+        return left > right
+    return left >= right
 
 
 def _analyze_computation(request: AnalysisRequest) -> _AnalyzedComputation | AnalysisFailure:

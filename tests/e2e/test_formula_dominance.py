@@ -1,7 +1,8 @@
-from typing import Any
+from typing import Any, cast
 
 import py_science.formula.dominance as dominance_policy
 import py_science.formula.service as formula_service
+import py_science.formula.sympy_backend as sympy_backend
 import pytest
 from py_science.formula import (
     AnalysisFailure,
@@ -10,6 +11,7 @@ from py_science.formula import (
     DominanceAnalysisRequest,
     DominanceAnalysisSuccess,
     DominanceRange,
+    ExactScenarioScalar,
     FormulaSyntax,
     MathematicalDomain,
     PrimitiveCost,
@@ -17,6 +19,8 @@ from py_science.formula import (
     analyze,
     analyze_dominance,
 )
+from py_science.formula.expressions import Expression
+from py_science.formula.parser import ParseFailure, parse_expression
 from py_science.formula.sign_chart import ChartRefusal, ExplicitAxis, StructuralSignChart
 from pydantic import ValidationError
 
@@ -389,3 +393,139 @@ def test_success_model_rejects_axis_fixed_and_out_of_domain_effective_ranges() -
                 },
             }
         )
+
+
+def test_fixed_values_must_satisfy_cross_variable_equalities() -> None:
+    variables = {
+        "N": VariableDeclaration(domain=MathematicalDomain.REAL),
+        "a": VariableDeclaration(domain=MathematicalDomain.REAL),
+        "b": VariableDeclaration(domain=MathematicalDomain.REAL),
+        "c": VariableDeclaration(domain=MathematicalDomain.REAL),
+    }
+    def request(
+        fixed: dict[str, ExactScenarioScalar], assumptions: tuple[Assumption, ...]
+    ) -> DominanceAnalysisRequest:
+        return DominanceAnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="cost(N)",
+            axis="N",
+            fixed=fixed,
+            variables=variables,
+            primitive_costs=(
+                PrimitiveCost(name="cost", parameters=("N",), work="N"),
+            ),
+            assumptions=assumptions,
+        )
+
+    direct = analyze_dominance(
+        request(
+            {"a": "2", "b": "3"},
+            (Assumption(name="same", relationship="a == b"),),
+        )
+    )
+    chained = analyze_dominance(
+        request(
+            {"a": "2", "b": "2", "c": "3"},
+            (
+                Assumption(name="same_ab", relationship="a == b"),
+                Assumption(name="same_bc", relationship="b == c"),
+            ),
+        )
+    )
+    for result in (direct, chained):
+        assert isinstance(result, AnalysisFailure)
+        assert result.error.source is not None
+        assert result.error.source.path.startswith("fixed.")
+
+
+def test_expansive_dominance_ir_is_refused_before_sympy_conversion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parsed = parse_expression(f"({' + '.join(f'a{i}' for i in range(12))})**8")
+    assert not isinstance(parsed, ParseFailure)
+    converted = False
+
+    def fail_conversion(_value: object) -> object:
+        nonlocal converted
+        converted = True
+        raise AssertionError("unbounded SymPy conversion ran")
+
+    monkeypatch.setattr(sympy_backend, "_to_query_sympy", fail_conversion)
+    with pytest.raises(ValueError, match="intermediate-node bound"):
+        sympy_backend.dominance_rational_form(
+            cast(Expression, parsed), {}, "N", max_nodes=64
+        )
+    assert converted is False
+
+
+def test_success_model_confines_unresolved_cells_and_exclusions() -> None:
+    result = _success(
+        _request(
+            "N",
+            MathematicalDomain.NONNEGATIVE_REAL,
+            range=DominanceRange(lower="0", upper="10"),
+        )
+    )
+    payload = result.model_dump()
+    outside_cell = {
+        "kind": "real_interval",
+        "lower": "20",
+        "upper": "21",
+        "lower_inclusive": True,
+        "upper_inclusive": True,
+        "dominant": (),
+        "blockers": ("unsupported",),
+    }
+    with pytest.raises(ValidationError, match="effective range"):
+        DominanceAnalysisSuccess.model_validate(
+            {
+                **payload,
+                "dominance_status": "unresolved",
+                "cells": (outside_cell,),
+                "never_dominant": (),
+            }
+        )
+    with pytest.raises(ValidationError, match="effective range"):
+        DominanceAnalysisSuccess.model_validate(
+            {
+                **payload,
+                "exclusions": ({"value": "20", "reason": "pole"},),
+                "conditions": ("N != 20",),
+            }
+        )
+
+
+def test_proved_empty_domains_precede_reasoning_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_reasoning(*_args: object, **_kwargs: object) -> object:
+        raise RuntimeError("forced reasoning failure")
+
+    monkeypatch.setattr(dominance_policy.ReasoningContext, "build", fail_reasoning)
+    real = _success(
+        _request(
+            "N",
+            MathematicalDomain.POSITIVE_REAL,
+            range=DominanceRange(lower="-1", upper="0"),
+        )
+    )
+    integer = _success(
+        _request(
+            "N",
+            MathematicalDomain.INTEGER,
+            range=DominanceRange(lower="1/2", upper="3/4"),
+        )
+    )
+    assert real.dominance_status == integer.dominance_status == "empty"
+
+
+def test_nonfinite_work_keeps_its_specific_dominance_blocker() -> None:
+    request = DominanceAnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="oo + N",
+        axis="N",
+        variables={"N": VariableDeclaration(domain=MathematicalDomain.REAL)},
+    )
+    result = _success(request)
+    assert result.dominance_status == "unresolved"
+    assert result.blockers == ("aggregate work is not finite",)

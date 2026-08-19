@@ -31,7 +31,6 @@ from py_science.formula.sympy_backend import (
     dominance_rational_form,
     dominance_reconstructs,
     dominance_term_expression,
-    property_value,
 )
 
 MAX_DOMINANCE_TERMS = 16
@@ -97,12 +96,12 @@ def _tighten_upper(
 
 
 def _intersect(
-    request: DominanceAnalysisRequest, reasoning: ReasoningContext
+    request: DominanceAnalysisRequest, reasoning: ReasoningContext | None
 ) -> tuple[DominanceRange | None, tuple[Fraction | None, Fraction | None, bool, bool]]:
     lower, upper, lower_inclusive, upper_inclusive = _domain_range(
         request.variables[request.axis].domain
     )
-    fact = reasoning.facts.get(request.axis)
+    fact = reasoning.facts.get(request.axis) if reasoning is not None else None
     if fact is not None:
         lower, lower_inclusive = _tighten_lower(
             lower, lower_inclusive, fact.lower, not fact.lower_strict
@@ -179,8 +178,10 @@ def _node_count(value: Any) -> int:
     return dominance_node_count(value, MAX_DOMINANCE_INTERMEDIATE_NODES)
 
 
-def _reconstructs(items: list[tuple[int, Any]], numerator: Any, axis: str) -> bool:
-    return dominance_reconstructs(items, numerator, axis)
+def _reconstructs(items: list[tuple[int, Any]], numerator: Any, axis: str) -> bool | None:
+    return dominance_reconstructs(
+        items, numerator, axis, max_nodes=MAX_DOMINANCE_INTERMEDIATE_NODES
+    )
 
 
 def _active(
@@ -204,12 +205,7 @@ def analyze_retained(request: DominanceAnalysisRequest, computed: Any) -> Domina
     analysis = computed.success
     # A declared/requested empty domain is a proved fact independent of optional
     # assumption reasoning.  Preserve it even when the latter reaches its cap.
-    base_effective, base_bounds = _intersect(
-        request,
-        ReasoningContext.build(
-            {name: declaration.domain for name, declaration in request.variables.items()}, (), ()
-        ),
-    )
+    base_effective, base_bounds = _intersect(request, None)
     base_low, base_high = _integer_bounds(base_bounds)
     if base_effective is None or (
         request.variables[request.axis].domain.is_integer
@@ -270,12 +266,6 @@ def analyze_retained(request: DominanceAnalysisRequest, computed: Any) -> Domina
     )
     if retained_unresolved:
         return _unresolved(request, analysis, effective, "aggregate work is unresolved")
-    original_value = property_value(computed.aggregate_analysis.total_work)
-    if original_value is None:
-        return _unresolved(
-            request, analysis, effective, "aggregate work rational form is unsupported"
-        )
-
     substitutions = {name: Fraction(str(value)) for name, value in request.fixed.items()}
     original_denominators = dominance_original_denominators(
         computed.aggregate_analysis.total_work, substitutions
@@ -286,7 +276,12 @@ def analyze_retained(request: DominanceAnalysisRequest, computed: Any) -> Domina
         )
     try:
         specialized, _original_denominator, numerator, denominator, items = (
-            dominance_rational_form(original_value, substitutions, request.axis)
+            dominance_rational_form(
+                computed.aggregate_analysis.total_work,
+                substitutions,
+                request.axis,
+                max_nodes=MAX_DOMINANCE_INTERMEDIATE_NODES,
+            )
         )
         if _node_count(specialized) > MAX_DOMINANCE_INTERMEDIATE_NODES:
             return _unresolved(
@@ -295,11 +290,10 @@ def analyze_retained(request: DominanceAnalysisRequest, computed: Any) -> Domina
         # Zero work still has to retain the original denominator obligations;
         # its complete result is constructed after the typed pole charts below.
     except ValueError as error:
-        blocker = (
-            "aggregate work has unsupported non-axis coefficients"
-            if str(error) == "non-axis coefficients"
-            else "aggregate work polynomial numerator is unsupported"
-        )
+        blocker = {
+            "non-axis coefficients": "aggregate work has unsupported non-axis coefficients",
+            "intermediate-node bound": "dominance intermediate-node bound exceeded",
+        }.get(str(error), "aggregate work polynomial numerator is unsupported")
         return _unresolved(request, analysis, effective, blocker)
     except Exception:
         return _unresolved(
@@ -311,7 +305,12 @@ def analyze_retained(request: DominanceAnalysisRequest, computed: Any) -> Domina
     pair_count = len(items) * (len(items) - 1) // 2
     if pair_count > MAX_DOMINANCE_PAIRS:
         return _unresolved(request, analysis, effective, "dominance pair bound exceeded")
-    if not _reconstructs(items, numerator, request.axis):
+    reconstruction = _reconstructs(items, numerator, request.axis)
+    if reconstruction is None:
+        return _unresolved(
+            request, analysis, effective, "dominance intermediate-node bound exceeded"
+        )
+    if not reconstruction:
         return _unresolved(request, analysis, effective, "dominance reconstruction failed")
 
     terms = tuple(
@@ -364,8 +363,18 @@ def analyze_retained(request: DominanceAnalysisRequest, computed: Any) -> Domina
                     request, analysis, effective, "dominance reasoning-step bound exceeded"
                 )
             difference = dominance_pair_difference(
-                left_item, right_item, request.axis
+                left_item,
+                right_item,
+                request.axis,
+                max_nodes=MAX_DOMINANCE_INTERMEDIATE_NODES,
             )
+            if difference is None:
+                return _unresolved(
+                    request,
+                    analysis,
+                    effective,
+                    "dominance intermediate-node bound exceeded",
+                )
             if _node_count(difference) > MAX_DOMINANCE_INTERMEDIATE_NODES:
                 return _unresolved(
                     request,

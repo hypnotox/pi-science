@@ -1523,6 +1523,35 @@ def _range_bounds(
     return lower, upper, value.lower_inclusive, value.upper_inclusive
 
 
+def _dominance_bounds_within(
+    inner: tuple[Fraction | None, Fraction | None, bool, bool],
+    outer: tuple[Fraction | None, Fraction | None, bool, bool],
+) -> bool:
+    inner_lower, inner_upper, inner_lower_inclusive, inner_upper_inclusive = inner
+    outer_lower, outer_upper, outer_lower_inclusive, outer_upper_inclusive = outer
+    lower_ok = outer_lower is None or (
+        inner_lower is not None
+        and (
+            inner_lower > outer_lower
+            or (
+                inner_lower == outer_lower
+                and (outer_lower_inclusive or not inner_lower_inclusive)
+            )
+        )
+    )
+    upper_ok = outer_upper is None or (
+        inner_upper is not None
+        and (
+            inner_upper < outer_upper
+            or (
+                inner_upper == outer_upper
+                and (outer_upper_inclusive or not inner_upper_inclusive)
+            )
+        )
+    )
+    return lower_ok and upper_ok
+
+
 def _validate_complete_dominance_coverage(
     cells: tuple[DominanceCell, ...],
     exclusions: tuple[str, ...],
@@ -1715,6 +1744,24 @@ class DominanceAnalysisSuccess(StructuredModel):
         ):
             raise ValueError("integer dominance exclusions must be integral")
         _validate_dominance_cell_order(self.cells, exclusion_values)
+        if self.effective_range is not None:
+            effective_bounds = _range_bounds(self.effective_range)
+            if any(
+                not _dominance_bounds_within(
+                    _dominance_cell_bounds(cell), effective_bounds
+                )
+                for cell in self.cells
+            ) or any(
+                not _dominance_bounds_within(
+                    (point, point, True, True), effective_bounds
+                )
+                for point in map(_dominance_exact_sort_key, exclusion_values)
+            ):
+                raise ValueError(
+                    "dominance cells and exclusions must lie within the effective range"
+                )
+        if any(f"{self.axis} != {value}" not in self.conditions for value in exclusion_values):
+            raise ValueError("dominance exclusions require matching conditions")
         if self.dominance_status == "complete" and self.terms:
             assert self.effective_range is not None
             _validate_complete_dominance_coverage(

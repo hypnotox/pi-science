@@ -521,6 +521,7 @@ def rational_ir_preflight(
     max_degree: int = 8,
     max_exponent: int = 32,
     max_coefficient_bits: int = 1024,
+    max_terms: int = 4096,
 ) -> bool:
     return not isinstance(
         rational_ir_measure(
@@ -529,6 +530,7 @@ def rational_ir_preflight(
             max_degree=max_degree,
             max_exponent=max_exponent,
             max_coefficient_bits=max_coefficient_bits,
+            max_terms=max_terms,
         ),
         RationalMeasureFailure,
     )
@@ -1599,35 +1601,72 @@ def dominance_original_denominators(
 
 
 def dominance_rational_form(
-    value: Any,
+    expression: Expression,
     substitutions: dict[str, Fraction],
     axis_name: str,
+    *,
+    max_nodes: int,
 ) -> tuple[Any, Any, Any, Any, list[tuple[int, Any]]]:
-    """Specialize, reduce, and collect one checked univariate rational form."""
-    replacements = {
-        sympy.Symbol(name): dominance_exact_rational(item)
-        for name, item in substitutions.items()
+    """Specialize, reduce, and collect one resource-checked rational form."""
+    replacements: dict[str, Expression] = {
+        name: IntegerLiteral(value.numerator)
+        if value.denominator == 1
+        else RationalLiteral(value.numerator, value.denominator)
+        for name, value in substitutions.items()
     }
-    specialized = value.subs(replacements)
-    original_denominator = sympy.fraction(specialized)[1]
-    reduced = sympy.cancel(specialized)
-    numerator, denominator = sympy.fraction(reduced)
-    axis = sympy.Symbol(axis_name)
-    if any(symbol != axis for symbol in reduced.free_symbols):
-        raise ValueError("non-axis coefficients")
-    if numerator == 0:
-        return specialized, original_denominator, numerator, denominator, []
-    polynomial = sympy.Poly(numerator, axis)
-    items = [
-        (int(power[0]), coefficient)
-        for power, coefficient in zip(
-            polynomial.monoms(), polynomial.coeffs(), strict=True
-        )
-        if coefficient != 0
-    ]
-    if any(power < 0 for power, _ in items):
-        raise ValueError("negative polynomial power")
-    return specialized, original_denominator, numerator, denominator, items
+    try:
+        specialized_ir = substitute(expression, replacements, max_nodes=max_nodes)
+    except Exception as error:
+        raise ValueError("intermediate-node bound") from error
+    # This IR measure bounds degree, coefficient growth, and the conservative
+    # expanded-term estimate before any SymPy conversion or cancellation.
+    measured = rational_ir_measure(
+        specialized_ir,
+        max_nodes=max_nodes,
+        max_terms=max_nodes,
+    )
+    if isinstance(measured, RationalMeasureFailure):
+        if measured.kind in {"nodes", "expanded_terms"}:
+            raise ValueError("intermediate-node bound")
+        raise ValueError("unsupported polynomial")
+    try:
+        specialized = _to_query_sympy(specialized_ir)
+        if dominance_node_count(specialized, max_nodes) > max_nodes:
+            raise ValueError("intermediate-node bound")
+        axis = sympy.Symbol(axis_name)
+        if any(symbol != axis for symbol in specialized.free_symbols):
+            raise ValueError("non-axis coefficients")
+        original_denominator = sympy.fraction(specialized)[1]
+        if dominance_node_count(original_denominator, max_nodes) > max_nodes:
+            raise ValueError("intermediate-node bound")
+        reduced = sympy.cancel(specialized)
+        if dominance_node_count(reduced, max_nodes) > max_nodes:
+            raise ValueError("intermediate-node bound")
+        numerator, denominator = sympy.fraction(reduced)
+        if any(
+            dominance_node_count(value, max_nodes) > max_nodes
+            for value in (numerator, denominator)
+        ):
+            raise ValueError("intermediate-node bound")
+        if numerator == 0:
+            return specialized, original_denominator, numerator, denominator, []
+        polynomial = sympy.Poly(numerator, axis)
+        if len(polynomial.terms()) > max_nodes:
+            raise ValueError("intermediate-node bound")
+        items = [
+            (int(power[0]), coefficient)
+            for power, coefficient in zip(
+                polynomial.monoms(), polynomial.coeffs(), strict=True
+            )
+            if coefficient != 0
+        ]
+        if any(power < 0 for power, _ in items):
+            raise ValueError("negative polynomial power")
+        return specialized, original_denominator, numerator, denominator, items
+    except ValueError:
+        raise
+    except Exception as error:
+        raise ValueError("unsupported polynomial") from error
 
 
 def dominance_node_count(value: Any, limit: int) -> int:
@@ -1640,20 +1679,40 @@ def dominance_node_count(value: Any, limit: int) -> int:
 
 
 def dominance_reconstructs(
-    items: list[tuple[int, Any]], numerator: Any, axis_name: str
-) -> bool:
+    items: list[tuple[int, Any]],
+    numerator: Any,
+    axis_name: str,
+    *,
+    max_nodes: int,
+) -> bool | None:
     axis = sympy.Symbol(axis_name)
     reconstructed = sum(coefficient * axis**power for power, coefficient in items)
-    return sympy.expand(reconstructed - numerator) == 0
+    difference = reconstructed - numerator
+    if dominance_node_count(difference, max_nodes) > max_nodes:
+        return None
+    expanded = sympy.expand(difference)
+    if dominance_node_count(expanded, max_nodes) > max_nodes:
+        return None
+    return bool(expanded == 0)
 
 
 def dominance_pair_difference(
-    left: tuple[int, Any], right: tuple[int, Any], axis_name: str
-) -> Any:
+    left: tuple[int, Any],
+    right: tuple[int, Any],
+    axis_name: str,
+    *,
+    max_nodes: int,
+) -> Any | None:
     axis = sympy.Symbol(axis_name)
-    return sympy.expand(
-        (left[1] * axis ** left[0]) ** 2 - (right[1] * axis ** right[0]) ** 2
-    )
+    difference = (left[1] * axis ** left[0]) ** 2 - (
+        right[1] * axis ** right[0]
+    ) ** 2
+    if dominance_node_count(difference, max_nodes) > max_nodes:
+        return None
+    expanded = sympy.expand(difference)
+    if dominance_node_count(expanded, max_nodes) > max_nodes:
+        return None
+    return expanded
 
 
 def dominance_term_expression(power: int, coefficient: Any, axis_name: str) -> Any:
