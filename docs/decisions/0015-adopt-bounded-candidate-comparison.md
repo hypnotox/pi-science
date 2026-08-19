@@ -4,7 +4,7 @@ slug: adopt-bounded-candidate-comparison
 status: Implementing
 date: 2026-08-19
 ---
-# ADR-adopt-bounded-candidate-comparison: Adopt bounded candidate comparison
+# ADR-0015: Adopt bounded candidate comparison
 
 ## Context
 

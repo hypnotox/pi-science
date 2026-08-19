@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-- [ADR-adopt-bounded-candidate-comparison: Adopt bounded candidate comparison](adopt-bounded-candidate-comparison.md) (Implementing)
+- [ADR-0015: Adopt bounded candidate comparison](0015-adopt-bounded-candidate-comparison.md) (Implementing)
 
 ## History
 

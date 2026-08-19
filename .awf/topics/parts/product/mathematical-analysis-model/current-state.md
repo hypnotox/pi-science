@@ -19,7 +19,7 @@ Revised-by: ADR-0005, ADR-0011, ADR-0012, ADR-0013, ADR-0014
 
 ### `rule: bounded-candidate-semantic-and-work-comparison`
 Comparison expands only mapped acyclic producers for bounded semantic equivalence, retaining submitted graphs for reuse-aware ADR-0003 aggregate abstract work. It returns qualified abstention for incompatible interfaces, unsupported expansion, equivalence, costs, or ordering; it does not compare scenarios, resources, runtime, machine arithmetic, rewrites, searches, AFMM completeness, or global optimality.
-Origin: ADR-adopt-bounded-candidate-comparison
+Origin: ADR-0015
 
 ### `rule: exact-query-values-and-infinity`
 Query and scenario finite scalars are bounded exact rationals, including exact decimal syntax, while `oo` and `-oo` are explicit mathematical infinity. Infinite mathematical expressions remain analyzable but never imply finite direct-evaluation work.
