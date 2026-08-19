@@ -21,7 +21,7 @@ Origin: ADR-0003
 Revised-by: ADR-0010, ADR-0013
 
 ### `rule: bounded-candidate-comparison-requests`
-Direct Python accepts exactly two uniquely named expression or acyclic equation-system candidates with explicitly mapped outputs and shared mathematical metadata. Comparison requests contain no scenarios or general queries; Pi transport remains future work.
+Python and Pi accept exactly two uniquely named expression or acyclic equation-system candidates with explicitly mapped outputs and shared mathematical metadata. Comparison requests contain no scenarios or general queries.
 Origin: ADR-adopt-bounded-candidate-comparison
 
 ### `rule: explicit-mathematical-queries`

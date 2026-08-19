@@ -84,7 +84,7 @@ describe("formula adapter protocol boundary", () => {
     [
       "invalid request type",
       JSON.stringify({
-        version: 8,
+        version: 9,
         request: { syntax: "sympy", expression: 1 },
       }),
     ],
@@ -102,7 +102,7 @@ describe("formula adapter protocol boundary", () => {
     [
       "reserved property variable",
       JSON.stringify({
-        version: 8,
+        version: 9,
         request: {
           syntax: "sympy",
           expression: "x",
@@ -119,7 +119,7 @@ describe("formula adapter protocol boundary", () => {
     [
       "reserved limit variable",
       JSON.stringify({
-        version: 8,
+        version: 9,
         request: {
           syntax: "sympy",
           expression: "x",
@@ -138,7 +138,7 @@ describe("formula adapter protocol boundary", () => {
     [
       "reserved asymptotic variable",
       JSON.stringify({
-        version: 8,
+        version: 9,
         request: {
           syntax: "sympy",
           expression: "x",
@@ -165,7 +165,7 @@ describe("formula adapter protocol boundary", () => {
     expect(result.stderr).toBe("");
     expect(Buffer.byteLength(result.stdout)).toBeLessThan(10_000);
     expect(JSON.parse(result.stdout)).toMatchObject({
-      version: 8,
+      version: 9,
       error: { kind: "request" },
     });
   });
@@ -188,10 +188,10 @@ print(module._encoded({"result": "x" * 262401}) is None)
     expect(result.stdout.trim()).toBe("True");
   });
 
-  it("preserves mandatory nulls in populated protocol-v8 query answers", () => {
+  it("preserves mandatory nulls in populated protocol-v9 query answers", () => {
     const result = invoke(
       JSON.stringify({
-        version: 8,
+        version: 9,
         request: {
           syntax: "sympy",
           expression: "x",
@@ -215,10 +215,10 @@ print(module._encoded({"result": "x" * 262401}) is None)
     });
   });
 
-  it("round trips partial nested polynomial closed forms under protocol v8", () => {
+  it("round trips partial nested polynomial closed forms under protocol v9", () => {
     const success = invoke(
       JSON.stringify({
-        version: 8,
+        version: 9,
         request: {
           syntax: "sympy",
           expression: "Sum(Sum(1, (l, -k, k)), (k, 0, p))",
@@ -238,7 +238,7 @@ print(module._encoded({"result": "x" * 262401}) is None)
     expect(success.status).toBe(0);
     const envelope = JSON.parse(success.stdout);
     expect(envelope).toMatchObject({
-      version: 8,
+      version: 9,
       result: {
         status: "success",
         system: { equations: [{ name: "expression" }] },
@@ -273,7 +273,7 @@ print(module._encoded({"result": "x" * 262401}) is None)
 
     const unresolved = invoke(
       JSON.stringify({
-        version: 8,
+        version: 9,
         request: {
           syntax: "sympy",
           expression: "Sum(Sum(1, (l, -k, k)), (k, -1, 1))",
@@ -295,7 +295,7 @@ print(module._encoded({"result": "x" * 262401}) is None)
   it("canonicalizes exact real scenario values and interval endpoints", () => {
     const result = invoke(
       JSON.stringify({
-        version: 8,
+        version: 9,
         request: {
           syntax: "sympy",
           expression: "primitive(x)",
@@ -318,7 +318,7 @@ print(module._encoded({"result": "x" * 262401}) is None)
     expect(result.status).toBe(2); // One variable cannot have fixed and bound treatments.
     const bounded = invoke(
       JSON.stringify({
-        version: 8,
+        version: 9,
         request: {
           syntax: "sympy",
           expression: "primitive(x)",
@@ -350,13 +350,13 @@ print(module._encoded({"result": "x" * 262401}) is None)
 
   it("round trips a complete equation-system request through the real adapter", () => {
     const result = invoke(
-      JSON.stringify({ version: 8, request: systemRequest }),
+      JSON.stringify({ version: 9, request: systemRequest }),
     );
     expect(result.status).toBe(0);
     expect(result.stderr).toBe("");
     const envelope = JSON.parse(result.stdout);
     expect(envelope).toMatchObject({
-      version: 8,
+      version: 9,
       result: {
         status: "success",
         system: {

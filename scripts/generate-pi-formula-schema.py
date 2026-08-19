@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from py_science.formula import AnalysisRequest
+from py_science.formula import AnalysisRequest, CandidateComparisonRequest
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT = ROOT / "packages" / "pi-science" / "src" / "formula-schema.json"
@@ -220,7 +220,20 @@ def generate_schema() -> JsonObject:
         "required": ["equations"],
         "type": "object",
     }
-    schema = {"anyOf": [expression, system]}
+    comparison_raw = CandidateComparisonRequest.model_json_schema()
+    comparison_definitions = comparison_raw.get("$defs")
+    comparison_properties = comparison_raw.get("properties")
+    if not isinstance(comparison_definitions, dict) or not isinstance(comparison_properties, dict):
+        raise ValueError("CandidateComparisonRequest emitted an incompatible JSON Schema")
+    comparison = _normalize(
+        {"type": "object", "additionalProperties": False, "properties": comparison_properties,
+         "required": comparison_raw.get("required", [])},
+        comparison_definitions,
+    )
+    # Pi supplies the fixed backend syntax; callers cannot select it.
+    comparison["properties"].pop("syntax", None)
+    comparison["required"] = [name for name in comparison["required"] if name != "syntax"]
+    schema = {"anyOf": [expression, system, comparison]}
     validate_schema(schema)
     return schema
 

@@ -242,3 +242,5 @@ feat(pi): expose candidate comparison
 - Phase 2 renewed-review settlement: routed structurally identical operands and domain bounds through the shared equivalence seam so denominator conditions remain mandatory, narrowed comparison reasoning failure handling to bounded complexity, and prohibited blockers on equal, winner, or crossover results. Regression probes cover identical `1 / d`, unexpected reasoning defects, and every comparable blocker variant.
 
 Inline owners immediately correct stale instructions and record reasoned deviations here. Delegated owners may report rather than edit; the parent supplies the report to phase review and reconciles it with findings in one focused post-review settlement commit before checkpointing or later execution. Record baseline and test-first evidence, public-shape deviations, protocol census, generated-prose meaning review, compact-output inspection, follow-ups, and findings surfaced during implementation.
+
+- Phase 3 evidence: protocol census retains only the intentional stale-v8 adapter fixture; generated prose and compact comparison output were inspected after render. Deviations: none.

@@ -9,6 +9,7 @@ import formulaSchemaJson from "./formula-schema.json" with { type: "json" };
 import {
   invokeAdapter,
   type BridgeResult,
+  type CandidateComparisonRequest,
   type ExpressionAnalysisRequest,
   type SystemAnalysisRequest,
 } from "./bridge.js";
@@ -19,7 +20,8 @@ const PRODUCT_SKILLS = fileURLToPath(new URL("../skills", import.meta.url));
 export const formulaSchema = structuredClone(formulaSchemaJson) as TSchema;
 export type FormulaParameters =
   | Omit<ExpressionAnalysisRequest, "syntax">
-  | Omit<SystemAnalysisRequest, "syntax">;
+  | Omit<SystemAnalysisRequest, "syntax">
+  | Omit<CandidateComparisonRequest, "syntax">;
 
 export type PinnedSource = { revision: string; repo: string };
 
@@ -73,7 +75,41 @@ function compactToolText(result: BridgeResult): string {
       `- ${result.error.message}`,
     ].join("\n");
 
-  const queryConclusions = result.queries.flatMap((query) =>
+  if ("kind" in result && result.kind === "candidate_comparison") {
+    const blockers = result.outputs.flatMap((output) =>
+      output.answer.blockers.map((blocker) => `${output.name}: ${blocker}`),
+    );
+    const work = result.work_comparison;
+    return [
+      "Candidates and interpretations",
+      ...result.candidates.map(
+        (candidate) =>
+          `- ${candidate.name}: ${candidate.analysis.interpretation.normalized_sympy}`,
+      ),
+      "Overall semantic status",
+      `- ${result.semantic_status}`,
+      "Mapped-output blockers",
+      ...(blockers.length
+        ? blockers.map((blocker) => `- ${blocker}`)
+        : ["- none"]),
+      "Aggregate work",
+      `- Metric: ${work.metric}`,
+      ...result.candidates.map(
+        (candidate) =>
+          `- ${candidate.name}: ${candidate.aggregate_work ?? "unavailable"}`,
+      ),
+      `- Delta (second - first): ${work.delta ?? "unavailable"}`,
+      "Work decision",
+      `- ${work.status}${work.conditions.length ? `; ${work.conditions.join("; ")}` : ""}`,
+      "Unresolved costs",
+      ...(work.blockers.length
+        ? work.blockers.map((blocker) => `- ${blocker}`)
+        : ["- none"]),
+    ].join("\n");
+  }
+
+  const analysis = result as import("./bridge.js").AnalysisSuccess;
+  const queryConclusions = analysis.queries.flatMap((query) =>
     query.answers.map((answer) => {
       const check = answer.check
         ? `; ${answer.check.kind}${"variable" in answer.check ? ` (${answer.check.variable})` : ""}`
@@ -93,27 +129,27 @@ function compactToolText(result: BridgeResult): string {
       return `- ${query.name} (${query.kind}${check}): ${answer.conclusion}${derived.length === 0 ? "" : `; derived: ${derived.join(", ")}`}`;
     }),
   );
-  const generalWork = result.system?.total_work ?? result.abstract_work;
+  const generalWork = analysis.system?.total_work ?? analysis.abstract_work;
   const work = [
     `- General direct work: ${generalWork ?? "unavailable"}`,
-    ...(result.scenarios.length === 0
+    ...(analysis.scenarios.length === 0
       ? ["- Specialized evaluation work: none"]
-      : result.scenarios.map(
+      : analysis.scenarios.map(
           (scenario) =>
             `- Specialized evaluation work (scenario ${scenario.name}): ${scenario.substituted_work}`,
         )),
   ];
   const blockers = [
-    ...result.direct_work_blockers,
-    ...(result.system?.unknown_costs.map((cost) => `unknown cost: ${cost}`) ??
+    ...analysis.direct_work_blockers,
+    ...(analysis.system?.unknown_costs.map((cost) => `unknown cost: ${cost}`) ??
       []),
-    ...(result.system?.unresolved ?? []),
-    ...result.scenarios.flatMap((scenario) =>
+    ...(analysis.system?.unresolved ?? []),
+    ...analysis.scenarios.flatMap((scenario) =>
       scenario.unresolved.map(
         (blocker) => `scenario ${scenario.name}: ${blocker}`,
       ),
     ),
-    ...result.queries.flatMap((query) =>
+    ...analysis.queries.flatMap((query) =>
       query.answers.flatMap((answer) =>
         answer.blockers.map((blocker) => `query ${query.name}: ${blocker}`),
       ),
@@ -121,8 +157,8 @@ function compactToolText(result: BridgeResult): string {
   ];
   return [
     "Interpretation",
-    `- SymPy: ${result.interpretation.normalized_sympy}`,
-    `- LaTeX: ${result.interpretation.normalized_latex}`,
+    `- SymPy: ${analysis.interpretation.normalized_sympy}`,
+    `- LaTeX: ${analysis.interpretation.normalized_latex}`,
     "Query conclusions",
     ...(queryConclusions.length === 0 ? ["- none"] : queryConclusions),
     "Work",

@@ -100,7 +100,7 @@ def test_generated_pi_schema_uses_the_pinned_provider_safe_subset() -> None:
 def test_generated_pi_schema_has_public_expression_and_system_branches() -> None:
     schema = json.loads(ARTIFACT.read_text())
 
-    expression, system = schema["anyOf"]
+    expression, system, comparison = schema["anyOf"]
     assert expression["required"] == ["expression"]
     assert "syntax" not in expression["properties"]
     assert "equations" not in expression["properties"]
@@ -110,11 +110,15 @@ def test_generated_pi_schema_has_public_expression_and_system_branches() -> None
     assert "expression" not in system["properties"]
     assert system["properties"]["equations"]["minItems"] == 1
     assert system["properties"]["equations"]["maxItems"] == 128
+    assert comparison["properties"]["operation"]["enum"] == ["compare_candidates"]
+    assert "syntax" not in comparison["properties"]
+    assert comparison["properties"]["candidates"]["minItems"] == 2
+    assert comparison["properties"]["outputs"]["maxItems"] == 32
 
 
 def test_generated_pi_schema_preserves_query_and_population_bounds() -> None:
     schema = json.loads(ARTIFACT.read_text())
-    expression, system = schema["anyOf"]
+    expression, system, _comparison = schema["anyOf"]
 
     assert expression["properties"]["queries"]["maxItems"] == 32
     assert system["properties"]["queries"]["maxItems"] == 32

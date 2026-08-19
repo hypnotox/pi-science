@@ -7,6 +7,10 @@ description: Analyze one restricted SymPy expression or named equation system fo
 
 Use `analyze_formula` for one bounded restricted-SymPy expression or one nonempty list of uniquely named equations. Choose `expression` for an isolated calculation. Choose `equations` when results have local output domains or later equations reuse named results. Pi supplies `syntax: sympy`; do not include `syntax` in a tool call.
 
+## Compare two candidates
+
+`analyze_formula` also accepts `{ "operation": "compare_candidates", "candidates": [first, second], "outputs": [...] }`; Pi supplies `syntax`. Map every logical output once to each candidate with an expression target or named equation target. Inspect semantic status and mapped-output blockers before any work preference. `aggregate_abstract_work` is mathematical work, never speed, runtime, storage, or IEEE-754 behavior; unknown costs and unresolved semantics forbid a preference. Scenarios, transformations, resource vectors, parameter search, and AFMM expansion are excluded from comparison requests.
+
 ## Restricted expression dialect
 
 The parser accepts:

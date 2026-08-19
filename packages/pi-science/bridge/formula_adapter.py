@@ -7,10 +7,18 @@ import json
 import sys
 from typing import Any, cast
 
-from py_science.formula import AnalysisRequest, analyze
-from pydantic import ValidationError
+from py_science.formula import (
+    AnalysisRequest,
+    CandidateComparisonRequest,
+    analyze,
+    compare_candidates,
+)
+from pydantic import TypeAdapter, ValidationError
 
-PROTOCOL_VERSION = 8
+PROTOCOL_VERSION = 9
+REQUEST_ADAPTER: TypeAdapter[AnalysisRequest | CandidateComparisonRequest] = TypeAdapter(
+    AnalysisRequest | CandidateComparisonRequest
+)
 # The public request permits 262,144 UTF-8 source bytes. This whole-envelope
 # limit also covers JSON escaping and every bounded collection/name field.
 MAX_ENVELOPE_BYTES = 2_097_152
@@ -85,45 +93,57 @@ def main() -> int:
         if not isinstance(request_payload, dict):
             raise ValueError("invalid analysis request")
         # JSON validation preserves the strict frozen public contract while accepting
-        # JSON arrays for tuple fields. Mathematical policy remains in AnalysisRequest.
-        request = AnalysisRequest.model_validate_json(
+        # JSON arrays for tuple fields. Mathematical policy remains in Python.
+        request = REQUEST_ADAPTER.validate_json(
             json.dumps(request_payload, ensure_ascii=False, separators=(",", ":"))
         )
-        outcome = analyze(request)
-        result = outcome.model_dump(mode="json", exclude_none=True)
-        if outcome.status == "success":
-            result["abstract_work"] = outcome.abstract_work
-            result["queries"] = [query.model_dump(mode="json") for query in outcome.queries]
-            if outcome.system is not None:
-                system_result = result["system"]
-                system_result.update({
-                    "aggregate_operation_counts": (
-                        outcome.system.aggregate_operation_counts.model_dump(mode="json")
-                        if outcome.system.aggregate_operation_counts is not None
-                        else None
-                    ),
-                    "total_work": outcome.system.total_work,
-                    "primitive_invocations": outcome.system.primitive_invocations,
-                })
-                for equation_result, equation in zip(
-                    system_result["equations"], outcome.system.equations, strict=True
-                ):
-                    equation_result.update({
-                        "aggregate_operation_counts": (
-                            equation.aggregate_operation_counts.model_dump(mode="json")
-                            if equation.aggregate_operation_counts is not None
-                            else None
-                        ),
-                        "aggregate_work": equation.aggregate_work,
-                        "primitive_invocations": equation.primitive_invocations,
-                    })
+        if isinstance(request, CandidateComparisonRequest):
+            outcome = compare_candidates(request)
+            result = outcome.model_dump(mode="json", exclude_none=False)
+        else:
+            outcome = analyze(request)
+            result = outcome.model_dump(mode="json", exclude_none=True)
+            if outcome.status == "success":
+                result["abstract_work"] = outcome.abstract_work
+                result["queries"] = [query.model_dump(mode="json") for query in outcome.queries]
+                if outcome.system is not None:
+                    system_result = result["system"]
+                    counts = outcome.system.aggregate_operation_counts
+                    system_result.update(
+                        {
+                            "aggregate_operation_counts": counts.model_dump(mode="json")
+                            if counts is not None
+                            else None,
+                            "total_work": outcome.system.total_work,
+                            "primitive_invocations": outcome.system.primitive_invocations,
+                        }
+                    )
+                    for equation_result, equation in zip(
+                        system_result["equations"], outcome.system.equations, strict=True
+                    ):
+                        counts = equation.aggregate_operation_counts
+                        equation_result.update(
+                            {
+                                "aggregate_operation_counts": counts.model_dump(mode="json")
+                                if counts is not None
+                                else None,
+                                "aggregate_work": equation.aggregate_work,
+                                "primitive_invocations": equation.primitive_invocations,
+                            }
+                        )
         if outcome.status == "failure":
             error = result["error"]
-            error.update({
-                "location": outcome.error.location.model_dump(mode="json") if outcome.error.location else None,  # noqa: E501
-                "source": outcome.error.source.model_dump(mode="json") if outcome.error.source else None,  # noqa: E501
-                "supported_alternative": outcome.error.supported_alternative,
-            })
+            error.update(
+                {
+                    "location": outcome.error.location.model_dump(mode="json")
+                    if outcome.error.location
+                    else None,
+                    "source": outcome.error.source.model_dump(mode="json")
+                    if outcome.error.source
+                    else None,
+                    "supported_alternative": outcome.error.supported_alternative,
+                }
+            )
         if not response({"version": PROTOCOL_VERSION, "result": result}):
             response(
                 {

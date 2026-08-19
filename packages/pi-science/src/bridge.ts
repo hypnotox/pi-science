@@ -1,7 +1,7 @@
 import { TextDecoder } from "node:util";
 import { spawnIsolated, terminateTree } from "./process.js";
 
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 export const MAX_FORMULA_BYTES = 65_536;
 export const MAX_ENVELOPE_BYTES = 2_097_152;
 export const MAX_RESPONSE_BYTES = 262_400;
@@ -178,6 +178,26 @@ export type SystemAnalysisRequest = RequestMetadata<SystemQueryRequest> & {
   expression?: never;
 };
 export type AnalysisRequest = ExpressionAnalysisRequest | SystemAnalysisRequest;
+export type CandidateComputation = {
+  name: string;
+  expression?: string;
+  equations?: EquationRequest[];
+};
+export type CandidateTarget = { kind: "expression" } | EquationTarget;
+export type CandidateOutputMapping = {
+  name: string;
+  targets: Array<{ candidate: string; target: CandidateTarget }>;
+};
+export type CandidateComparisonRequest = Omit<
+  RequestMetadata<QueryRequest>,
+  "scenarios" | "queries"
+> & {
+  syntax: "sympy";
+  operation: "compare_candidates";
+  candidates: [CandidateComputation, CandidateComputation];
+  outputs: CandidateOutputMapping[];
+};
+export type FormulaRequest = AnalysisRequest | CandidateComparisonRequest;
 
 export type Interpretation = {
   normalized_sympy: string;
@@ -340,7 +360,48 @@ export type AnalysisFailure = {
     supported_alternative: string | null;
   };
 };
-export type BridgeResult = AnalysisSuccess | AnalysisFailure;
+export type CandidateAnalysisReport = {
+  name: string;
+  analysis: AnalysisSuccess;
+  aggregate_work: string | null;
+};
+export type CandidateComparisonSuccess = {
+  kind: "candidate_comparison";
+  status: "success";
+  candidates: [CandidateAnalysisReport, CandidateAnalysisReport];
+  outputs: Array<{
+    name: string;
+    targets: Array<{ candidate: string; target: CandidateTarget }>;
+    interface_status: "compatible" | "incompatible" | "unresolved";
+    expanded_interpretations: [Interpretation, Interpretation] | null;
+    answer: QueryAnswer;
+  }>;
+  semantic_status:
+    | "proved_equal"
+    | "proved_equal_under_assumptions"
+    | "disproved"
+    | "unresolved";
+  work_comparison: {
+    metric: "aggregate_abstract_work";
+    candidate_names: [string, string];
+    candidate_works: [string | null, string | null];
+    delta: string | null;
+    status:
+      | "not_comparable"
+      | "equal"
+      | "first_lower"
+      | "second_lower"
+      | "crossover"
+      | "unresolved";
+    conditions: string[];
+    assumptions_used: RelationshipUse[];
+    relevant_unsupported_assumptions: string[];
+    blockers: string[];
+    evidence: Record<string, unknown> | null;
+  };
+};
+export type BridgeResult =
+  AnalysisSuccess | CandidateComparisonSuccess | AnalysisFailure;
 
 export function appendResponseChunk(
   retained: Buffer,
@@ -1408,10 +1469,173 @@ function validScenarioCorrelation(
   });
 }
 
+function validComparisonResult(
+  value: unknown,
+  request: CandidateComparisonRequest,
+): boolean {
+  if (
+    !isRecord(value) ||
+    !exactKeys(value, [
+      "kind",
+      "status",
+      "candidates",
+      "outputs",
+      "semantic_status",
+      "work_comparison",
+    ]) ||
+    value.kind !== "candidate_comparison" ||
+    value.status !== "success" ||
+    !Array.isArray(value.candidates) ||
+    value.candidates.length !== 2 ||
+    !Array.isArray(value.outputs) ||
+    value.outputs.length < 1 ||
+    value.outputs.length > 32 ||
+    !isRecord(value.work_comparison)
+  )
+    return false;
+  const names = request.candidates.map((candidate) => candidate.name);
+  const reports = value.candidates;
+  if (
+    !reports.every((report, index) => {
+      if (
+        !isRecord(report) ||
+        !exactKeys(report, ["name", "analysis", "aggregate_work"]) ||
+        report.name !== names[index] ||
+        (report.aggregate_work !== null &&
+          typeof report.aggregate_work !== "string") ||
+        !isRecord(report.analysis)
+      )
+        return false;
+      const analysis = { ...report.analysis };
+      if (analysis.system === null) delete analysis.system;
+      const candidate = request.candidates[index]!;
+      const candidateRequest: AnalysisRequest =
+        candidate.expression !== undefined
+          ? {
+              syntax: "sympy",
+              expression: candidate.expression,
+              variables: request.variables,
+              functions: request.functions,
+              primitive_costs: request.primitive_costs,
+              assumptions: request.assumptions,
+              definitions: request.definitions,
+            }
+          : {
+              syntax: "sympy",
+              equations: candidate.equations ?? [],
+              variables: request.variables,
+              functions: request.functions,
+              primitive_costs: request.primitive_costs,
+              assumptions: request.assumptions,
+              definitions: request.definitions,
+            };
+      return (
+        validResult(analysis, candidateRequest) &&
+        analysis.status === "success" &&
+        (analysis.direct_work_applicability === "finite") ===
+          (report.aggregate_work !== null)
+      );
+    })
+  )
+    return false;
+  const outputs = value.outputs;
+  if (
+    outputs.length !== request.outputs.length ||
+    !outputs.every((output, index) => {
+      const mapped = request.outputs[index];
+      return (
+        isRecord(output) &&
+        mapped !== undefined &&
+        exactKeys(output, [
+          "name",
+          "targets",
+          "interface_status",
+          "expanded_interpretations",
+          "answer",
+        ]) &&
+        output.name === mapped.name &&
+        JSON.stringify(output.targets) === JSON.stringify(mapped.targets) &&
+        ["compatible", "incompatible", "unresolved"].includes(
+          String(output.interface_status),
+        ) &&
+        (output.expanded_interpretations === null ||
+          (Array.isArray(output.expanded_interpretations) &&
+            output.expanded_interpretations.length === 2 &&
+            output.expanded_interpretations.every(validInterpretation))) &&
+        validQueryAnswer(output.answer) &&
+        isRecord(output.answer) &&
+        output.answer.check === null &&
+        Array.isArray(output.answer.derived_candidates) &&
+        output.answer.derived_candidates.length === 0 &&
+        Array.isArray(output.answer.constraint_uses) &&
+        output.answer.constraint_uses.length === 0
+      );
+    })
+  )
+    return false;
+  const work = value.work_comparison;
+  if (
+    !exactKeys(work, [
+      "metric",
+      "candidate_names",
+      "candidate_works",
+      "delta",
+      "status",
+      "conditions",
+      "assumptions_used",
+      "relevant_unsupported_assumptions",
+      "blockers",
+      "evidence",
+    ]) ||
+    work.metric !== "aggregate_abstract_work" ||
+    !Array.isArray(work.candidate_names) ||
+    JSON.stringify(work.candidate_names) !== JSON.stringify(names) ||
+    !Array.isArray(work.candidate_works) ||
+    !reports.every(
+      (report, index) =>
+        isRecord(report) &&
+        (work.candidate_works as unknown[])[index] === report.aggregate_work,
+    ) ||
+    !(work.delta === null || typeof work.delta === "string") ||
+    ![
+      "not_comparable",
+      "equal",
+      "first_lower",
+      "second_lower",
+      "crossover",
+      "unresolved",
+    ].includes(String(work.status)) ||
+    !validStringArray(work.conditions) ||
+    !validRelationshipUses(work.assumptions_used) ||
+    !validStringArray(work.relevant_unsupported_assumptions) ||
+    !validStringArray(work.blockers) ||
+    !(work.evidence === null || isRecord(work.evidence))
+  )
+    return false;
+  const conclusions = outputs.map(
+    (output) => (output as { answer: QueryAnswer }).answer.conclusion,
+  );
+  const semantic = conclusions.includes("disproved")
+    ? "disproved"
+    : conclusions.some(
+          (item) => item === "unresolved" || item === "inapplicable",
+        )
+      ? "unresolved"
+      : conclusions.includes("proved_under_assumptions")
+        ? "proved_equal_under_assumptions"
+        : "proved_equal";
+  return (
+    value.semantic_status === semantic &&
+    (semantic === "proved_equal" ||
+      semantic === "proved_equal_under_assumptions") !==
+      (work.status === "not_comparable")
+  );
+}
+
 function validResult(
   value: unknown,
   request: AnalysisRequest,
-): value is BridgeResult {
+): value is AnalysisSuccess | AnalysisFailure {
   if (!isRecord(value) || typeof value.status !== "string") return false;
   if (value.status === "success") {
     const keys = [
@@ -1489,7 +1713,7 @@ function validResult(
   return false;
 }
 
-function formulaSources(request: AnalysisRequest): string[] {
+function formulaSources(request: FormulaRequest): string[] {
   const sources: string[] = [];
   if ("expression" in request && request.expression !== undefined)
     sources.push(request.expression);
@@ -1508,10 +1732,17 @@ function formulaSources(request: AnalysisRequest): string[] {
     sources.push(assumption.relationship);
   for (const definition of request.definitions ?? [])
     sources.push(definition.expression);
-  for (const scenario of request.scenarios ?? [])
+  for (const scenario of "scenarios" in request
+    ? (request.scenarios ?? [])
+    : [])
     for (const definition of scenario.definitions ?? [])
       sources.push(definition.expression);
-  for (const query of request.queries ?? []) {
+  for (const candidate of "candidates" in request ? request.candidates : []) {
+    if (candidate.expression !== undefined) sources.push(candidate.expression);
+    for (const equation of candidate.equations ?? [])
+      sources.push(equation.expression);
+  }
+  for (const query of "queries" in request ? (request.queries ?? []) : []) {
     if (query.kind === "equivalence") sources.push(query.comparison);
     if (query.kind === "limit" || query.kind === "asymptotic")
       sources.push(String(query.point));
@@ -1522,7 +1753,7 @@ function formulaSources(request: AnalysisRequest): string[] {
 export async function invokeAdapter(
   command: string,
   args: string[],
-  request: AnalysisRequest,
+  request: FormulaRequest,
   timeoutMs = 10_000,
   signal?: AbortSignal,
 ): Promise<BridgeResult> {
@@ -1637,7 +1868,9 @@ export async function invokeAdapter(
           !isRecord(envelope) ||
           !exactKeys(envelope, ["version", "result"]) ||
           envelope.version !== PROTOCOL_VERSION ||
-          !validResult(envelope.result, request)
+          !("operation" in request
+            ? validComparisonResult(envelope.result, request)
+            : validResult(envelope.result, request))
         )
           return finish(
             new BridgeError(
@@ -1645,7 +1878,7 @@ export async function invokeAdapter(
               "formula adapter returned an incompatible response",
             ),
           );
-        finish(undefined, envelope.result);
+        finish(undefined, envelope.result as BridgeResult);
       } catch {
         finish(
           new BridgeError(
