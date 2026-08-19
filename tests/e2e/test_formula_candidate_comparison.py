@@ -24,6 +24,7 @@ from py_science.formula import (
     analyze,
     compare_candidates,
 )
+from py_science.formula.expressions import ExpressionTooComplex
 from pydantic import ValidationError
 
 
@@ -239,6 +240,50 @@ def test_sum_binders_are_alpha_renamed_during_producer_expansion() -> None:
     left, right = output.expanded_interpretations
     assert left.normalized_sympy == right.normalized_sympy
     assert "comparison_sum_0" in left.normalized_sympy
+
+
+def test_domain_expansion_overflow_is_a_correlated_unresolved_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expander = comparison_service._Expander  # pyright: ignore[reportPrivateUsage]
+
+    def overflow(*_args: object, **_kwargs: object) -> None:
+        raise ExpressionTooComplex("comparison domain expansion exceeds its bound")
+
+    monkeypatch.setattr(expander, "expand", overflow)
+    request = CandidateComparisonRequest(
+        syntax=FormulaSyntax.SYMPY,
+        candidates=(
+            CandidateComputation(
+                name="first",
+                equations=(
+                    EquationRequest(
+                        name="out",
+                        expression="Eq(y[i], i)",
+                        domains={"i": IndexDomain(lower="0", upper="2")},
+                    ),
+                ),
+            ),
+            CandidateComputation(
+                name="second",
+                equations=(
+                    EquationRequest(
+                        name="out",
+                        expression="Eq(z[j], j)",
+                        domains={"j": IndexDomain(lower="0", upper="2")},
+                    ),
+                ),
+            ),
+        ),
+        outputs=(_mapping("value", "out", "out"),),
+    )
+
+    result = compare_candidates(request)
+
+    assert isinstance(result, CandidateComparisonSuccess)
+    assert result.outputs[0].interface_status == "unresolved"
+    assert result.outputs[0].answer.conclusion == "unresolved"
+    assert "domain expansion" in result.outputs[0].answer.blockers[0]
 
 
 def test_expansion_node_budget_is_aggregate_across_recursive_producers() -> None:

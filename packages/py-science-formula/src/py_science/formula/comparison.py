@@ -313,17 +313,26 @@ def _compare_output(
     domain_facts: tuple[NamedRelationship, ...] = ()
     interface_answers: tuple[QueryAnswer, ...] = ()
     if left_operand.binders is not None and right_operand.binders is not None:
-        interface = _compare_domains(
-            name,
-            targets,
-            left_operand,
-            right_operand,
-            canonical,
-            left_expander,
-            right_expander,
-            request,
-            left,
-        )
+        try:
+            interface = _compare_domains(
+                name,
+                targets,
+                left_operand,
+                right_operand,
+                canonical,
+                left_expander,
+                right_expander,
+                request,
+                left,
+            )
+        except ExpressionTooComplex as error:
+            return _output(
+                name,
+                targets,
+                "unresolved",
+                None,
+                QueryAnswer(conclusion="unresolved", blockers=(str(error),)),
+            )
         if isinstance(interface, CandidateOutputComparison):
             return interface
         domain_facts, interface_answers = interface
