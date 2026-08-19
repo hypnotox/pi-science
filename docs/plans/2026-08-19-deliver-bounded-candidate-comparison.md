@@ -3,7 +3,7 @@ format: plan-v2
 date: 2026-08-19
 adrs:
   - adopt-bounded-candidate-comparison
-status: Proposed
+status: Implemented
 ---
 # Plan: Deliver bounded candidate comparison
 
