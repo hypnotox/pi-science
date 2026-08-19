@@ -9,6 +9,7 @@ import type {
   CandidateComparisonRequest,
   CandidateComparisonSuccess,
   DominanceRequest,
+  DominanceSuccess,
   SystemReport,
 } from "../src/bridge.js";
 import {
@@ -2025,7 +2026,12 @@ describe("private formula bridge", () => {
       operation: "analyze_dominance",
       expression: "cost(N)",
       axis: "N",
-      variables: { N: { domain: "nonnegative_integer" } },
+      variables: {
+        N: { domain: "nonnegative_integer" },
+        a: { domain: "real" },
+      },
+      fixed: { a: "1.20" },
+      range: { lower: "-oo", upper: "oo" },
       primitive_costs: [
         { name: "cost", parameters: ["n"], work: "n**2 - n + 1" },
       ],
@@ -2050,5 +2056,113 @@ describe("private formula bridge", () => {
       "integer_point",
       "integer_range",
     ]);
+  });
+
+  it("rejects malformed dominance correlations, geometry, and truth tables", async () => {
+    const dominance: DominanceRequest = {
+      syntax: "sympy",
+      operation: "analyze_dominance",
+      expression: "cost(N)",
+      axis: "N",
+      variables: {
+        N: { domain: "nonnegative_integer" },
+        a: { domain: "real" },
+      },
+      fixed: { a: "1.20" },
+      range: { lower: "-oo", upper: "oo" },
+      primitive_costs: [
+        { name: "cost", parameters: ["n"], work: "n**2 - n + 1" },
+      ],
+    };
+    const adapter = fileURLToPath(
+      new URL("../bridge/formula_adapter.py", import.meta.url),
+    );
+    const produced = await invokeAdapter(
+      "uv",
+      ["run", "--locked", "python", adapter],
+      dominance,
+    );
+    if (!("kind" in produced) || produced.kind !== "dominance_analysis")
+      throw new Error("expected dominance");
+    const mutations: Array<(value: DominanceSuccess) => void> = [
+      (value) => {
+        value.fixed = { a: "1" };
+      },
+      (value) => {
+        value.requested_range = {
+          lower: "0",
+          upper: "10",
+          lower_inclusive: true,
+          upper_inclusive: true,
+        };
+      },
+      (value) => {
+        value.effective_range = {
+          lower: "10",
+          upper: "0",
+          lower_inclusive: true,
+          upper_inclusive: true,
+        };
+      },
+      (value) => {
+        value.cells.reverse();
+      },
+      (value) => {
+        value.cells.shift();
+      },
+      (value) => {
+        value.cells[0] = {
+          kind: "integer_point",
+          value: "-1",
+          dominant: ["power:0"],
+          blockers: [],
+        };
+      },
+      (value) => {
+        value.cells[1] = structuredClone(value.cells[0]!);
+      },
+      (value) => {
+        value.exclusions = [{ value: "1", reason: "pole" }];
+        value.conditions = ["N != 1"];
+      },
+      (value) => {
+        value.never_dominant = ["power:0"];
+      },
+      (value) => {
+        value.evidence[0]!.pair = ["power:2", "power:2"];
+      },
+      (value) => {
+        value.dominance_status = "unresolved";
+        value.shared_denominator = null;
+        value.blockers = ["forced"];
+      },
+      (value) => {
+        value.cells.splice(
+          value.cells.length - 1,
+          1,
+          {
+            kind: "integer_point",
+            value: "2",
+            dominant: ["power:2"],
+            blockers: [],
+          },
+          {
+            kind: "integer_range",
+            lower: "3",
+            upper: "oo",
+            dominant: ["power:2"],
+            blockers: [],
+          },
+        );
+      },
+    ];
+    for (const mutate of mutations) {
+      const invalid = structuredClone(produced);
+      mutate(invalid);
+      await kind(
+        invokeAdapter(node, responder(invalid), dominance),
+        "protocol",
+      );
+    }
   });
 });

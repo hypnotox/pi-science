@@ -349,6 +349,37 @@ describe("readiness gate", () => {
     });
   });
 
+  it("surfaces localized dominance blockers in compact output", async () => {
+    const current = host();
+    const adapter = fileURLToPath(
+      new URL("../bridge/formula_adapter.py", import.meta.url),
+    );
+    await start(
+      current.api,
+      Promise.resolve({
+        ready: true,
+        command: "uv",
+        args: ["run", "--locked", "python", adapter],
+      }),
+    );
+    const result = await current.tools[0]!.execute("id", {
+      operation: "analyze_dominance",
+      expression: "cost(N)",
+      axis: "N",
+      variables: { N: { domain: "real" } },
+      primitive_costs: [{ name: "cost", parameters: ["n"], work: "n**3 + 2" }],
+    });
+    expect(result.content[0]!.text).toContain(
+      "- -oo to oo: exact factor sign chart is unsupported",
+    );
+    expect(result.content[0]!.text).not.toContain("Blockers\n- none");
+    expect(result.details).toMatchObject({
+      kind: "dominance_analysis",
+      dominance_status: "unresolved",
+      blockers: [],
+    });
+  });
+
   it("round trips candidate comparison through the registered tool", async () => {
     const current = host();
     const adapter = fileURLToPath(

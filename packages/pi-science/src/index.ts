@@ -78,6 +78,14 @@ function compactToolText(result: BridgeResult): string {
     ].join("\n");
 
   if ("kind" in result && result.kind === "dominance_analysis") {
+    const cellLabel = (cell: (typeof result.cells)[number]) =>
+      "value" in cell ? cell.value : `${cell.lower} to ${cell.upper}`;
+    const blockers = [
+      ...result.blockers,
+      ...result.cells.flatMap((cell) =>
+        cell.blockers.map((blocker) => `${cellLabel(cell)}: ${blocker}`),
+      ),
+    ];
     return [
       "Axis",
       `- ${result.axis} (${result.axis_domain})`,
@@ -93,7 +101,7 @@ function compactToolText(result: BridgeResult): string {
       ...(result.cells.length
         ? result.cells.map(
             (cell) =>
-              `- ${"value" in cell ? cell.value : `${cell.lower} to ${cell.upper}`}: ${cell.dominant.join(", ") || "unresolved"}`,
+              `- ${cellLabel(cell)}: ${cell.dominant.join(", ") || "unresolved"}`,
           )
         : ["- none"]),
       "Excluded poles",
@@ -109,8 +117,8 @@ function compactToolText(result: BridgeResult): string {
         ? result.conditions.map((condition) => `- ${condition}`)
         : ["- none"]),
       "Blockers",
-      ...(result.blockers.length
-        ? result.blockers.map((blocker) => `- ${blocker}`)
+      ...(blockers.length
+        ? blockers.map((blocker) => `- ${blocker}`)
         : ["- none"]),
     ].join("\n");
   }

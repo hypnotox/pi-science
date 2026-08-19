@@ -1846,6 +1846,102 @@ function validComparisonResult(
   );
 }
 
+type DominanceBoundary =
+  | { kind: "negative_infinity" | "positive_infinity" }
+  | { kind: "finite"; numerator: bigint; denominator: bigint };
+type DominanceBounds = {
+  lower: DominanceBoundary;
+  upper: DominanceBoundary;
+  lowerInclusive: boolean;
+  upperInclusive: boolean;
+};
+
+function greatestCommonDivisor(left: bigint, right: bigint): bigint {
+  let first = left < 0n ? -left : left;
+  let second = right < 0n ? -right : right;
+  while (second !== 0n) [first, second] = [second, first % second];
+  return first;
+}
+
+function canonicalRequestExactScalar(value: unknown): string | null {
+  if (typeof value === "string" && canonicalExactScalar(value)) return value;
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const text = String(value);
+  const match = /^(-?)([0-9]+)(?:\.([0-9]+))?(?:[eE]([+-]?[0-9]+))?$/.exec(
+    text,
+  );
+  if (match === null) return null;
+  const fractionDigits = match[3]?.length ?? 0;
+  const exponent = Number(match[4] ?? "0") - fractionDigits;
+  if (!Number.isSafeInteger(exponent) || Math.abs(exponent) > 4096) return null;
+  let numerator = BigInt(`${match[1]}${match[2]}${match[3] ?? ""}`);
+  let denominator = 1n;
+  if (exponent >= 0) numerator *= 10n ** BigInt(exponent);
+  else denominator = 10n ** BigInt(-exponent);
+  const divisor = greatestCommonDivisor(numerator, denominator);
+  numerator /= divisor;
+  denominator /= divisor;
+  if (
+    (numerator < 0n ? -numerator : numerator).toString(2).length > 3402 ||
+    denominator.toString(2).length > 3402
+  )
+    return null;
+  return denominator === 1n ? String(numerator) : `${numerator}/${denominator}`;
+}
+
+function dominanceBoundary(value: string): DominanceBoundary | null {
+  if (value === "-oo") return { kind: "negative_infinity" };
+  if (value === "oo") return { kind: "positive_infinity" };
+  if (!canonicalExactScalar(value)) return null;
+  const [numerator, denominator = "1"] = value.split("/");
+  return {
+    kind: "finite",
+    numerator: BigInt(numerator!),
+    denominator: BigInt(denominator),
+  };
+}
+
+function compareDominanceBoundaries(
+  left: DominanceBoundary,
+  right: DominanceBoundary,
+): -1 | 0 | 1 {
+  if (left.kind === right.kind && left.kind !== "finite") return 0;
+  if (left.kind === "negative_infinity" || right.kind === "positive_infinity")
+    return -1;
+  if (left.kind === "positive_infinity" || right.kind === "negative_infinity")
+    return 1;
+  if (left.kind !== "finite" || right.kind !== "finite") return 0;
+  const difference =
+    left.numerator * right.denominator - right.numerator * left.denominator;
+  return difference < 0n ? -1 : difference > 0n ? 1 : 0;
+}
+
+function dominanceBounds(
+  lowerText: string,
+  upperText: string,
+  lowerInclusive: boolean,
+  upperInclusive: boolean,
+): DominanceBounds | null {
+  const lower = dominanceBoundary(lowerText);
+  const upper = dominanceBoundary(upperText);
+  if (
+    lower === null ||
+    upper === null ||
+    lower.kind === "positive_infinity" ||
+    upper.kind === "negative_infinity" ||
+    (lower.kind === "negative_infinity" && lowerInclusive) ||
+    (upper.kind === "positive_infinity" && upperInclusive)
+  )
+    return null;
+  const comparison = compareDominanceBoundaries(lower, upper);
+  if (
+    comparison > 0 ||
+    (comparison === 0 && !(lowerInclusive && upperInclusive))
+  )
+    return null;
+  return { lower, upper, lowerInclusive, upperInclusive };
+}
+
 function dominanceRange(value: unknown): value is Record<string, unknown> {
   return (
     isRecord(value) &&
@@ -1857,16 +1953,361 @@ function dominanceRange(value: unknown): value is Record<string, unknown> {
     ]) &&
     typeof value.lower === "string" &&
     typeof value.upper === "string" &&
-    (value.lower === "-oo" || canonicalExactScalar(value.lower)) &&
-    (value.upper === "oo" || canonicalExactScalar(value.upper)) &&
     typeof value.lower_inclusive === "boolean" &&
     typeof value.upper_inclusive === "boolean" &&
-    value.lower !== "oo" &&
-    value.upper !== "-oo" &&
-    !(value.lower === "-oo" && value.lower_inclusive) &&
-    !(value.upper === "oo" && value.upper_inclusive)
+    dominanceBounds(
+      value.lower,
+      value.upper,
+      value.lower_inclusive,
+      value.upper_inclusive,
+    ) !== null
   );
 }
+
+function sameDominanceRange(
+  left: unknown,
+  right: Record<string, unknown> | null,
+): boolean {
+  if (left === null || right === null) return left === right;
+  return (
+    isRecord(left) &&
+    left.lower === right.lower &&
+    left.upper === right.upper &&
+    left.lower_inclusive === right.lower_inclusive &&
+    left.upper_inclusive === right.upper_inclusive
+  );
+}
+
+function dominanceRangeBounds(value: Record<string, unknown>): DominanceBounds {
+  return dominanceBounds(
+    value.lower as string,
+    value.upper as string,
+    value.lower_inclusive as boolean,
+    value.upper_inclusive as boolean,
+  )!;
+}
+
+function dominanceBoundsWithin(
+  inner: DominanceBounds,
+  outer: DominanceBounds,
+): boolean {
+  const lower = compareDominanceBoundaries(inner.lower, outer.lower);
+  const upper = compareDominanceBoundaries(inner.upper, outer.upper);
+  return (
+    (lower > 0 ||
+      (lower === 0 && (outer.lowerInclusive || !inner.lowerInclusive))) &&
+    (upper < 0 ||
+      (upper === 0 && (outer.upperInclusive || !inner.upperInclusive)))
+  );
+}
+
+function dominancePointWithin(
+  point: DominanceBoundary,
+  range: DominanceBounds,
+): boolean {
+  const lower = compareDominanceBoundaries(point, range.lower);
+  const upper = compareDominanceBoundaries(point, range.upper);
+  return (
+    (lower > 0 || (lower === 0 && range.lowerInclusive)) &&
+    (upper < 0 || (upper === 0 && range.upperInclusive))
+  );
+}
+
+function normalizedDominanceRequestRange(
+  request: DominanceRequest,
+): Record<string, unknown> | null {
+  if (request.range === undefined) return null;
+  const lower =
+    request.range.lower === undefined || request.range.lower === "-oo"
+      ? "-oo"
+      : canonicalRequestExactScalar(request.range.lower);
+  const upper =
+    request.range.upper === undefined || request.range.upper === "oo"
+      ? "oo"
+      : canonicalRequestExactScalar(request.range.upper);
+  if (lower === null || upper === null) return null;
+  return {
+    lower,
+    upper,
+    lower_inclusive:
+      request.range.lower_inclusive ?? (lower === "-oo" ? false : true),
+    upper_inclusive:
+      request.range.upper_inclusive ?? (upper === "oo" ? false : true),
+  };
+}
+
+function dominanceDomainBounds(domain: MathematicalDomain): DominanceBounds {
+  const lower = dominanceBoundary(
+    domain === "positive_integer" ||
+      domain === "nonnegative_integer" ||
+      domain === "positive_real" ||
+      domain === "nonnegative_real"
+      ? "0"
+      : "-oo",
+  )!;
+  return {
+    lower,
+    upper: { kind: "positive_infinity" },
+    lowerInclusive:
+      domain === "nonnegative_integer" || domain === "nonnegative_real",
+    upperInclusive: false,
+  };
+}
+function dominanceCellBounds(
+  cell: Record<string, unknown>,
+): DominanceBounds | null {
+  if (cell.kind === "real_interval") {
+    if (
+      !exactKeys(cell, [
+        "kind",
+        "lower",
+        "upper",
+        "lower_inclusive",
+        "upper_inclusive",
+        "dominant",
+        "blockers",
+      ]) ||
+      typeof cell.lower !== "string" ||
+      typeof cell.upper !== "string" ||
+      typeof cell.lower_inclusive !== "boolean" ||
+      typeof cell.upper_inclusive !== "boolean"
+    )
+      return null;
+    const bounds = dominanceBounds(
+      cell.lower,
+      cell.upper,
+      cell.lower_inclusive,
+      cell.upper_inclusive,
+    );
+    if (bounds === null) return null;
+    return compareDominanceBoundaries(bounds.lower, bounds.upper) < 0
+      ? bounds
+      : null;
+  }
+  if (cell.kind === "integer_range") {
+    if (
+      !exactKeys(cell, ["kind", "lower", "upper", "dominant", "blockers"]) ||
+      typeof cell.lower !== "string" ||
+      typeof cell.upper !== "string" ||
+      ![cell.lower, cell.upper].every(
+        (item) =>
+          item === "-oo" ||
+          item === "oo" ||
+          (canonicalExactScalar(item) && !item.includes("/")),
+      )
+    )
+      return null;
+    const bounds = dominanceBounds(
+      cell.lower,
+      cell.upper,
+      cell.lower !== "-oo",
+      cell.upper !== "oo",
+    );
+    return bounds !== null &&
+      compareDominanceBoundaries(bounds.lower, bounds.upper) < 0
+      ? bounds
+      : null;
+  }
+  if (cell.kind !== "real_point" && cell.kind !== "integer_point") return null;
+  if (
+    !exactKeys(cell, ["kind", "value", "dominant", "blockers"]) ||
+    typeof cell.value !== "string" ||
+    !canonicalExactScalar(cell.value) ||
+    (cell.kind === "integer_point" && cell.value.includes("/"))
+  )
+    return null;
+  const point = dominanceBoundary(cell.value)!;
+  return {
+    lower: point,
+    upper: point,
+    lowerInclusive: true,
+    upperInclusive: true,
+  };
+}
+
+function sameDominanceCellOutcome(
+  left: Record<string, unknown>,
+  right: Record<string, unknown>,
+): boolean {
+  return (
+    JSON.stringify(left.dominant) === JSON.stringify(right.dominant) &&
+    JSON.stringify(left.blockers) === JSON.stringify(right.blockers)
+  );
+}
+
+function adjacentIntegerBounds(
+  left: DominanceBounds,
+  right: DominanceBounds,
+): boolean {
+  if (left.upper.kind !== "finite" || right.lower.kind !== "finite")
+    return false;
+  return (
+    left.upper.denominator === 1n &&
+    right.lower.denominator === 1n &&
+    right.lower.numerator - left.upper.numerator === 1n
+  );
+}
+
+function dominanceCellsHaveValidGeometry(
+  cells: Record<string, unknown>[],
+  bounds: DominanceBounds[],
+  effective: DominanceBounds,
+  integer: boolean,
+): boolean {
+  for (let index = 0; index < cells.length; index += 1) {
+    const current = bounds[index]!;
+    if (!dominanceBoundsWithin(current, effective)) return false;
+    if (index === 0) continue;
+    const previous = bounds[index - 1]!;
+    const order = compareDominanceBoundaries(previous.upper, current.lower);
+    if (
+      order > 0 ||
+      (order === 0 && previous.upperInclusive && current.lowerInclusive)
+    )
+      return false;
+    const coalescable = integer
+      ? adjacentIntegerBounds(previous, current)
+      : order === 0 && (previous.upperInclusive || current.lowerInclusive);
+    if (
+      coalescable &&
+      sameDominanceCellOutcome(cells[index - 1]!, cells[index]!)
+    )
+      return false;
+  }
+  return true;
+}
+
+function finiteBoundaryKey(value: DominanceBoundary): string | null {
+  return value.kind === "finite"
+    ? `${value.numerator}/${value.denominator}`
+    : null;
+}
+
+function floorDominanceBoundary(value: DominanceBoundary): bigint | null {
+  if (value.kind !== "finite") return null;
+  return value.numerator >= 0n
+    ? value.numerator / value.denominator
+    : -((-value.numerator + value.denominator - 1n) / value.denominator);
+}
+
+function ceilDominanceBoundary(value: DominanceBoundary): bigint | null {
+  if (value.kind !== "finite") return null;
+  return value.numerator >= 0n
+    ? (value.numerator + value.denominator - 1n) / value.denominator
+    : -(-value.numerator / value.denominator);
+}
+
+function integerGapIsExcluded(
+  lower: bigint,
+  upper: bigint,
+  exclusions: Set<string>,
+): boolean {
+  if (lower > upper) return true;
+  if (upper - lower + 1n > BigInt(exclusions.size)) return false;
+  for (let value = lower; value <= upper; value += 1n)
+    if (!exclusions.has(`${value}/1`)) return false;
+  return true;
+}
+
+function completeDominanceCoverage(
+  cells: DominanceBounds[],
+  effective: DominanceBounds,
+  exclusions: DominanceBoundary[],
+  integer: boolean,
+): boolean {
+  if (cells.length === 0) return false;
+  const excluded = new Set(
+    exclusions
+      .map(finiteBoundaryKey)
+      .filter((value): value is string => value !== null),
+  );
+  if (!integer) {
+    const first = cells[0]!;
+    const last = cells[cells.length - 1]!;
+    if (
+      compareDominanceBoundaries(first.lower, effective.lower) !== 0 ||
+      compareDominanceBoundaries(last.upper, effective.upper) !== 0
+    )
+      return false;
+    if (
+      effective.lowerInclusive &&
+      !first.lowerInclusive &&
+      !excluded.has(finiteBoundaryKey(effective.lower) ?? "")
+    )
+      return false;
+    if (
+      effective.upperInclusive &&
+      !last.upperInclusive &&
+      !excluded.has(finiteBoundaryKey(effective.upper) ?? "")
+    )
+      return false;
+    for (let index = 1; index < cells.length; index += 1) {
+      const previous = cells[index - 1]!;
+      const current = cells[index]!;
+      if (compareDominanceBoundaries(previous.upper, current.lower) !== 0)
+        return false;
+      if (
+        !previous.upperInclusive &&
+        !current.lowerInclusive &&
+        !excluded.has(finiteBoundaryKey(previous.upper) ?? "")
+      )
+        return false;
+    }
+    return true;
+  }
+  const first = cells[0]!;
+  const last = cells[cells.length - 1]!;
+  const effectiveLow =
+    effective.lower.kind === "negative_infinity"
+      ? null
+      : effective.lowerInclusive
+        ? ceilDominanceBoundary(effective.lower)
+        : floorDominanceBoundary(effective.lower)! + 1n;
+  const effectiveHigh =
+    effective.upper.kind === "positive_infinity"
+      ? null
+      : effective.upperInclusive
+        ? floorDominanceBoundary(effective.upper)
+        : ceilDominanceBoundary(effective.upper)! - 1n;
+  if (effectiveLow === null) {
+    if (first.lower.kind !== "negative_infinity") return false;
+  } else {
+    if (first.lower.kind !== "finite" || first.lower.denominator !== 1n)
+      return false;
+    if (
+      !integerGapIsExcluded(effectiveLow, first.lower.numerator - 1n, excluded)
+    )
+      return false;
+  }
+  if (effectiveHigh === null) {
+    if (last.upper.kind !== "positive_infinity") return false;
+  } else {
+    if (last.upper.kind !== "finite" || last.upper.denominator !== 1n)
+      return false;
+    if (
+      !integerGapIsExcluded(last.upper.numerator + 1n, effectiveHigh, excluded)
+    )
+      return false;
+  }
+  for (let index = 1; index < cells.length; index += 1) {
+    const previous = cells[index - 1]!;
+    const current = cells[index]!;
+    if (
+      previous.upper.kind !== "finite" ||
+      current.lower.kind !== "finite" ||
+      previous.upper.denominator !== 1n ||
+      current.lower.denominator !== 1n ||
+      !integerGapIsExcluded(
+        previous.upper.numerator + 1n,
+        current.lower.numerator - 1n,
+        excluded,
+      )
+    )
+      return false;
+  }
+  return true;
+}
+
 function dominanceAnalysisRequest(request: DominanceRequest): AnalysisRequest {
   const {
     operation: _operation,
@@ -1952,6 +2393,40 @@ function validDominanceResult(
     )
   )
     return false;
+  const expectedFixed = request.fixed ?? {};
+  const resultFixed = value.fixed as Record<string, string>;
+  const expectedFixedKeys = Object.keys(expectedFixed).sort();
+  if (
+    JSON.stringify(Object.keys(resultFixed).sort()) !==
+      JSON.stringify(expectedFixedKeys) ||
+    expectedFixedKeys.some(
+      (name) =>
+        canonicalRequestExactScalar(expectedFixed[name]) !== resultFixed[name],
+    )
+  )
+    return false;
+  const expectedRequestedRange = normalizedDominanceRequestRange(request);
+  if (
+    (request.range !== undefined && expectedRequestedRange === null) ||
+    !sameDominanceRange(value.requested_range, expectedRequestedRange)
+  )
+    return false;
+  let effectiveBounds: DominanceBounds | null = null;
+  if (value.effective_range !== null) {
+    effectiveBounds = dominanceRangeBounds(value.effective_range);
+    const domain = dominanceDomainBounds(
+      value.axis_domain as MathematicalDomain,
+    );
+    if (!dominanceBoundsWithin(effectiveBounds, domain)) return false;
+    if (
+      expectedRequestedRange !== null &&
+      !dominanceBoundsWithin(
+        effectiveBounds,
+        dominanceRangeBounds(expectedRequestedRange),
+      )
+    )
+      return false;
+  }
   const terms = value.terms;
   if (
     !terms.every(
@@ -1982,9 +2457,11 @@ function validDominanceResult(
   )
     return false;
   const integer = String(value.axis_domain).includes("integer");
-  const cellOk = value.cells.every((cell) => {
+  const cells = value.cells.filter(isRecord);
+  if (cells.length !== value.cells.length) return false;
+  const cellBounds: DominanceBounds[] = [];
+  for (const cell of cells) {
     if (
-      !isRecord(cell) ||
       !validStringArray(cell.dominant) ||
       !validStringArray(cell.blockers) ||
       cell.dominant.some((id) => !ids.includes(id)) ||
@@ -1993,69 +2470,76 @@ function validDominanceResult(
         JSON.stringify(
           ids.filter((id) => (cell.dominant as string[]).includes(id)),
         ) ||
-      cell.blockers.length > 0 === cell.dominant.length > 0
+      cell.blockers.length > 0 === cell.dominant.length > 0 ||
+      (integer && !String(cell.kind).startsWith("integer")) ||
+      (!integer && String(cell.kind).startsWith("integer"))
     )
       return false;
-    if (integer && !String(cell.kind).startsWith("integer")) return false;
-    if (!integer && String(cell.kind).startsWith("integer")) return false;
-    if (cell.kind === "real_interval")
-      return (
-        exactKeys(cell, [
-          "kind",
-          "lower",
-          "upper",
-          "lower_inclusive",
-          "upper_inclusive",
-          "dominant",
-          "blockers",
-        ]) && dominanceRange(cell)
-      );
-    if (cell.kind === "integer_range")
-      return (
-        exactKeys(cell, ["kind", "lower", "upper", "dominant", "blockers"]) &&
-        typeof cell.lower === "string" &&
-        typeof cell.upper === "string" &&
-        [cell.lower, cell.upper].every(
-          (x) =>
-            x === "-oo" ||
-            x === "oo" ||
-            (canonicalExactScalar(x) && !x.includes("/")),
-        )
-      );
-    return (
-      (cell.kind === "real_point" || cell.kind === "integer_point") &&
-      exactKeys(cell, ["kind", "value", "dominant", "blockers"]) &&
-      typeof cell.value === "string" &&
-      canonicalExactScalar(cell.value) &&
-      (cell.kind !== "integer_point" || !cell.value.includes("/"))
-    );
-  });
+    const bounds = dominanceCellBounds(cell);
+    if (bounds === null) return false;
+    cellBounds.push(bounds);
+  }
   if (
-    !cellOk ||
-    !value.exclusions.every(
-      (x) =>
-        isRecord(x) &&
-        exactKeys(x, ["value", "reason"]) &&
-        x.reason === "pole" &&
-        typeof x.value === "string" &&
-        canonicalExactScalar(x.value) &&
-        (!integer || !x.value.includes("/")),
+    effectiveBounds !== null &&
+    !dominanceCellsHaveValidGeometry(
+      cells,
+      cellBounds,
+      effectiveBounds,
+      integer,
     )
   )
     return false;
-  const pairs = value.evidence.map((x) => (isRecord(x) ? x.pair : undefined));
+  const exclusionPoints: DominanceBoundary[] = [];
+  let previousExclusion: DominanceBoundary | null = null;
+  for (const exclusion of value.exclusions) {
+    if (
+      !isRecord(exclusion) ||
+      !exactKeys(exclusion, ["value", "reason"]) ||
+      exclusion.reason !== "pole" ||
+      typeof exclusion.value !== "string" ||
+      !canonicalExactScalar(exclusion.value) ||
+      (integer && exclusion.value.includes("/"))
+    )
+      return false;
+    const point = dominanceBoundary(exclusion.value)!;
+    if (
+      effectiveBounds === null ||
+      !dominancePointWithin(point, effectiveBounds) ||
+      (previousExclusion !== null &&
+        compareDominanceBoundaries(previousExclusion, point) >= 0) ||
+      cellBounds.some((bounds) => dominancePointWithin(point, bounds)) ||
+      !value.conditions.includes(`${request.axis} != ${exclusion.value}`)
+    )
+      return false;
+    previousExclusion = point;
+    exclusionPoints.push(point);
+  }
+  const expectedPairs: Array<[string, string]> = [];
+  for (let left = 0; left < ids.length; left += 1)
+    for (let right = left + 1; right < ids.length; right += 1)
+      expectedPairs.push([ids[left]!, ids[right]!]);
+  const pairs = value.evidence.map((item) =>
+    isRecord(item) && Array.isArray(item.pair) ? item.pair : undefined,
+  );
   if (
     !value.evidence.every(
-      (x) =>
-        isRecord(x) &&
-        exactKeys(x, ["pair", "difference", "sign", "roots"]) &&
-        Array.isArray(x.pair) &&
-        x.pair.length === 2 &&
-        x.pair.every((id) => typeof id === "string" && ids.includes(id)) &&
-        typeof x.difference === "string" &&
-        (x.sign === -1 || x.sign === 0 || x.sign === 1 || x.sign === null) &&
-        Array.isArray(x.roots) &&
-        x.roots.every((r) => typeof r === "string" && canonicalExactScalar(r)),
+      (item) =>
+        isRecord(item) &&
+        exactKeys(item, ["pair", "difference", "sign", "roots"]) &&
+        Array.isArray(item.pair) &&
+        item.pair.length === 2 &&
+        expectedPairs.some(
+          (pair) => JSON.stringify(pair) === JSON.stringify(item.pair),
+        ) &&
+        typeof item.difference === "string" &&
+        (item.sign === -1 ||
+          item.sign === 0 ||
+          item.sign === 1 ||
+          item.sign === null) &&
+        Array.isArray(item.roots) &&
+        item.roots.every(
+          (root) => typeof root === "string" && canonicalExactScalar(root),
+        ),
     ) ||
     new Set(pairs.map((pair) => JSON.stringify(pair))).size !== pairs.length
   )
@@ -2069,24 +2553,47 @@ function validDominanceResult(
       value.never_dominant.length === 0
     );
   if (value.effective_range === null) return false;
-  if (value.dominance_status === "complete")
+  if (value.dominance_status === "complete") {
+    if (
+      value.blockers.length > 0 ||
+      cells.some((cell) => (cell.blockers as unknown[]).length > 0)
+    )
+      return false;
+    if (ids.length === 0)
+      return (
+        value.cells.length === 0 &&
+        value.never_dominant.length === 0 &&
+        value.shared_denominator !== null &&
+        value.evidence.length === 0 &&
+        value.conditions.includes("aggregate work is identically zero")
+      );
+    const active = new Set(cells.flatMap((cell) => cell.dominant as string[]));
+    const expectedNeverDominant = ids.filter((id) => !active.has(id));
     return (
-      value.blockers.length === 0 &&
-      value.cells.every(
-        (x) => isRecord(x) && (x.blockers as unknown[]).length === 0,
+      value.shared_denominator !== null &&
+      value.cells.length > 0 &&
+      effectiveBounds !== null &&
+      completeDominanceCoverage(
+        cellBounds,
+        effectiveBounds,
+        exclusionPoints,
+        integer,
       ) &&
-      (ids.length === 0
-        ? value.cells.length === 0 &&
-          value.shared_denominator !== null &&
-          value.conditions.includes("aggregate work is identically zero")
-        : value.shared_denominator !== null &&
-          value.cells.length > 0 &&
-          value.evidence.length === (ids.length * (ids.length - 1)) / 2)
+      JSON.stringify(value.never_dominant) ===
+        JSON.stringify(expectedNeverDominant) &&
+      JSON.stringify(pairs) === JSON.stringify(expectedPairs)
     );
-  return (
+  }
+  const hasBlocker =
     value.blockers.length > 0 ||
-    value.cells.some((x) => isRecord(x) && (x.blockers as unknown[]).length > 0)
-  );
+    cells.some((cell) => (cell.blockers as unknown[]).length > 0);
+  if (!hasBlocker) return false;
+  return ids.length === 0
+    ? value.shared_denominator === null &&
+        value.cells.length === 0 &&
+        value.evidence.length === 0 &&
+        value.never_dominant.length === 0
+    : value.shared_denominator !== null;
 }
 
 function validResult(

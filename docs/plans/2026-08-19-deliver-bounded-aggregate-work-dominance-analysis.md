@@ -258,3 +258,9 @@ Phase 3 implementation evidence:
 - Reapplied only `bounded-dominance-analysis-requests` to widen its Phase-2 direct-Python wording to Python and Pi. The product-boundary, mathematical-analysis-model, and analysis-report-contract dominance claims were inspected as transport-neutral and left byte-for-byte unchanged.
 - Generated identity, architecture, testing, topic, skill, package, and tool surfaces were rendered and read for meaning; no direct-Python-only or roadmap claim remains for shipped dominance transport.
 - Deviations: none.
+
+Phase 3 review settlement:
+- Phase review found that the first bridge accepted request/result fixed and range mismatches, invalid or unconfined cell geometry, pole-covered cells, false never-dominant claims, noncanonical evidence pairs, incomplete status populations, and localized blockers hidden by compact output.
+- Settlement canonicalizes exact request values, correlates fixed and requested/effective ranges with the axis domain, validates ordered disjoint noncoalesced cells and complete coverage, confines ordered poles outside cells with matching conditions, and enforces canonical evidence, never-dominant complements, and complete/unresolved/empty populations without recomputing mathematics.
+- Mutation tests reject mismatched requests, reversed or omitted ranges, reordered, missing, overlapping, out-of-domain, pole-covered, and split-coalescable cells, false never-dominant terms, self-pairs, and null decompositions. A real localized pair refusal now proves compact blockers include their region while `details` remains canonical.
+- All review findings were mechanical under the approved strict-transport boundary; no verify-pass review is required after the focused gate and full audit.
