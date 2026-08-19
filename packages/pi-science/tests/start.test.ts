@@ -122,8 +122,12 @@ describe("readiness gate", () => {
     expect(current.commands.has("pi-science-doctor")).toBe(true);
     expect(current.tools).toHaveLength(1);
     expect(current.tools[0]).toMatchObject({
-      description: expect.stringContaining("restricted SymPy"),
-      promptSnippet: expect.stringContaining("qualified symbolic work"),
+      description: expect.stringMatching(
+        /restricted SymPy.*candidate comparison/,
+      ),
+      promptSnippet: expect.stringMatching(
+        /qualified symbolic work.*candidate comparison/,
+      ),
       promptGuidelines: [
         expect.stringMatching(
           /Before first using analyze_formula.*pi-science-formula-analysis skill/,
@@ -133,6 +137,38 @@ describe("readiness gate", () => {
     });
     const parameters = current.tools[0]!.parameters;
     expect(Value.Check(parameters, { expression: "x" })).toBe(true);
+    const comparison = {
+      operation: "compare_candidates",
+      candidates: [
+        { name: "first", expression: "x" },
+        { name: "second", expression: "x + 0" },
+      ],
+      outputs: [
+        {
+          name: "value",
+          targets: [
+            { candidate: "first", target: { kind: "expression" } },
+            { candidate: "second", target: { kind: "expression" } },
+          ],
+        },
+      ],
+    };
+    expect(Value.Check(parameters, comparison)).toBe(true);
+    expect(
+      Value.Check(parameters, {
+        ...comparison,
+        candidates: [{ name: "first" }, comparison.candidates[1]],
+      }),
+    ).toBe(false);
+    expect(
+      Value.Check(parameters, {
+        ...comparison,
+        candidates: [
+          { name: "first", expression: "x", equations: [] },
+          comparison.candidates[1],
+        ],
+      }),
+    ).toBe(false);
     expect(
       Value.Check(parameters, {
         equations: [
@@ -311,6 +347,82 @@ describe("readiness gate", () => {
       ],
       details: response,
     });
+  });
+
+  it("round trips candidate comparison through the registered tool", async () => {
+    const current = host();
+    const adapter = fileURLToPath(
+      new URL("../bridge/formula_adapter.py", import.meta.url),
+    );
+    await start(
+      current.api,
+      Promise.resolve({
+        ready: true,
+        command: "uv",
+        args: ["run", "--locked", "python", adapter],
+      }),
+    );
+    const result = await current.tools[0]!.execute("id", {
+      operation: "compare_candidates",
+      variables: {
+        N: { domain: "nonnegative_integer" },
+        x: { domain: "real" },
+        d: { domain: "real" },
+      },
+      candidates: [
+        {
+          name: "first",
+          equations: [
+            { name: "rate", expression: "Eq(r, 1 / d)" },
+            {
+              name: "out",
+              expression: "Eq(y[i], x * r)",
+              domains: { i: { lower: "0", upper: "N" } },
+            },
+          ],
+        },
+        {
+          name: "second",
+          equations: [
+            {
+              name: "out",
+              expression: "Eq(z[j], x / d)",
+              domains: { j: { lower: "0", upper: "N" } },
+            },
+          ],
+        },
+      ],
+      outputs: [
+        {
+          name: "value",
+          targets: [
+            {
+              candidate: "first",
+              target: { kind: "equation", name: "out" },
+            },
+            {
+              candidate: "second",
+              target: { kind: "equation", name: "out" },
+            },
+          ],
+        },
+      ],
+    });
+    expect(result.details).toMatchObject({
+      kind: "candidate_comparison",
+      semantic_status: "proved_equal_under_assumptions",
+      work_comparison: { delta: "-1", status: "second_lower" },
+    });
+    const text = result.content[0]!.text;
+    expect(text).toContain("Overall semantic status");
+    expect(text).toContain("Mapped-output blockers");
+    expect(text).toContain("Delta (second - first): -1");
+    expect(text.indexOf("Overall semantic status")).toBeLessThan(
+      text.indexOf("Aggregate work"),
+    );
+    expect(text.indexOf("Mapped-output blockers")).toBeLessThan(
+      text.indexOf("Work decision"),
+    );
   });
 
   it("projects closed-form candidates and variable-qualified property checks", async () => {

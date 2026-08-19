@@ -1408,97 +1408,119 @@
         },
         "candidates": {
           "items": {
-            "additionalProperties": false,
-            "properties": {
-              "equations": {
-                "items": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "constraints": {
-                      "items": {
-                        "additionalProperties": false,
-                        "description": "One named, equation-local relationship tightening an output index.",
-                        "properties": {
-                          "name": {
-                            "maxLength": 128,
-                            "minLength": 1,
-                            "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
-                            "type": "string"
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "expression": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "expression"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "equations": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "constraints": {
+                          "items": {
+                            "additionalProperties": false,
+                            "description": "One named, equation-local relationship tightening an output index.",
+                            "properties": {
+                              "name": {
+                                "maxLength": 128,
+                                "minLength": 1,
+                                "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                                "type": "string"
+                              },
+                              "relationship": {
+                                "maxLength": 65536,
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "target": {
+                                "maxLength": 128,
+                                "minLength": 1,
+                                "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "name",
+                              "target",
+                              "relationship"
+                            ],
+                            "type": "object"
                           },
-                          "relationship": {
-                            "maxLength": 65536,
-                            "minLength": 1,
-                            "type": "string"
-                          },
-                          "target": {
-                            "maxLength": 128,
-                            "minLength": 1,
-                            "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
-                            "type": "string"
-                          }
+                          "maxItems": 32,
+                          "type": "array"
                         },
-                        "required": [
-                          "name",
-                          "target",
-                          "relationship"
-                        ],
-                        "type": "object"
-                      },
-                      "maxItems": 32,
-                      "type": "array"
-                    },
-                    "domains": {
-                      "additionalProperties": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "lower": {
-                            "type": "string"
+                        "domains": {
+                          "additionalProperties": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "lower": {
+                                "type": "string"
+                              },
+                              "upper": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "lower",
+                              "upper"
+                            ],
+                            "type": "object"
                           },
-                          "upper": {
-                            "type": "string"
-                          }
+                          "type": "object"
                         },
-                        "required": [
-                          "lower",
-                          "upper"
-                        ],
-                        "type": "object"
+                        "expression": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "maxLength": 128,
+                          "minLength": 1,
+                          "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                          "type": "string"
+                        }
                       },
+                      "required": [
+                        "name",
+                        "expression"
+                      ],
                       "type": "object"
                     },
-                    "expression": {
-                      "type": "string"
-                    },
-                    "name": {
-                      "maxLength": 128,
-                      "minLength": 1,
-                      "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
-                      "type": "string"
-                    }
+                    "maxItems": 128,
+                    "minItems": 1,
+                    "type": "array"
                   },
-                  "required": [
-                    "name",
-                    "expression"
-                  ],
-                  "type": "object"
+                  "name": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                    "type": "string"
+                  }
                 },
-                "maxItems": 128,
-                "type": "array"
-              },
-              "expression": {
-                "type": "string"
-              },
-              "name": {
-                "maxLength": 128,
-                "minLength": 1,
-                "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
-                "type": "string"
+                "required": [
+                  "name",
+                  "equations"
+                ],
+                "type": "object"
               }
-            },
-            "required": [
-              "name"
-            ],
-            "type": "object"
+            ]
           },
           "maxItems": 2,
           "minItems": 2,

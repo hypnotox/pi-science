@@ -115,12 +115,16 @@ def _query_variants(
             # Closed form remains equation-only; every downstream analysis
             # query may explicitly consume an earlier verified candidate.
             if target is not None and kind not in {
-                "equivalence", "properties", "limit", "asymptotic"
+                "equivalence",
+                "properties",
+                "limit",
+                "asymptotic",
             }:
                 options = target.get("anyOf") if isinstance(target, dict) else None
                 if isinstance(options, list):
                     equation = [
-                        item for item in options
+                        item
+                        for item in options
                         if item.get("properties", {}).get("kind", {}).get("enum") == ["equation"]
                     ]
                     properties["target"] = {"anyOf": equation}
@@ -134,7 +138,8 @@ def _query_variants(
             # targets remain a system-only spelling.
             options = target.get("anyOf", []) if isinstance(target, dict) else []
             derived = [
-                item for item in options
+                item
+                for item in options
                 if item.get("properties", {}).get("kind", {}).get("enum") == ["derived"]
             ]
             if derived:
@@ -145,6 +150,7 @@ def _query_variants(
         variant["required"] = required
         variants.append(variant)
     return variants
+
 
 def validate_schema(schema: JsonObject, path: str = "$") -> None:
     unsupported = set(schema) - ALLOWED_SCHEMA_KEYS
@@ -226,13 +232,43 @@ def generate_schema() -> JsonObject:
     if not isinstance(comparison_definitions, dict) or not isinstance(comparison_properties, dict):
         raise ValueError("CandidateComparisonRequest emitted an incompatible JSON Schema")
     comparison = _normalize(
-        {"type": "object", "additionalProperties": False, "properties": comparison_properties,
-         "required": comparison_raw.get("required", [])},
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": comparison_properties,
+            "required": comparison_raw.get("required", []),
+        },
         comparison_definitions,
     )
     # Pi supplies the fixed backend syntax; callers cannot select it.
     comparison["properties"].pop("syntax", None)
     comparison["required"] = [name for name in comparison["required"] if name != "syntax"]
+    candidate = comparison["properties"]["candidates"]["items"]
+    candidate_properties = candidate["properties"]
+    candidate_name = copy.deepcopy(candidate_properties["name"])
+    candidate_expression = {
+        "additionalProperties": False,
+        "properties": {
+            "name": copy.deepcopy(candidate_name),
+            "expression": copy.deepcopy(candidate_properties["expression"]),
+        },
+        "required": ["name", "expression"],
+        "type": "object",
+    }
+    candidate_equations = copy.deepcopy(candidate_properties["equations"])
+    candidate_equations["minItems"] = 1
+    candidate_system = {
+        "additionalProperties": False,
+        "properties": {
+            "name": candidate_name,
+            "equations": candidate_equations,
+        },
+        "required": ["name", "equations"],
+        "type": "object",
+    }
+    comparison["properties"]["candidates"]["items"] = {
+        "anyOf": [candidate_expression, candidate_system]
+    }
     schema = {"anyOf": [expression, system, comparison]}
     validate_schema(schema)
     return schema
@@ -258,8 +294,7 @@ def main() -> int:
         if actual != expected:
             relative = output.relative_to(ROOT) if output.is_relative_to(ROOT) else output
             command = (
-                "uv run --locked python scripts/generate-pi-formula-schema.py "
-                f"--output {relative}"
+                f"uv run --locked python scripts/generate-pi-formula-schema.py --output {relative}"
             )
             print(
                 f"generated Pi formula schema is stale: run `{command}`",

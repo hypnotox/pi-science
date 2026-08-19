@@ -14,6 +14,48 @@ function invoke(input: string) {
   });
 }
 
+const comparisonRequest = {
+  syntax: "sympy",
+  operation: "compare_candidates",
+  variables: {
+    N: { domain: "nonnegative_integer" },
+    x: { domain: "real" },
+    d: { domain: "real" },
+  },
+  candidates: [
+    {
+      name: "first",
+      equations: [
+        { name: "rate", expression: "Eq(r, 1 / d)" },
+        {
+          name: "out",
+          expression: "Eq(y[i], x * r)",
+          domains: { i: { lower: "0", upper: "N" } },
+        },
+      ],
+    },
+    {
+      name: "second",
+      equations: [
+        {
+          name: "out",
+          expression: "Eq(z[j], x / d)",
+          domains: { j: { lower: "0", upper: "N" } },
+        },
+      ],
+    },
+  ],
+  outputs: [
+    {
+      name: "value",
+      targets: [
+        { candidate: "first", target: { kind: "equation", name: "out" } },
+        { candidate: "second", target: { kind: "equation", name: "out" } },
+      ],
+    },
+  ],
+};
+
 const systemRequest = {
   syntax: "sympy",
   equations: [
@@ -345,6 +387,43 @@ print(module._encoded({"result": "x" * 262401}) is None)
       upper: "6/5",
       lower_inclusive: false,
       infimum_attained: false,
+    });
+  });
+
+  it("round trips candidate comparison through the real adapter", () => {
+    const result = invoke(
+      JSON.stringify({ version: 9, request: comparisonRequest }),
+    );
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      version: 9,
+      result: {
+        kind: "candidate_comparison",
+        status: "success",
+        candidates: [
+          { name: "first", aggregate_work: expect.any(String) },
+          { name: "second", aggregate_work: expect.any(String) },
+        ],
+        outputs: [
+          {
+            name: "value",
+            targets: [{ candidate: "first" }, { candidate: "second" }],
+            interface_status: "compatible",
+            answer: {
+              conclusion: "proved_under_assumptions",
+              evidence: { kind: "identity" },
+            },
+          },
+        ],
+        semantic_status: "proved_equal_under_assumptions",
+        work_comparison: {
+          candidate_names: ["first", "second"],
+          delta: "-1",
+          status: "second_lower",
+          evidence: { kind: "property" },
+        },
+      },
     });
   });
 

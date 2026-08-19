@@ -112,7 +112,14 @@ def test_generated_pi_schema_has_public_expression_and_system_branches() -> None
     assert system["properties"]["equations"]["maxItems"] == 128
     assert comparison["properties"]["operation"]["enum"] == ["compare_candidates"]
     assert "syntax" not in comparison["properties"]
-    assert comparison["properties"]["candidates"]["minItems"] == 2
+    candidates = comparison["properties"]["candidates"]
+    assert candidates["minItems"] == candidates["maxItems"] == 2
+    expression_candidate, system_candidate = candidates["items"]["anyOf"]
+    assert expression_candidate["required"] == ["name", "expression"]
+    assert "equations" not in expression_candidate["properties"]
+    assert system_candidate["required"] == ["name", "equations"]
+    assert "expression" not in system_candidate["properties"]
+    assert system_candidate["properties"]["equations"]["minItems"] == 1
     assert comparison["properties"]["outputs"]["maxItems"] == 32
 
 
@@ -141,6 +148,7 @@ def test_generated_pi_schema_preserves_query_and_population_bounds() -> None:
     }
     assert derived_consumers == {"equivalence", "properties", "limit", "asymptotic"}
     assert all("target" in variant["required"] for variant in system_queries)
+
     def target_kinds(variant: dict[str, Any]) -> set[str]:
         target = variant["properties"]["target"]
         options = target.get("anyOf", [target])

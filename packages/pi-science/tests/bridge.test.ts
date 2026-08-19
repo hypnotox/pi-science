@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AnalysisRequest } from "../src/bridge.js";
+import type {
+  AnalysisRequest,
+  CandidateComparisonRequest,
+  CandidateComparisonSuccess,
+} from "../src/bridge.js";
 import {
   appendResponseChunk,
   BridgeError,
@@ -202,6 +206,56 @@ function request(expression = "x") {
   return { syntax: "sympy" as const, expression };
 }
 
+function comparisonRequest(): CandidateComparisonRequest {
+  return {
+    syntax: "sympy",
+    operation: "compare_candidates",
+    variables: {
+      N: { domain: "nonnegative_integer" },
+      x: { domain: "real" },
+      d: { domain: "real" },
+    },
+    candidates: [
+      {
+        name: "first",
+        equations: [
+          { name: "rate", expression: "Eq(r, 1 / d)" },
+          {
+            name: "out",
+            expression: "Eq(y[i], x * r)",
+            domains: { i: { lower: "0", upper: "N" } },
+          },
+        ],
+      },
+      {
+        name: "second",
+        equations: [
+          {
+            name: "out",
+            expression: "Eq(z[j], x / d)",
+            domains: { j: { lower: "0", upper: "N" } },
+          },
+        ],
+      },
+    ],
+    outputs: [
+      {
+        name: "value",
+        targets: [
+          {
+            candidate: "first",
+            target: { kind: "equation", name: "out" },
+          },
+          {
+            candidate: "second",
+            target: { kind: "equation", name: "out" },
+          },
+        ],
+      },
+    ],
+  };
+}
+
 async function kind(promise: Promise<unknown>, expected: BridgeError["kind"]) {
   await expect(promise).rejects.toMatchObject({
     kind: expected,
@@ -225,6 +279,46 @@ describe("private formula bridge", () => {
     ).resolves.toMatchObject({
       status: "failure",
       error: { code: "malformed_syntax" },
+    });
+    const comparison = await invokeAdapter("uv", args, comparisonRequest());
+    expect(comparison).toMatchObject({
+      kind: "candidate_comparison",
+      status: "success",
+      candidates: [
+        { name: "first", aggregate_work: expect.any(String) },
+        { name: "second", aggregate_work: expect.any(String) },
+      ],
+      outputs: [
+        {
+          name: "value",
+          interface_status: "compatible",
+          answer: {
+            conclusion: "proved_under_assumptions",
+            evidence: { kind: "identity" },
+          },
+        },
+      ],
+      semantic_status: "proved_equal_under_assumptions",
+      work_comparison: {
+        candidate_names: ["first", "second"],
+        delta: "-1",
+        status: "second_lower",
+        evidence: { kind: "property" },
+      },
+    });
+    const malformedComparison = comparisonRequest();
+    malformedComparison.candidates[0] = {
+      name: "first",
+      expression: "x(",
+    };
+    await expect(
+      invokeAdapter("uv", args, malformedComparison),
+    ).resolves.toMatchObject({
+      status: "failure",
+      error: {
+        code: "malformed_syntax",
+        source: { path: "candidates[0].expression" },
+      },
     });
     await expect(
       invokeAdapter("uv", args, request("Sum(x[i] + 1, (i, 0, n - 1))")),
@@ -336,6 +430,106 @@ describe("private formula bridge", () => {
             "exact general symbolic work preserved",
             "fixed values substituted exactly",
           ],
+        },
+      ],
+    });
+  });
+
+  it("strictly validates candidate comparison result variants", async () => {
+    const adapter = fileURLToPath(
+      new URL("../bridge/formula_adapter.py", import.meta.url),
+    );
+    const comparison = (await invokeAdapter(
+      "uv",
+      ["run", "--locked", "python", adapter],
+      comparisonRequest(),
+    )) as CandidateComparisonSuccess;
+
+    await expect(
+      invokeAdapter(node, responder(comparison), comparisonRequest()),
+    ).resolves.toEqual(comparison);
+
+    const incompatible = structuredClone(comparison);
+    incompatible.outputs[0]!.interface_status = "incompatible";
+    await kind(
+      invokeAdapter(node, responder(incompatible), comparisonRequest()),
+      "protocol",
+    );
+
+    const unexpanded = structuredClone(comparison);
+    unexpanded.outputs[0]!.expanded_interpretations = null;
+    await kind(
+      invokeAdapter(node, responder(unexpanded), comparisonRequest()),
+      "protocol",
+    );
+
+    const surplusWork = structuredClone(comparison);
+    (surplusWork.work_comparison.candidate_works as unknown[]).push("extra");
+    await kind(
+      invokeAdapter(node, responder(surplusWork), comparisonRequest()),
+      "protocol",
+    );
+
+    const missingWinnerEvidence = structuredClone(comparison);
+    missingWinnerEvidence.work_comparison.evidence = null;
+    await kind(
+      invokeAdapter(
+        node,
+        responder(missingWinnerEvidence),
+        comparisonRequest(),
+      ),
+      "protocol",
+    );
+
+    const blockedWinner = structuredClone(comparison);
+    blockedWinner.work_comparison.blockers = ["fabricated blocker"];
+    await kind(
+      invokeAdapter(node, responder(blockedWinner), comparisonRequest()),
+      "protocol",
+    );
+
+    const wrongEvidence = structuredClone(comparison);
+    wrongEvidence.work_comparison.status = "equal";
+    wrongEvidence.work_comparison.evidence = {
+      kind: "property",
+      value: "0",
+      intervals: [],
+    };
+    await kind(
+      invokeAdapter(node, responder(wrongEvidence), comparisonRequest()),
+      "protocol",
+    );
+
+    const failure = {
+      status: "failure",
+      error: {
+        code: "malformed_syntax",
+        message: "invalid syntax",
+        location: { line: 1, column: 2 },
+        source: {
+          path: "candidates[0].expression",
+          span: {
+            start: { line: 1, column: 2 },
+            end: { line: 1, column: 2 },
+          },
+          excerpt: "x(",
+        },
+        supported_alternative: null,
+      },
+    };
+    await expect(
+      invokeAdapter(node, responder(failure), comparisonRequest()),
+    ).resolves.toEqual(failure);
+
+    const reversed = comparisonRequest();
+    reversed.outputs[0]!.targets.reverse();
+    await expect(
+      invokeAdapter("uv", ["run", "--locked", "python", adapter], reversed),
+    ).resolves.toMatchObject({
+      status: "success",
+      outputs: [
+        {
+          targets: [{ candidate: "first" }, { candidate: "second" }],
         },
       ],
     });
@@ -1658,6 +1852,14 @@ describe("private formula bridge", () => {
       }),
       "protocol",
     );
+  });
+
+  it("bounds candidate equation domains before starting the adapter", async () => {
+    const oversized = comparisonRequest();
+    oversized.candidates[0]!.equations![1]!.domains!.i!.lower = "x".repeat(
+      MAX_FORMULA_BYTES + 1,
+    );
+    await kind(invokeAdapter(node, responder(), oversized), "protocol");
   });
 
   it("rejects aggregate and escape-heavy envelopes that exceed the adapter byte bound", async () => {

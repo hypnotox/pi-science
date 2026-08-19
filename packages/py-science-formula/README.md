@@ -103,7 +103,7 @@ named = compare_candidates(CandidateComparisonRequest(
 ))
 ```
 
-Pi transport remains future work.
+Pi exposes the same bounded request through `analyze_formula`, injects `syntax: sympy`, and returns the canonical comparison report in `details`.
 
 ## Bounded queries
 

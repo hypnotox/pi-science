@@ -178,11 +178,9 @@ export type SystemAnalysisRequest = RequestMetadata<SystemQueryRequest> & {
   expression?: never;
 };
 export type AnalysisRequest = ExpressionAnalysisRequest | SystemAnalysisRequest;
-export type CandidateComputation = {
-  name: string;
-  expression?: string;
-  equations?: EquationRequest[];
-};
+export type CandidateComputation =
+  | { name: string; expression: string; equations?: never }
+  | { name: string; equations: EquationRequest[]; expression?: never };
 export type CandidateTarget = { kind: "expression" } | EquationTarget;
 export type CandidateOutputMapping = {
   name: string;
@@ -1469,6 +1467,175 @@ function validScenarioCorrelation(
   });
 }
 
+function validCandidateTarget(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    ((value.kind === "expression" && exactKeys(value, ["kind"])) ||
+      (value.kind === "equation" &&
+        exactKeys(value, ["kind", "name"]) &&
+        ordinaryIdentifier(value.name)))
+  );
+}
+
+function validCandidateTargetReference(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    exactKeys(value, ["candidate", "target"]) &&
+    ordinaryIdentifier(value.candidate) &&
+    validCandidateTarget(value.target)
+  );
+}
+
+function validCandidateOutputComparison(value: unknown): boolean {
+  if (
+    !isRecord(value) ||
+    !exactKeys(value, [
+      "name",
+      "targets",
+      "interface_status",
+      "expanded_interpretations",
+      "answer",
+    ]) ||
+    !ordinaryIdentifier(value.name) ||
+    !Array.isArray(value.targets) ||
+    value.targets.length !== 2 ||
+    !value.targets.every(validCandidateTargetReference) ||
+    !["compatible", "incompatible", "unresolved"].includes(
+      String(value.interface_status),
+    ) ||
+    !(
+      value.expanded_interpretations === null ||
+      (Array.isArray(value.expanded_interpretations) &&
+        value.expanded_interpretations.length === 2 &&
+        value.expanded_interpretations.every(validInterpretation))
+    ) ||
+    !validQueryAnswer(value.answer) ||
+    !isRecord(value.answer)
+  )
+    return false;
+  const answer = value.answer as QueryAnswer;
+  if (
+    answer.check !== null ||
+    answer.derived_candidates.length !== 0 ||
+    answer.constraint_uses.length !== 0
+  )
+    return false;
+  if (value.interface_status === "incompatible")
+    return (
+      value.expanded_interpretations === null &&
+      answer.conclusion === "inapplicable" &&
+      answer.blockers.length > 0 &&
+      answer.evidence === null
+    );
+  if (value.interface_status === "unresolved")
+    return (
+      value.expanded_interpretations === null &&
+      answer.conclusion === "unresolved" &&
+      answer.blockers.length > 0 &&
+      answer.evidence === null
+    );
+  if (value.expanded_interpretations === null)
+    return (
+      answer.conclusion === "unresolved" &&
+      answer.blockers.length > 0 &&
+      answer.evidence === null
+    );
+  if (
+    answer.conclusion === "proved" ||
+    answer.conclusion === "proved_under_assumptions"
+  )
+    return isRecord(answer.evidence) && answer.evidence.kind === "identity";
+  if (answer.conclusion === "disproved")
+    return (
+      isRecord(answer.evidence) && answer.evidence.kind === "counterexample"
+    );
+  return (
+    answer.conclusion === "unresolved" &&
+    answer.blockers.length > 0 &&
+    answer.evidence === null
+  );
+}
+
+function validCandidateWorkComparison(value: unknown): boolean {
+  if (
+    !isRecord(value) ||
+    !exactKeys(value, [
+      "metric",
+      "candidate_names",
+      "candidate_works",
+      "delta",
+      "status",
+      "conditions",
+      "assumptions_used",
+      "relevant_unsupported_assumptions",
+      "blockers",
+      "evidence",
+    ]) ||
+    value.metric !== "aggregate_abstract_work" ||
+    !Array.isArray(value.candidate_names) ||
+    value.candidate_names.length !== 2 ||
+    !value.candidate_names.every(ordinaryIdentifier) ||
+    new Set(value.candidate_names).size !== 2 ||
+    !Array.isArray(value.candidate_works) ||
+    value.candidate_works.length !== 2 ||
+    !value.candidate_works.every(validNullableQueryText) ||
+    !validNullableQueryText(value.delta) ||
+    ![
+      "not_comparable",
+      "equal",
+      "first_lower",
+      "second_lower",
+      "crossover",
+      "unresolved",
+    ].includes(String(value.status)) ||
+    !validStringArray(value.conditions) ||
+    value.conditions.length > 256 ||
+    !value.conditions.every(boundedQueryText) ||
+    !validRelationshipUses(value.assumptions_used) ||
+    (value.assumptions_used as unknown[]).length > 128 ||
+    !validStringArray(value.relevant_unsupported_assumptions) ||
+    value.relevant_unsupported_assumptions.length > 128 ||
+    !value.relevant_unsupported_assumptions.every(boundedQueryText) ||
+    !validStringArray(value.blockers) ||
+    value.blockers.length > 128 ||
+    !value.blockers.every(boundedQueryText) ||
+    !(value.evidence === null || validQueryEvidence(value.evidence))
+  )
+    return false;
+  const finite = value.candidate_works.every((work) => work !== null);
+  if (!finite && value.delta !== null) return false;
+  if (value.status === "not_comparable")
+    return value.blockers.length > 0 && value.evidence === null;
+  if (value.status === "unresolved")
+    return (
+      value.blockers.length > 0 &&
+      value.evidence === null &&
+      (!finite || value.delta !== null)
+    );
+  if (!finite || value.delta === null || value.blockers.length > 0)
+    return false;
+  if (value.status === "equal")
+    return isRecord(value.evidence) && value.evidence.kind === "identity";
+  return isRecord(value.evidence) && value.evidence.kind === "property";
+}
+
+function mappedTargetsMatch(
+  result: unknown[],
+  requested: CandidateOutputMapping["targets"],
+  candidateNames: string[],
+): boolean {
+  return candidateNames.every((name, index) => {
+    const target = result[index];
+    const submitted = requested.find((item) => item.candidate === name);
+    return (
+      isRecord(target) &&
+      submitted !== undefined &&
+      target.candidate === name &&
+      JSON.stringify(target.target) === JSON.stringify(submitted.target)
+    );
+  });
+}
+
 function validComparisonResult(
   value: unknown,
   request: CandidateComparisonRequest,
@@ -1490,19 +1657,20 @@ function validComparisonResult(
     !Array.isArray(value.outputs) ||
     value.outputs.length < 1 ||
     value.outputs.length > 32 ||
-    !isRecord(value.work_comparison)
+    !validCandidateWorkComparison(value.work_comparison)
   )
     return false;
   const names = request.candidates.map((candidate) => candidate.name);
   const reports = value.candidates;
   if (
+    new Set(names).size !== 2 ||
+    !names.every(ordinaryIdentifier) ||
     !reports.every((report, index) => {
       if (
         !isRecord(report) ||
         !exactKeys(report, ["name", "analysis", "aggregate_work"]) ||
         report.name !== names[index] ||
-        (report.aggregate_work !== null &&
-          typeof report.aggregate_work !== "string") ||
+        !validNullableQueryText(report.aggregate_work) ||
         !isRecord(report.analysis)
       )
         return false;
@@ -1541,75 +1709,30 @@ function validComparisonResult(
   const outputs = value.outputs;
   if (
     outputs.length !== request.outputs.length ||
+    new Set(outputs.map((output) => (isRecord(output) ? output.name : null)))
+      .size !== outputs.length ||
     !outputs.every((output, index) => {
       const mapped = request.outputs[index];
       return (
-        isRecord(output) &&
         mapped !== undefined &&
-        exactKeys(output, [
-          "name",
-          "targets",
-          "interface_status",
-          "expanded_interpretations",
-          "answer",
-        ]) &&
+        validCandidateOutputComparison(output) &&
+        isRecord(output) &&
         output.name === mapped.name &&
-        JSON.stringify(output.targets) === JSON.stringify(mapped.targets) &&
-        ["compatible", "incompatible", "unresolved"].includes(
-          String(output.interface_status),
-        ) &&
-        (output.expanded_interpretations === null ||
-          (Array.isArray(output.expanded_interpretations) &&
-            output.expanded_interpretations.length === 2 &&
-            output.expanded_interpretations.every(validInterpretation))) &&
-        validQueryAnswer(output.answer) &&
-        isRecord(output.answer) &&
-        output.answer.check === null &&
-        Array.isArray(output.answer.derived_candidates) &&
-        output.answer.derived_candidates.length === 0 &&
-        Array.isArray(output.answer.constraint_uses) &&
-        output.answer.constraint_uses.length === 0
+        Array.isArray(output.targets) &&
+        mappedTargetsMatch(output.targets, mapped.targets, names)
       );
     })
   )
     return false;
-  const work = value.work_comparison;
+  const work = value.work_comparison as Record<string, unknown>;
   if (
-    !exactKeys(work, [
-      "metric",
-      "candidate_names",
-      "candidate_works",
-      "delta",
-      "status",
-      "conditions",
-      "assumptions_used",
-      "relevant_unsupported_assumptions",
-      "blockers",
-      "evidence",
-    ]) ||
-    work.metric !== "aggregate_abstract_work" ||
-    !Array.isArray(work.candidate_names) ||
     JSON.stringify(work.candidate_names) !== JSON.stringify(names) ||
     !Array.isArray(work.candidate_works) ||
     !reports.every(
       (report, index) =>
         isRecord(report) &&
         (work.candidate_works as unknown[])[index] === report.aggregate_work,
-    ) ||
-    !(work.delta === null || typeof work.delta === "string") ||
-    ![
-      "not_comparable",
-      "equal",
-      "first_lower",
-      "second_lower",
-      "crossover",
-      "unresolved",
-    ].includes(String(work.status)) ||
-    !validStringArray(work.conditions) ||
-    !validRelationshipUses(work.assumptions_used) ||
-    !validStringArray(work.relevant_unsupported_assumptions) ||
-    !validStringArray(work.blockers) ||
-    !(work.evidence === null || isRecord(work.evidence))
+    )
   )
     return false;
   const conclusions = outputs.map(
@@ -1634,10 +1757,11 @@ function validComparisonResult(
 
 function validResult(
   value: unknown,
-  request: AnalysisRequest,
+  request?: AnalysisRequest,
 ): value is AnalysisSuccess | AnalysisFailure {
   if (!isRecord(value) || typeof value.status !== "string") return false;
   if (value.status === "success") {
+    if (request === undefined) return false;
     const keys = [
       "status",
       "interpretation",
@@ -1739,8 +1863,13 @@ function formulaSources(request: FormulaRequest): string[] {
       sources.push(definition.expression);
   for (const candidate of "candidates" in request ? request.candidates : []) {
     if (candidate.expression !== undefined) sources.push(candidate.expression);
-    for (const equation of candidate.equations ?? [])
+    for (const equation of candidate.equations ?? []) {
       sources.push(equation.expression);
+      for (const domain of Object.values(equation.domains ?? {}))
+        sources.push(domain.lower, domain.upper);
+      for (const constraint of equation.constraints ?? [])
+        sources.push(constraint.relationship);
+    }
   }
   for (const query of "queries" in request ? (request.queries ?? []) : []) {
     if (query.kind === "equivalence") sources.push(query.comparison);
@@ -1869,7 +1998,9 @@ export async function invokeAdapter(
           !exactKeys(envelope, ["version", "result"]) ||
           envelope.version !== PROTOCOL_VERSION ||
           !("operation" in request
-            ? validComparisonResult(envelope.result, request)
+            ? isRecord(envelope.result) && envelope.result.status === "failure"
+              ? validResult(envelope.result)
+              : validComparisonResult(envelope.result, request)
             : validResult(envelope.result, request))
         )
           return finish(

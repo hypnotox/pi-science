@@ -1,6 +1,6 @@
 ---
 name: pi-science-formula-analysis
-description: Analyze one restricted SymPy expression or named equation system for normalized interpretation, symbolic work, reuse, provenance, scenarios, bounded mathematical queries, and unresolved costs. Use for formula structure and qualified abstract work, not numeric evaluation, benchmarking, physical validation, or implementation generation.
+description: Analyze one restricted SymPy expression or named equation system, or compare two mapped candidates, for normalized interpretation, qualified symbolic work, reuse, provenance, bounded mathematical conclusions, and unresolved costs. Use for formula structure and abstract work, not numeric evaluation, benchmarking, physical validation, or implementation generation.
 ---
 
 # Formula analysis
