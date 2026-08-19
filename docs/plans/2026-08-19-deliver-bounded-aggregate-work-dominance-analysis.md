@@ -226,6 +226,13 @@ Plan-review dispositions before the initial commit:
 - Fixed the delegated stable public term-id detail as `power:<p>` with canonical unsigned-decimal power and required Python/TypeScript correlation, removing cross-language fixture ambiguity.
 - Fixed deterministic dominance ceilings and overflow outcomes: 16 terms, 120 pairs, 256 partition points, 513 cells, existing 4,096 reasoning steps and intermediate nodes, 65,536 dominance-rendering and supplemental bytes, and the existing 262,144 combined-result bytes.
 
+Phase 2 recovery follow-up at `3e8acf7`:
+- Reproduced the predecessor's primitive-cost `N**2 - N + 1` failure before repair; squared pair differences now use the typed chart's non-real-root-safe path, retain structural pair evidence with a populated sign, and the focused integer correction test exercises the reversible pair-sign assertion.
+- Recovered original retained denominator obligations before cancellation, including the reduced `(N**2 - 1)/(N - 1)` exclusion at `N = 1`; poles are partition cuts rather than cells, and integer regions use symbolic infinities rather than finite sentinels.
+- Added direct-Python regressions for canonical terms/ties, canceled poles, endpoint/lattice behavior, and nested ordinary-analysis equality. README examples now use primitive-cost-backed work, execute through public imports, and assert canonical terms/regions and poles.
+- Focused recovery verification: 173 required Python tests passed; Pyright, Ruff, AWF checks, diff check, and installed README examples passed. Existing property/candidate suites were included in the green run. ADR remained Implementing with its existing four Applied operations; direct-Python wording and Pi-pending state remain unchanged.
+- Reversible reconstruction falsification was retained as the independent reconstruction guard in `dominance.py`; pair-sign falsification is covered by the populated-sign assertion. No generated prose was changed.
+
 Phase 1 review settlement:
 - The owner landed ADR acceptance at `4870207` and the phase refactor at `56b1cde`, with focused and full gates green, but reported that baseline public dumps and the full edge matrix were omitted. Phase review confirmed the deviation was material: fractional integer-domain witness rounding changed ordinary sign bytes, unsupported canceled denominators were silently discarded, the explicit axis kind was not authoritative, and file-wide lint/type suppressions weakened the new boundary.
 - Restored exact ceil/floor witness arithmetic under the approved byte-stability boundary and froze ordinary fractional-integer sign answers plus candidate fixed-winner/crossover work reports as exact JSON regressions. Post-hoc baselines were recovered from `cb8decb` before writing those tests.

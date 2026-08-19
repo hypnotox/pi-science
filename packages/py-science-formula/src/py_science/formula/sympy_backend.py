@@ -169,14 +169,26 @@ def property_fraction(value: Any) -> tuple[Any, Any] | None:
         return None
 
 
-def property_factor_roots(value: Any, variable: Any) -> tuple[tuple[Any, int], ...] | None:
-    """Extract bounded linear-factor roots without exposing Poly/factor to policy."""
+def property_factor_roots(
+    value: Any, variable: Any, *, ignore_nonreal: bool = False
+) -> tuple[tuple[Any, int], ...] | None:
+    """Extract bounded roots without exposing backend root objects to policy."""
     if not _property_value_is_bounded(value):
         return None
     try:
+        if ignore_nonreal:
+            roots_by_value: Any = sympy.roots(value, variable)
+            roots = []
+            for root, multiplicity in roots_by_value.items():
+                if root.is_real is False:
+                    continue
+                if not root.is_Rational or not _property_value_is_bounded(root):
+                    return None
+                roots.append((root, int(multiplicity)))
+            return tuple(sorted(roots, key=lambda item: item[0]))
         result: Any = sympy.factor_list(value, variable)
         _, factors = result
-        roots: list[tuple[Any, int]] = []
+        roots = []
         for factor, multiplicity in factors:
             if not _property_value_is_bounded(factor) or variable not in factor.free_symbols:
                 continue
@@ -629,9 +641,7 @@ def bounded_rational_difference(
         return None
 
 
-def _series_value_is_bounded(
-    value: Any, *, max_nodes: int = 4096, max_degree: int = 8
-) -> bool:
+def _series_value_is_bounded(value: Any, *, max_nodes: int = 4096, max_degree: int = 8) -> bool:
     """Check every family-specific series intermediate before it is reused."""
     try:
         if sum(1 for _ in sympy.preorder_traversal(value)) > max_nodes:
@@ -731,9 +741,7 @@ def bounded_polynomial_canonical_candidate(expression: Expression) -> Any | None
         return None
 
 
-def bounded_polynomial_canonical_verify(
-    expression: Expression, candidate: Any
-) -> bool:
+def bounded_polynomial_canonical_verify(expression: Expression, candidate: Any) -> bool:
     """Independently verify a canonical polynomial candidate by exact residual."""
     if not rational_ir_preflight(expression, max_degree=32) or not _series_value_is_bounded(
         candidate, max_degree=32

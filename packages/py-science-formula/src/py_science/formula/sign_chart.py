@@ -4,6 +4,7 @@ This module owns chart admissibility and witnesses.  SymPy is used only through
 checked backend helpers; callers receive structural facts rather than rendered
 property evidence.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -74,6 +75,7 @@ def explicit_axis_sign_chart(
     reasoning: ReasoningContext,
     *,
     original_denominators: tuple[Any, ...] = (),
+    ignore_nonreal_roots: bool = False,
 ) -> StructuralSignChart:
     """Return the bounded sign chart for checked rational components.
 
@@ -88,6 +90,7 @@ def explicit_axis_sign_chart(
             axis,
             reasoning,
             original_denominators,
+            ignore_nonreal_roots,
         )
     except Exception:
         return _refused(axis, "sign chart backend failed")
@@ -99,16 +102,17 @@ def _build_explicit_axis_sign_chart(
     axis: ExplicitAxis,
     reasoning: ReasoningContext,
     original_denominators: tuple[Any, ...],
+    ignore_nonreal_roots: bool,
 ) -> StructuralSignChart:
     variable = sympy.Symbol(axis.name)
-    roots_n = _roots(numerator, variable)
-    roots_d = _roots(denominator, variable)
+    roots_n = _roots(numerator, variable, ignore_nonreal=ignore_nonreal_roots)
+    roots_d = _roots(denominator, variable, ignore_nonreal=ignore_nonreal_roots)
     if roots_n is None or roots_d is None:
         return _refused(axis, "exact factor sign chart is unsupported")
 
     original: list[tuple[Any, int]] = []
     for value in original_denominators:
-        roots = _roots(value, variable)
+        roots = _roots(value, variable, ignore_nonreal=ignore_nonreal_roots)
         if roots is None:
             return _refused(axis, "original denominator roots are unsupported")
         original.extend(roots)
@@ -144,12 +148,8 @@ def _build_explicit_axis_sign_chart(
                 1 if sign * other > 0 else -1,
             )
         )
-    roots = tuple(
-        ExactBoundary(_fraction(root), "root", order) for root, order in roots_n
-    )
-    poles = tuple(
-        ExactBoundary(_fraction(root), "pole", order) for root, order in roots_d
-    ) + tuple(
+    roots = tuple(ExactBoundary(_fraction(root), "root", order) for root, order in roots_n)
+    poles = tuple(ExactBoundary(_fraction(root), "pole", order) for root, order in roots_d) + tuple(
         ExactBoundary(_fraction(root), "pole", order, True)
         for root, order in original
         if root not in reduced_poles
@@ -187,8 +187,14 @@ def _refused(
     )
 
 
-def _roots(value: Any, variable: Any) -> tuple[tuple[Any, int], ...] | None:
-    roots = property_factor_roots(value, variable)
+def _roots(
+    value: Any, variable: Any, *, ignore_nonreal: bool = False
+) -> tuple[tuple[Any, int], ...] | None:
+    roots = (
+        property_factor_roots(value, variable, ignore_nonreal=True)
+        if ignore_nonreal
+        else property_factor_roots(value, variable)
+    )
     if roots is None or not all(root.is_Rational for root, _ in roots):
         return None
     return tuple(sorted(roots, key=lambda item: _fraction(item[0])))
@@ -278,23 +284,11 @@ def _interior(
         least = None if lower is None else _floor(lower) + 1
         greatest = None if upper is None else _ceil(upper) - 1
         if fact is not None and fact.lower is not None:
-            domain_least = (
-                _floor(fact.lower) + 1
-                if fact.lower_strict
-                else _ceil(fact.lower)
-            )
+            domain_least = _floor(fact.lower) + 1 if fact.lower_strict else _ceil(fact.lower)
             least = domain_least if least is None else max(least, domain_least)
         if fact is not None and fact.upper is not None:
-            domain_greatest = (
-                _ceil(fact.upper) - 1
-                if fact.upper_strict
-                else _floor(fact.upper)
-            )
-            greatest = (
-                domain_greatest
-                if greatest is None
-                else min(greatest, domain_greatest)
-            )
+            domain_greatest = _ceil(fact.upper) - 1 if fact.upper_strict else _floor(fact.upper)
+            greatest = domain_greatest if greatest is None else min(greatest, domain_greatest)
         if least is not None and greatest is not None and least > greatest:
             return None
         candidate = Fraction(least if least is not None else min(0, greatest or 0))
@@ -314,8 +308,7 @@ def _interior(
         (left is None or point > left)
         and (right is None or point < right)
         and (
-            fact is None
-            or fact.accepts(point)  # pyright: ignore[reportArgumentType]
+            fact is None or fact.accepts(point)  # pyright: ignore[reportArgumentType]
         )
     )
     return point if admissible else None

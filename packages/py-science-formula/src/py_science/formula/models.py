@@ -1254,10 +1254,8 @@ class DominanceRange(StructuredModel):
             left, right = parse_exact_scalar(self.lower), parse_exact_scalar(self.upper)
             assert left is not None and right is not None
             comparison = left.numerator * right.denominator - right.numerator * left.denominator
-            if comparison > 0 or (
-                comparison == 0 and not (self.lower_inclusive and self.upper_inclusive)
-            ):
-                raise ValueError("range bounds must define a nonempty interval")
+            if comparison > 0:
+                raise ValueError("range lower bound must not exceed upper bound")
         if self.lower == "-oo" and self.lower_inclusive:
             raise ValueError("infinite range bounds are open")
         if self.upper == "oo" and self.upper_inclusive:
@@ -1302,6 +1300,10 @@ class DominanceAnalysisRequest(StructuredModel):
         )
         if self.axis == "oo" or self.axis not in self.variables:
             raise ValueError("axis must name one declared numeric variable")
+        if self.range is not None and self.range.lower == self.range.upper and not (
+            self.range.lower_inclusive and self.range.upper_inclusive
+        ):
+            raise ValueError("range bounds must define a nonempty interval")
         if self.axis in self.fixed:
             raise ValueError("axis cannot be fixed")
         unknown = set(self.fixed) - set(self.variables)
@@ -1344,12 +1346,25 @@ class DominanceIntervalCell(StructuredModel):
     dominant: tuple[str, ...] = ()
     blockers: tuple[str, ...] = ()
 
+    @model_validator(mode="after")
+    def exact_bounds(self) -> "DominanceIntervalCell":
+        DominanceRange(lower=self.lower, upper=self.upper, lower_inclusive=self.lower_inclusive, upper_inclusive=self.upper_inclusive)
+        return self
+
 
 class DominancePointCell(StructuredModel):
     kind: Literal["real_point", "integer_point"]
     value: str
     dominant: tuple[str, ...] = ()
     blockers: tuple[str, ...] = ()
+
+    @field_validator("value")
+    @classmethod
+    def exact_point(cls, value: str) -> str:
+        exact = parse_exact_scalar(value)
+        if exact is None or render_exact(exact) != value:
+            raise ValueError("dominance points must be canonical finite exact scalars")
+        return value
 
 
 class DominanceIntegerRangeCell(StructuredModel):
@@ -1358,6 +1373,17 @@ class DominanceIntegerRangeCell(StructuredModel):
     upper: str
     dominant: tuple[str, ...] = ()
     blockers: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def integral_bounds(self) -> "DominanceIntegerRangeCell":
+        for value in (self.lower, self.upper):
+            if value in {"-oo", "oo"}:
+                continue
+            exact = parse_exact_scalar(value)
+            if exact is None or exact.denominator != 1 or render_exact(exact) != value:
+                raise ValueError("integer range bounds must be canonical integers or infinity")
+        DominanceRange(lower=self.lower, upper=self.upper, lower_inclusive=False, upper_inclusive=False)
+        return self
 
 
 type DominanceCell = Annotated[

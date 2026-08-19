@@ -199,6 +199,13 @@ def analyze_retained(request: DominanceAnalysisRequest, computed: Any) -> Domina
     boundaries: set[Fraction] = set()
     exclusions: set[Fraction] = set()
     try:
+        # Preserve obligations from the unreduced retained expression as well as
+        # reduced poles.  ``fraction`` is deliberately taken before cancel.
+        original_fraction = sympy.fraction(property_value(computed.aggregate_analysis.total_work))
+        original_denominator = original_fraction[1]
+        for root in sympy.roots(original_denominator, axis):
+            if root.is_Rational:
+                exclusions.add(Fraction(int(root.p), int(root.q)))
         for root in sympy.roots(denominator, axis):
             if root.is_Rational:
                 exclusions.add(Fraction(int(root.p), int(root.q)))
@@ -210,12 +217,24 @@ def analyze_retained(request: DominanceAnalysisRequest, computed: Any) -> Domina
             a, b = items[terms.index(left)], items[terms.index(right)]
             difference = sympy.expand((a[1] * axis ** a[0]) ** 2 - (b[1] * axis ** b[0]) ** 2)
             chart = explicit_axis_sign_chart(
-                difference, sympy.Integer(1), ExplicitAxis(request.axis, integer), reasoning
+                difference,
+                sympy.Integer(1),
+                ExplicitAxis(request.axis, integer),
+                reasoning,
+                ignore_nonreal_roots=True,
             )
             if chart.refusal is not None:
                 return _unresolved(request, analysis, effective, chart.refusal.reason)
             boundaries.update(item.value for item in chart.roots)
-            evidence.append(DominanceEvidence(pair=(left.id, right.id), difference=str(difference)))
+            evidence.append(
+                DominanceEvidence(
+                    pair=(left.id, right.id),
+                    difference=str(difference),
+                    sign=0
+                    if difference == 0
+                    else (chart.intervals[0].sign if chart.intervals else None),
+                )
+            )
     except Exception:
         return _unresolved(request, analysis, effective, "dominance comparison backend failed")
     if len(evidence) > MAX_DOMINANCE_PAIRS:
@@ -270,7 +289,9 @@ def _cells(
     ui: bool,
     integer: bool,
 ) -> list[Any]:
-    cuts = [x for x in points if x not in exclusions]
+    # Poles are partition boundaries too.  They remain absent as point cells,
+    # but neither a real interval nor an integer range may span one.
+    cuts = points
     bounds = [None, *cuts, None]
     cells: list[Any] = []
 
@@ -283,26 +304,47 @@ def _cells(
         return tuple(term.id for term, score in zip(terms, scores, strict=True) if score == maximum)
 
     if integer:
-        low = -(10**9) if lo is None else ceil(lo) + (0 if li or Fraction(ceil(lo)) > lo else 1)
-        high = 10**9 if hi is None else floor(hi) - (0 if ui or Fraction(floor(hi)) < hi else 1)
-        # Roots partition lattice ranges; sentinel infinities stay compact.
-        starts = [low, *(floor(x) + 1 for x in cuts), high + 1]
-        for a, b in pairwise(starts):
-            if a >= b:
-                continue
-            sample = a
-            cells.append(
-                DominanceIntegerRangeCell(
-                    lower="-oo" if a == -(10**9) else str(a),
-                    upper="oo" if b - 1 == 10**9 else str(b - 1),
-                    dominant=winners(Fraction(sample)),
-                )
-            )
+        # Keep infinity symbolic: finite sentinels both fabricate coverage and
+        # can accidentally cover a pole.  A rational crossover partitions the
+        # integer lattice immediately after its floor; an integral crossover is
+        # represented by its own exact point.
+        low = None if lo is None else ceil(lo) if li else floor(lo) + 1
+        high = None if hi is None else floor(hi) if ui else ceil(hi) - 1
+        current = low
         for x in cuts:
-            if x.denominator == 1 and low <= x <= high and x not in exclusions:
+            before = ceil(x) - 1
+            if (current is None or current <= before) and (
+                high is None or current is None or current <= high
+            ):
+                upper = before if high is None else min(before, high)
+                if current is None or upper >= current:
+                    sample = current if current is not None else upper if upper is not None else 0
+                    cells.append(
+                        DominanceIntegerRangeCell(
+                            lower="-oo" if current is None else str(current),
+                            upper="oo" if upper is None else str(upper),
+                            dominant=winners(Fraction(sample)),
+                        )
+                    )
+            if (
+                x.denominator == 1
+                and x not in exclusions
+                and (low is None or x >= low)
+                and (high is None or x <= high)
+            ):
                 cells.append(
                     DominancePointCell(kind="integer_point", value=_s(x), dominant=winners(x))
                 )
+            current = floor(x) + 1
+        if high is None or current is None or current <= high:
+            sample = current if current is not None else high if high is not None else 0
+            cells.append(
+                DominanceIntegerRangeCell(
+                    lower="-oo" if current is None else str(current),
+                    upper="oo" if high is None else str(high),
+                    dominant=winners(Fraction(sample)),
+                )
+            )
         return cells
     for a, b in pairwise(bounds):
         if a is not None and b is not None and a >= b:

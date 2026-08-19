@@ -120,19 +120,25 @@ For the AFMM-style omitted tail, `Sum((k + 1) * q**k, (k, p, oo))` with nonnegat
 `analyze_dominance` is a separate direct-Python operation over the original retained aggregate abstract work. It orders canonical signed `power:<p>` terms by absolute magnitude only within its active domain; it is not a runtime, rewrite, candidate-ranking, scenario, or global-relevance claim. Pi transport is pending.
 
 ```python
-from py_science.formula import DominanceAnalysisRequest, FormulaSyntax, MathematicalDomain, VariableDeclaration, analyze_dominance
+from py_science.formula import DominanceAnalysisRequest, FormulaSyntax, MathematicalDomain, PrimitiveCost, VariableDeclaration, analyze_dominance
 
 correction = analyze_dominance(DominanceAnalysisRequest(
-    syntax=FormulaSyntax.SYMPY, expression="n * n - n + 1", axis="n",
+    syntax=FormulaSyntax.SYMPY, expression="work(n)", axis="n",
     variables={"n": VariableDeclaration(domain=MathematicalDomain.POSITIVE_INTEGER)},
+    primitive_costs=(PrimitiveCost(name="work", parameters=("n",), work="n**2 - n + 1"),),
 ))
+assert [term.id for term in correction.terms] == ["power:2", "power:1", "power:0"]
+assert correction.cells[-1].dominant == ("power:2",)
 ```
 
 ```python
-from py_science.formula import DominanceAnalysisRequest, FormulaSyntax, MathematicalDomain, VariableDeclaration, analyze_dominance
+from py_science.formula import DominanceAnalysisRequest, FormulaSyntax, MathematicalDomain, PrimitiveCost, VariableDeclaration, analyze_dominance
 
 pole_scope = analyze_dominance(DominanceAnalysisRequest(
-    syntax=FormulaSyntax.SYMPY, expression="1 / (n - 1)", axis="n",
+    syntax=FormulaSyntax.SYMPY, expression="work(n)", axis="n",
     variables={"n": VariableDeclaration(domain=MathematicalDomain.REAL)},
+    primitive_costs=(PrimitiveCost(name="work", parameters=("n",), work="1 / (n - 1)"),),
 ))
+assert pole_scope.shared_denominator == "n - 1"
+assert [pole.value for pole in pole_scope.exclusions] == ["1"]
 ```
