@@ -7,10 +7,6 @@
 
 Add optional stage metadata without weakening the normalized mathematical model or bounded request contract.
 
-### Dominance analysis
-
-Report piecewise dominance, scaling variables, and terms that remain relevant over concrete ranges.
-
 ### Hoisting effects
 
 Estimate the symbolic effect of extracting reported repeated expressions or hoisting invariant work.

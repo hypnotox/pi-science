@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-_No decisions are in flight._
+- [ADR-adopt-bounded-aggregate-work-dominance-analysis: Adopt bounded aggregate-work dominance analysis](adopt-bounded-aggregate-work-dominance-analysis.md) (Proposed)
 
 ## History
 
