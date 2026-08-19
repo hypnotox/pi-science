@@ -1,7 +1,7 @@
 ---
 format: current-state-v4
 slug: adopt-bounded-aggregate-work-dominance-analysis
-status: Proposed
+status: Accepted
 date: 2026-08-19
 ---
 # ADR-adopt-bounded-aggregate-work-dominance-analysis: Adopt bounded aggregate-work dominance analysis
@@ -49,3 +49,4 @@ The operation remains intentionally partial. It does not analyze mathematical-va
 ## Status history
 
 - 2026-08-19: Proposed
+- 2026-08-19: Accepted; content-sha256: ba0de47644df26bb7f7c6cf554d0bfe918eac5fbdfc0782e442cbbe3cdfc3023

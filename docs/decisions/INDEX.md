@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-- [ADR-adopt-bounded-aggregate-work-dominance-analysis: Adopt bounded aggregate-work dominance analysis](adopt-bounded-aggregate-work-dominance-analysis.md) (Proposed)
+- [ADR-adopt-bounded-aggregate-work-dominance-analysis: Adopt bounded aggregate-work dominance analysis](adopt-bounded-aggregate-work-dominance-analysis.md) (Accepted)
 
 ## History
 
