@@ -1248,6 +1248,21 @@ class DominanceRange(StructuredModel):
     lower_inclusive: bool = True
     upper_inclusive: bool = True
 
+    @model_validator(mode="before")
+    @classmethod
+    def default_infinite_endpoints_open(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        # Omitted infinite endpoints are canonical outward-open bounds.  Keep an
+        # explicitly supplied inclusive infinity invalid rather than silently
+        # rewriting it.
+        result = dict(cast(dict[str, Any], value))
+        if result.get("lower", "-oo") == "-oo" and "lower_inclusive" not in result:
+            result["lower_inclusive"] = False
+        if result.get("upper", "oo") == "oo" and "upper_inclusive" not in result:
+            result["upper_inclusive"] = False
+        return result
+
     @field_validator("lower", "upper", mode="before")
     @classmethod
     def canonical_bound(cls, value: object) -> str:
@@ -1320,6 +1335,8 @@ class DominanceAnalysisRequest(StructuredModel):
         if unknown:
             raise ValueError("fixed substitutions must name declared variables")
         defined = {item.variable for item in self.definitions}
+        if self.axis in defined:
+            raise ValueError("axis cannot be defined")
         if set(self.fixed) & defined:
             raise ValueError("fixed substitutions cannot conflict with definitions")
         for name, value in self.fixed.items():
@@ -1601,8 +1618,11 @@ class DominanceAnalysisSuccess(StructuredModel):
             raise ValueError("terms must be unique and descending by power")
         if len(self.fixed) != len(set(self.fixed)):
             raise ValueError("fixed substitutions must be unique")
+        if self.axis in self.fixed:
+            raise ValueError("axis cannot appear in fixed substitutions")
         for value in self.fixed.values():
-            if parse_exact_scalar(value) is None:
+            exact = parse_exact_scalar(value)
+            if exact is None or render_exact(exact) != value:
                 raise ValueError("fixed substitutions must be canonical exact scalars")
         if self.dominance_status == "empty":
             if self.effective_range is not None:
@@ -1611,13 +1631,39 @@ class DominanceAnalysisSuccess(StructuredModel):
                 raise ValueError("empty dominance has no cells, exclusions, blockers, or claims")
         elif self.effective_range is None:
             raise ValueError("nonempty dominance requires an effective range")
+        if self.effective_range is not None:
+            effective_lower, effective_upper, effective_lower_inclusive, effective_upper_inclusive = _range_bounds(self.effective_range)
+            domain_lower = Fraction(0) if self.axis_domain in {
+                MathematicalDomain.POSITIVE_INTEGER, MathematicalDomain.POSITIVE_REAL,
+                MathematicalDomain.NONNEGATIVE_INTEGER, MathematicalDomain.NONNEGATIVE_REAL,
+            } else None
+            domain_lower_inclusive = self.axis_domain in {
+                MathematicalDomain.NONNEGATIVE_INTEGER, MathematicalDomain.NONNEGATIVE_REAL
+            }
+            if domain_lower is not None and (
+                effective_lower is None or effective_lower < domain_lower or (
+                    effective_lower == domain_lower and effective_lower_inclusive and not domain_lower_inclusive
+                )
+            ):
+                raise ValueError("effective range must lie within the axis domain")
+            if self.requested_range is not None:
+                requested_lower, requested_upper, requested_lower_inclusive, requested_upper_inclusive = _range_bounds(self.requested_range)
+                if (requested_lower is not None and (
+                    effective_lower is None or effective_lower < requested_lower or (
+                        effective_lower == requested_lower and effective_lower_inclusive and not requested_lower_inclusive
+                    )
+                )) or (requested_upper is not None and (
+                    effective_upper is None or effective_upper > requested_upper or (
+                        effective_upper == requested_upper and effective_upper_inclusive and not requested_upper_inclusive
+                    )
+                )):
+                    raise ValueError("effective range must lie within requested range")
         if self.dominance_status == "complete":
             if self.blockers or any(cell.blockers for cell in self.cells):
                 raise ValueError("complete dominance has no blockers")
             if not self.terms:
                 if (
                     self.cells
-                    or self.exclusions
                     or self.never_dominant
                     or self.shared_denominator is None
                     or "aggregate work is identically zero" not in self.conditions

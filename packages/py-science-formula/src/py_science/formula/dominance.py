@@ -26,6 +26,7 @@ from py_science.formula.sympy_backend import (
     dominance_magnitudes,
     dominance_node_count,
     dominance_one,
+    dominance_original_denominators,
     dominance_pair_difference,
     dominance_rational_form,
     dominance_reconstructs,
@@ -201,6 +202,28 @@ def _active(
 def analyze_retained(request: DominanceAnalysisRequest, computed: Any) -> DominanceAnalysisSuccess:
     """Analyze the immutable retained aggregate work from one ordinary analysis."""
     analysis = computed.success
+    # A declared/requested empty domain is a proved fact independent of optional
+    # assumption reasoning.  Preserve it even when the latter reaches its cap.
+    base_effective, base_bounds = _intersect(
+        request,
+        ReasoningContext.build(
+            {name: declaration.domain for name, declaration in request.variables.items()}, (), ()
+        ),
+    )
+    base_low, base_high = _integer_bounds(base_bounds)
+    if base_effective is None or (
+        request.variables[request.axis].domain.is_integer
+        and base_low is not None and base_high is not None and base_low > base_high
+    ):
+        return DominanceAnalysisSuccess(
+            analysis=analysis,
+            axis=request.axis,
+            axis_domain=request.variables[request.axis].domain,
+            fixed={name: str(value) for name, value in request.fixed.items()},
+            requested_range=request.range,
+            effective_range=None,
+            dominance_status="empty",
+        )
     try:
         reasoning = ReasoningContext.build(
             {name: declaration.domain for name, declaration in request.variables.items()},
@@ -209,16 +232,9 @@ def analyze_retained(request: DominanceAnalysisRequest, computed: Any) -> Domina
         )
     except Exception:
         # The ordinary analysis remains valid; only the supplemental proof abstains.
-        fallback, _ = _intersect(
-            request,
-            ReasoningContext.build(
-                {name: declaration.domain for name, declaration in request.variables.items()},
-                (),
-                (),
-            ),
+        return _unresolved(
+            request, analysis, base_effective, "dominance reasoning bound exceeded"
         )
-        assert fallback is not None
-        return _unresolved(request, analysis, fallback, "dominance reasoning bound exceeded")
 
     effective, bounds = _intersect(request, reasoning)
     integer = request.variables[request.axis].domain.is_integer
@@ -243,6 +259,10 @@ def analyze_retained(request: DominanceAnalysisRequest, computed: Any) -> Domina
         return _unresolved(
             request, analysis, effective, "aggregate work contains unknown primitive costs"
         )
+    # Direct non-finiteness is a more specific retained-work qualification than
+    # the generic unresolved marker which may accompany it.
+    if computed.aggregate_analysis.direct_work_blockers:
+        return _unresolved(request, analysis, effective, "aggregate work is not finite")
     retained_unresolved = tuple(
         item
         for item in computed.aggregate_analysis.unresolved
@@ -250,38 +270,30 @@ def analyze_retained(request: DominanceAnalysisRequest, computed: Any) -> Domina
     )
     if retained_unresolved:
         return _unresolved(request, analysis, effective, "aggregate work is unresolved")
-    if computed.aggregate_analysis.direct_work_blockers:
-        return _unresolved(request, analysis, effective, "aggregate work is not finite")
     original_value = property_value(computed.aggregate_analysis.total_work)
     if original_value is None:
         return _unresolved(
             request, analysis, effective, "aggregate work rational form is unsupported"
         )
 
+    substitutions = {name: Fraction(str(value)) for name, value in request.fixed.items()}
+    original_denominators = dominance_original_denominators(
+        computed.aggregate_analysis.total_work, substitutions
+    )
+    if original_denominators is None:
+        return _unresolved(
+            request, analysis, effective, "original denominator obligations are unsupported"
+        )
     try:
-        specialized, original_denominator, numerator, denominator, items = (
-            dominance_rational_form(
-                original_value,
-                {name: Fraction(str(value)) for name, value in request.fixed.items()},
-                request.axis,
-            )
+        specialized, _original_denominator, numerator, denominator, items = (
+            dominance_rational_form(original_value, substitutions, request.axis)
         )
         if _node_count(specialized) > MAX_DOMINANCE_INTERMEDIATE_NODES:
             return _unresolved(
                 request, analysis, effective, "dominance intermediate-node bound exceeded"
             )
-        if numerator == 0:
-            return DominanceAnalysisSuccess(
-                analysis=analysis,
-                axis=request.axis,
-                axis_domain=request.variables[request.axis].domain,
-                fixed={name: str(value) for name, value in request.fixed.items()},
-                requested_range=request.range,
-                effective_range=effective,
-                shared_denominator="1",
-                dominance_status="complete",
-                conditions=("aggregate work is identically zero",),
-            )
+        # Zero work still has to retain the original denominator obligations;
+        # its complete result is constructed after the typed pole charts below.
     except ValueError as error:
         blocker = (
             "aggregate work has unsupported non-axis coefficients"
@@ -325,7 +337,7 @@ def analyze_retained(request: DominanceAnalysisRequest, computed: Any) -> Domina
     pair_blockers: list[str] = []
     steps = 2
     try:
-        for candidate_denominator in (original_denominator, denominator):
+        for candidate_denominator in (*original_denominators, denominator):
             chart = explicit_axis_sign_chart(
                 dominance_one(),
                 candidate_denominator,
@@ -404,6 +416,26 @@ def analyze_retained(request: DominanceAnalysisRequest, computed: Any) -> Domina
         for item in exclusions
         if _active(item, bounds) and (not integer or item.denominator == 1)
     }
+    if numerator == 0:
+        conditions = (
+            "aggregate work is identically zero",
+            *(f"{request.axis} != {_render(item)}" for item in sorted(active_exclusions)),
+        )
+        return DominanceAnalysisSuccess(
+            analysis=analysis,
+            axis=request.axis,
+            axis_domain=request.variables[request.axis].domain,
+            fixed={name: str(value) for name, value in request.fixed.items()},
+            requested_range=request.range,
+            effective_range=effective,
+            shared_denominator=str(denominator),
+            exclusions=tuple(
+                DominanceExclusion(value=_render(item)) for item in sorted(active_exclusions)
+            ),
+            conditions=conditions,
+            assumptions_used=_unique_uses(assumptions),
+            dominance_status="complete",
+        )
     active_boundaries = {item for item in boundaries if _active(item, bounds)}
     finite = active_boundaries | active_exclusions
     lower, upper, _, _ = bounds

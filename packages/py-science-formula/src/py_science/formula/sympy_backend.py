@@ -20,8 +20,10 @@ from py_science.formula.expressions import (
     RationalLiteral,
     Sum,
     Symbol,
+    exact_integer_value,
     expression_children,
     expression_node_count,
+    substitute,
 )
 from py_science.formula.query_diagnostics import AsymptoticFailureKind, RationalFailureKind
 
@@ -1552,6 +1554,48 @@ def dominance_one() -> Any:
 
 def dominance_exact_rational(value: Fraction) -> Any:
     return sympy.Rational(value.numerator, value.denominator)
+
+
+def dominance_original_denominators(
+    expression: Expression,
+    substitutions: dict[str, Fraction],
+) -> tuple[Any, ...] | None:
+    """Collect uncancelled denominator obligations from checked retained IR.
+
+    This deliberately walks the typed work tree before SymPy evaluates it, so
+    exact cancellation cannot erase a submitted division's domain exclusion.
+    """
+    if not rational_ir_preflight(expression, max_nodes=4096):
+        return None
+    replacements: dict[str, Expression] = {
+        name: IntegerLiteral(value.numerator)
+        if value.denominator == 1
+        else RationalLiteral(value.numerator, value.denominator)
+        for name, value in substitutions.items()
+    }
+    try:
+        specialized = substitute(expression, replacements, max_nodes=4096)
+        denominators: list[Any] = []
+
+        def visit(value: Expression) -> bool:
+            if isinstance(value, BinaryExpression):
+                if value.operator is BinaryOperator.DIVIDE:
+                    denominator = _to_query_sympy(value.right)
+                    if not _property_value_is_bounded(denominator):
+                        return False
+                    denominators.append(denominator)
+                if value.operator is BinaryOperator.POWER:
+                    exponent = exact_integer_value(value.right)
+                    if exponent is not None and exponent < 0:
+                        denominator = _to_query_sympy(value.left)
+                        if not _property_value_is_bounded(denominator):
+                            return False
+                        denominators.append(denominator)
+            return all(visit(child) for child in expression_children(value))
+
+        return tuple(denominators) if visit(specialized) else None
+    except Exception:
+        return None
 
 
 def dominance_rational_form(

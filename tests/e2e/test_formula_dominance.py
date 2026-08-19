@@ -318,3 +318,74 @@ def test_nested_analysis_is_the_independent_ordinary_analysis() -> None:
     request = _request("N**2 - N + 1")
     result = _success(request)
     assert result.analysis == analyze(request.analysis_request())
+
+
+def test_exact_cancellation_and_zero_work_retain_original_poles() -> None:
+    cancelled = _success(_request("(N - 1) / (N - 1)", MathematicalDomain.REAL))
+    zero = _success(_request("1 / (N - 1) - 1 / (N - 1)", MathematicalDomain.REAL))
+    assert [item.value for item in cancelled.exclusions] == ["1"]
+    assert [item.value for item in zero.exclusions] == ["1"]
+    assert zero.dominance_status == "complete"
+    assert zero.terms == zero.cells == ()
+    assert zero.conditions == ("aggregate work is identically zero", "N != 1")
+
+
+def test_axis_cannot_be_a_directed_definition_target() -> None:
+    with pytest.raises(ValidationError, match="axis cannot be defined"):
+        DominanceAnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="cost(N)",
+            axis="N",
+            variables={"N": VariableDeclaration(domain=MathematicalDomain.REAL)},
+            primitive_costs=(PrimitiveCost(name="cost", parameters=("N",), work="N"),),
+            definitions=(DirectedDefinition(variable="N", expression="2"),),
+        )
+
+
+def test_dominance_range_defaults_are_canonical_outward_open_infinities() -> None:
+    assert DominanceRange() == DominanceRange(
+        lower="-oo", upper="oo", lower_inclusive=False, upper_inclusive=False
+    )
+    assert DominanceRange(lower="0") == DominanceRange(
+        lower="0", upper="oo", lower_inclusive=True, upper_inclusive=False
+    )
+    with pytest.raises(ValidationError, match="infinite range bounds are open"):
+        DominanceRange(lower="-oo", lower_inclusive=True)
+
+
+def test_fixed_values_must_satisfy_checked_assumptions() -> None:
+    request = DominanceAnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="cost(N, a)",
+        axis="N",
+        fixed={"a": "2"},
+        variables={
+            "N": VariableDeclaration(domain=MathematicalDomain.REAL),
+            "a": VariableDeclaration(domain=MathematicalDomain.REAL),
+        },
+        primitive_costs=(PrimitiveCost(name="cost", parameters=("N", "a"), work="a*N"),),
+        assumptions=(Assumption(name="large_a", relationship="a > 2"),),
+    )
+    result = analyze_dominance(request)
+    assert isinstance(result, AnalysisFailure)
+    assert result.error.source is not None
+    assert result.error.source.path == "fixed.a"
+
+
+def test_success_model_rejects_axis_fixed_and_out_of_domain_effective_ranges() -> None:
+    result = _success(_request("N", MathematicalDomain.POSITIVE_REAL))
+    payload = result.model_dump()
+    with pytest.raises(ValidationError, match="axis cannot appear"):
+        DominanceAnalysisSuccess.model_validate({**payload, "fixed": {"N": "1"}})
+    with pytest.raises(ValidationError, match="axis domain"):
+        DominanceAnalysisSuccess.model_validate(
+            {
+                **payload,
+                "effective_range": {
+                    "lower": "0",
+                    "upper": "oo",
+                    "lower_inclusive": True,
+                    "upper_inclusive": False,
+                },
+            }
+        )

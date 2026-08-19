@@ -256,10 +256,45 @@ def analyze_dominance(request: DominanceAnalysisRequest) -> DominanceAnalysisOut
     computed = _analyze_computation(request.analysis_request())
     if isinstance(computed, AnalysisFailure):
         return computed
+    fixed_failure = _dominance_fixed_assumption_failure(request, computed)
+    if fixed_failure is not None:
+        return fixed_failure
     outcome = analyze_retained(request, computed)
     if len(outcome.model_dump_json().encode("utf-8")) > MAX_RESULT_BYTES:
         return _complexity_failure("dominance result exceeds its size bound")
     return outcome
+
+
+def _dominance_fixed_assumption_failure(
+    request: DominanceAnalysisRequest, computed: _AnalyzedComputation
+) -> AnalysisFailure | None:
+    """Reject exact fixed values that contradict checked global reasoning facts."""
+    try:
+        reasoning = ReasoningContext.build(
+            {name: declaration.domain for name, declaration in request.variables.items()},
+            computed.knowledge.definitions,
+            computed.knowledge.assumptions,
+        )
+    except Exception:
+        # Dominance policy will return qualified abstention for unavailable
+        # supplemental reasoning; do not turn that into a confident rejection.
+        return None
+    for name, raw in request.fixed.items():
+        value = _exact_fraction(raw)
+        fact = reasoning.facts.get(name)
+        contradicts_fact = fact is not None and (
+            (fact.integer and value.denominator != 1)
+            or (fact.lower is not None and (value < fact.lower or (value == fact.lower and fact.lower_strict)))
+            or (fact.upper is not None and (value > fact.upper or (value == fact.upper and fact.upper_strict)))
+        )
+        replacement = reasoning.replacements.get(name)
+        replacement_value = _constant_value(replacement) if replacement is not None else None
+        if contradicts_fact or (replacement_value is not None and replacement_value != value):
+            return _invalid(
+                f"fixed substitution contradicts assumptions for {name}",
+                source=SourceReference(path=f"fixed.{name}"),
+            )
+    return None
 
 
 def _analyze_computation(request: AnalysisRequest) -> _AnalyzedComputation | AnalysisFailure:
