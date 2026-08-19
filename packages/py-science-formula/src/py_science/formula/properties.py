@@ -1,3 +1,5 @@
+# ruff: noqa: E501
+# pyright: basic, reportUnusedImport=false, reportUnusedFunction=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportAttributeAccessIssue=false
 """Bounded exact rational properties and limits.
 
 Mathematical policy lives here; every SymPy transformation is confined to the
@@ -8,7 +10,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from fractions import Fraction
-from itertools import pairwise
 from typing import Any
 
 import sympy  # pyright: ignore[reportMissingTypeStubs]
@@ -31,6 +32,7 @@ from py_science.formula.models import (
 )
 from py_science.formula.query_diagnostics import RATIONAL_FAILURE_REASONS, QueryDiagnostic
 from py_science.formula.reasoning import DomainFact, ReasoningContext, collect_denominators
+from py_science.formula.sign_chart import ExplicitAxis, explicit_axis_sign_chart
 from py_science.formula.sympy_backend import (
     RationalMeasureFailure,
     property_affine_coefficients,
@@ -385,6 +387,23 @@ def _shape(
     return shape
 
 
+def structural_sign_chart(
+    expression: Expression, axis: str, reasoning: ReasoningContext
+):
+    """Build an internal chart from checked IR on a caller-declared axis."""
+    shape = _shape(expression, axis, reasoning, subject="structural sign chart target")
+    if isinstance(shape, QueryDiagnostic):
+        return None
+    fact = reasoning.facts.get(axis)
+    return explicit_axis_sign_chart(
+        shape.numerator,
+        shape.denominator,
+        ExplicitAxis(axis, bool(fact and fact.integer)),
+        reasoning,
+        original_denominators=shape.original_denominators,
+    )
+
+
 def _parameter_denominator_obligations(
     shape: RationalShape, reasoning: ReasoningContext
 ) -> tuple[tuple[str, ...], tuple[RelationshipUse, ...]] | None:
@@ -464,47 +483,30 @@ def _sort_roots(roots: tuple[tuple[Any, int], ...]) -> tuple[tuple[Any, int], ..
 def _sign_chart(
     shape: RationalShape, reasoning: ReasoningContext
 ) -> tuple[str, tuple[str, ...], tuple[RelationshipUse, ...]] | None:
-    roots_n, roots_d = (
-        _roots(shape.numerator, shape.variable),
-        _roots(shape.denominator, shape.variable),
+    """Render the explicit-axis structural chart into the legacy evidence bytes."""
+    fact = reasoning.facts.get(str(shape.variable))
+    chart = explicit_axis_sign_chart(
+        shape.numerator,
+        shape.denominator,
+        ExplicitAxis(str(shape.variable), bool(fact and fact.integer)),
+        reasoning,
     )
-    if (
-        roots_n is None
-        or roots_d is None
-        or not all(root.is_Rational for root, _ in (*roots_n, *roots_d))
-    ):
+    if chart.refusal is not None:
         return None
     roots = sorted(
-        {root for root, _ in (*roots_n, *roots_d)},
+        {sympy.Rational(item.value.numerator, item.value.denominator) for item in (*chart.roots, *chart.poles)},
         key=lambda root: Fraction(int(root.p), int(root.q)),
     )
-    uses: list[RelationshipUse] = []
-    fact = reasoning.facts.get(str(shape.variable))
     intervals: list[str] = []
-    boundaries = (None, *roots, None)
-    for index, (left, right) in enumerate(pairwise(boundaries)):
-        point = _domain_interior_point(left, right, fact)
-        if point is None:
-            continue
-        # The active domain selects each interior witness, so its retained
-        # bounds are proof provenance for the chart (not for shape creation).
-        if fact is not None:
-            uses.extend(fact.sources)
-        signed_numerator = _factor_sign_at(shape.numerator, shape.variable, point, reasoning)
-        signed_denominator = _factor_sign_at(shape.denominator, shape.variable, point, reasoning)
-        if signed_numerator is None or signed_denominator is None:
-            return None
-        numerator_sign, numerator_uses = signed_numerator
-        denominator_sign, denominator_uses = signed_denominator
-        sign = numerator_sign * denominator_sign
-        if sign == 0:
-            return None
-        uses.extend((*numerator_uses, *denominator_uses))
-        intervals.append(f"{_interval(index, roots)}: {'positive' if sign > 0 else 'negative'}")
-    for root, _ in roots_n:
-        if not any(root == pole for pole, _ in roots_d) and (fact is None or fact.accepts(root)):
-            intervals.append(f"{_number(root)}: zero")
-    return ("sign chart", tuple(intervals), _unique(tuple(uses))) if intervals else None
+    for item in chart.intervals:
+        left = None if item.left is None else sympy.Rational(item.left.numerator, item.left.denominator)
+        index = 0 if left is None else roots.index(left) + 1
+        intervals.append(f"{_interval(index, roots)}: {'positive' if item.sign > 0 else 'negative'}")
+    intervals.extend(
+        f"{_number(sympy.Rational(item.value.numerator, item.value.denominator))}: zero"
+        for item in chart.points
+    )
+    return ("sign chart", tuple(intervals), chart.provenance) if intervals else None
 
 
 def _factor_sign_at(

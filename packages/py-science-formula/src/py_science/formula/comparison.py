@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
+import py_science.formula.properties as properties
 from py_science.formula.domains import OutputDomain
 from py_science.formula.equivalence import equivalence_answer
 from py_science.formula.exact_values import parse_exact_scalar
@@ -713,11 +714,29 @@ def _work(
             blockers=sign_answer.blockers
             or ("exact aggregate-work sign is unsupported",),
         )
-    signs = {
-        interval.rsplit(": ", 1)[-1]
-        for interval in sign_answer.evidence.intervals
-        if interval.rsplit(": ", 1)[-1] in {"positive", "negative"}
-    }
+    # Candidate policy consumes structural chart signs directly.  Evidence is
+    # still the legacy property rendering, never an input to mathematical policy.
+    assert reasoning is not None
+    shape = properties._shape(  # pyright: ignore[reportPrivateUsage]
+        delta_expression, None, reasoning, subject="candidate aggregate-work sign"
+    )
+    if isinstance(shape, properties.QueryDiagnostic):  # pyright: ignore[reportPrivateUsage]
+        return CandidateWorkComparison(
+            candidate_names=candidate_names,
+            candidate_works=works,
+            delta=delta,
+            status="unresolved",
+            conditions=sign_answer.conditions,
+            assumptions_used=sign_answer.assumptions_used,
+            relevant_unsupported_assumptions=sign_answer.relevant_unsupported_assumptions,
+            blockers=("exact aggregate-work sign chart has no decisive intervals",),
+        )
+    chart = properties.structural_sign_chart(delta_expression, str(shape.variable), reasoning)
+    signs: set[str] = (
+        {"positive" if item.sign > 0 else "negative" for item in chart.intervals}
+        if chart and chart.refusal is None
+        else set()
+    )
     chart_status: Literal[
         "first_lower", "second_lower", "crossover", "unresolved"
     ] = (

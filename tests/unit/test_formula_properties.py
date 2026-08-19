@@ -1,8 +1,11 @@
 # ruff: noqa: I001
+from fractions import Fraction
 # pyright: basic, reportArgumentType=false, reportOptionalMemberAccess=false, reportAttributeAccessIssue=false, reportOperatorIssue=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownParameterType=false, reportMissingParameterType=false
 import sympy
 import py_science.formula.properties as properties
 import py_science.formula.sympy_backend as backend
+from py_science.formula.parser import parse_expression
+from py_science.formula.reasoning import ReasoningContext
 from py_science.formula import (
     AnalysisRequest,
     FormulaSyntax,
@@ -21,6 +24,26 @@ def query(expression, *queries, domain=MathematicalDomain.REAL):
             queries=queries,
         )
     )
+
+
+def test_explicit_axis_structural_chart_retains_roots_poles_points_and_provenance():
+    expression = parse_expression("(x + 1) / (x - 1)")
+    chart = properties.structural_sign_chart(
+        expression,
+        "x",
+        ReasoningContext.build(
+            {"x": MathematicalDomain.REAL}, (), (),
+        ),
+    )
+    assert chart is not None and chart.refusal is None
+    assert [(item.value, item.order) for item in chart.roots] == [(Fraction(-1), 1)]
+    assert [(item.value, item.order) for item in chart.poles] == [(Fraction(1), 1)]
+    assert [(item.left, item.right, item.sign) for item in chart.intervals] == [
+        (None, Fraction(-1), 1),
+        (Fraction(-1), Fraction(1), -1),
+        (Fraction(1), None, 1),
+    ]
+    assert chart.points[0].value == Fraction(-1) and chart.points[0].sign == 0
 
 
 def test_exact_domain_singularities_and_factor_sign_chart():
