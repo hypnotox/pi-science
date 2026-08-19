@@ -127,6 +127,9 @@ def test_retained_analysis_state_is_deeply_read_only(monkeypatch):
         analyzed.equation_analyses["other"] = analyzed.aggregate_analysis
     with pytest.raises(TypeError):
         analyzed.equations[0].domains["j"] = analyzed.equations[0].domains["i"]
+    assert not hasattr(analyzed.equations[0], "request")
+    with pytest.raises(FrozenInstanceError):
+        analyzed.equations[0].name = "other"
     with pytest.raises(FrozenInstanceError):
         analyzed.aggregate_analysis.opaque_work = IntegerLiteral(1)
 

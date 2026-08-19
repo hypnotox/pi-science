@@ -119,7 +119,8 @@ MAX_RENDERED_BYTES = 196_608
 
 @dataclass(frozen=True, slots=True)
 class ParsedEquation:
-    request: EquationRequest
+    name: str
+    submitted_constraints: tuple[DomainConstraint, ...]
     formula: Equation
     domains: Mapping[str, tuple[Expression, Expression]]
     constraints: tuple[tuple[str, str, Relationship], ...]
@@ -368,7 +369,7 @@ def _attach_queries(
                 (
                     item.formula
                     for item in analyzed.equations
-                    if item.request.name == selected.name
+                    if item.name == selected.name
                 ),
                 None,
             )
@@ -1254,7 +1255,7 @@ def _analyze_system(
     if order is None:
         return _invalid("equation dependencies contain a cycle")
 
-    by_name = {equation.request.name: equation for equation in equations}
+    by_name = {equation.name: equation for equation in equations}
     render_budget = RenderingBudget()
     work_render_budget = WorkRenderBudget()
     reports: dict[str, EquationReport] = {}
@@ -1348,7 +1349,7 @@ def _analyze_system(
             tuple(sorted(edges[name])),
             work_render_budget,
             used,
-            equation.request.constraints,
+            equation.submitted_constraints,
             tuple(
                 EffectiveIndexDomain(
                     index=domain.index,
@@ -1390,7 +1391,7 @@ def _analyze_system(
     system = _system_report(
         # Analysis follows dependency order, but report correlation preserves the
         # caller's submitted equation order.
-        tuple(reports[equation.request.name] for equation in equations),
+        tuple(reports[equation.name] for equation in equations),
         combined,
         tuple((dependency, name) for name in order for dependency in sorted(edges[name])),
         reuse,
@@ -1531,7 +1532,8 @@ def _parse_equations(
         output_domains, domain_order = built
         result.append(
             ParsedEquation(
-                item,
+                item.name,
+                item.constraints,
                 parsed,
                 MappingProxyType(dict(domains)),
                 tuple(constraints),
@@ -1576,7 +1578,7 @@ def _globally_empty_constraint_domain(
                 if target == domain.index
             )
             return _invalid(
-                f"equation {equation.request.name}: local constraint intersection is uniformly empty under global facts",
+                f"equation {equation.name}: local constraint intersection is uniformly empty under global facts",
                 source=SourceReference(
                     path=f"equations[{equation_position}].constraints[{constraint_position}].relationship"
                 ),
@@ -1597,7 +1599,7 @@ def _build_producers(
         )
         if value_name in producers:
             return _invalid(f"result {value_name} has more than one producer")
-        producers[value_name] = Producer(equation.request.name, value_name, arity)
+        producers[value_name] = Producer(equation.name, value_name, arity)
     return producers
 
 
@@ -1615,7 +1617,7 @@ def _validate_system(
     ]
     | AnalysisFailure
 ):
-    edges: dict[str, set[str]] = {equation.request.name: set() for equation in equations}
+    edges: dict[str, set[str]] = {equation.name: set() for equation in equations}
     references: dict[tuple[str, str], int] = defaultdict(int)
     unresolved: dict[str, tuple[str, ...]] = {}
     known_arities = {
@@ -1626,7 +1628,7 @@ def _validate_system(
     external: set[str] = set()
     producer_names = set(producers)
     for equation_position, equation in enumerate(equations):
-        name = equation.request.name
+        name = equation.name
         scope = set(equation.domains)
         index_error, index_unknown = _validate_index_scopes(
             equation.formula.right,
@@ -2422,7 +2424,7 @@ def _specialized_effective_domains(
     for equation in equations:
         result.append(
             EquationEffectiveDomains(
-                equation=equation.request.name,
+                equation=equation.name,
                 domains=tuple(
                     EffectiveIndexDomain(
                         index=domain.index,
