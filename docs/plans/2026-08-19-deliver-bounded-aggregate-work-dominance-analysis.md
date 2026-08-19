@@ -3,7 +3,7 @@ format: plan-v2
 date: 2026-08-19
 adrs:
   - adopt-bounded-aggregate-work-dominance-analysis
-status: Proposed
+status: Implemented
 ---
 # Plan: Deliver bounded aggregate-work dominance analysis
 
