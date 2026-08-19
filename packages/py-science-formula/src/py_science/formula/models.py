@@ -2,10 +2,20 @@
 import re
 from collections.abc import Iterable
 from enum import StrEnum
+from fractions import Fraction
+from itertools import combinations, pairwise
 from typing import Annotated, Any, Literal, cast
 
 from py_science.formula.exact_values import parse_exact_scalar, render_exact
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 MAX_NAME_LENGTH = 128
 MAX_FORMULA_BYTES = 65_536
@@ -1309,6 +1319,23 @@ class DominanceAnalysisRequest(StructuredModel):
         unknown = set(self.fixed) - set(self.variables)
         if unknown:
             raise ValueError("fixed substitutions must name declared variables")
+        defined = {item.variable for item in self.definitions}
+        if set(self.fixed) & defined:
+            raise ValueError("fixed substitutions cannot conflict with definitions")
+        for name, value in self.fixed.items():
+            exact = parse_exact_scalar(str(value))
+            assert exact is not None
+            domain = self.variables[name].domain
+            if domain.is_integer and exact.denominator != 1:
+                raise ValueError(f"fixed.{name} must be integral for its declared domain")
+            signed = Fraction(exact.numerator, exact.denominator)
+            if domain in {MathematicalDomain.POSITIVE_INTEGER, MathematicalDomain.POSITIVE_REAL} and signed <= 0:
+                raise ValueError(f"fixed.{name} must be positive for its declared domain")
+            if domain in {
+                MathematicalDomain.NONNEGATIVE_INTEGER,
+                MathematicalDomain.NONNEGATIVE_REAL,
+            } and signed < 0:
+                raise ValueError(f"fixed.{name} must be nonnegative for its declared domain")
         return self
 
     def analysis_request(self) -> AnalysisRequest:
@@ -1348,7 +1375,14 @@ class DominanceIntervalCell(StructuredModel):
 
     @model_validator(mode="after")
     def exact_bounds(self) -> "DominanceIntervalCell":
-        DominanceRange(lower=self.lower, upper=self.upper, lower_inclusive=self.lower_inclusive, upper_inclusive=self.upper_inclusive)
+        checked = DominanceRange(
+            lower=self.lower,
+            upper=self.upper,
+            lower_inclusive=self.lower_inclusive,
+            upper_inclusive=self.upper_inclusive,
+        )
+        if checked.lower == checked.upper:
+            raise ValueError("real dominance intervals must have positive width")
         return self
 
 
@@ -1360,10 +1394,12 @@ class DominancePointCell(StructuredModel):
 
     @field_validator("value")
     @classmethod
-    def exact_point(cls, value: str) -> str:
+    def exact_point(cls, value: str, info: ValidationInfo) -> str:
         exact = parse_exact_scalar(value)
         if exact is None or render_exact(exact) != value:
             raise ValueError("dominance points must be canonical finite exact scalars")
+        if info.data.get("kind") == "integer_point" and exact.denominator != 1:
+            raise ValueError("integer dominance points must be integral")
         return value
 
 
@@ -1382,7 +1418,12 @@ class DominanceIntegerRangeCell(StructuredModel):
             exact = parse_exact_scalar(value)
             if exact is None or exact.denominator != 1 or render_exact(exact) != value:
                 raise ValueError("integer range bounds must be canonical integers or infinity")
-        DominanceRange(lower=self.lower, upper=self.upper, lower_inclusive=False, upper_inclusive=False)
+        DominanceRange(
+            lower=self.lower,
+            upper=self.upper,
+            lower_inclusive=self.lower != "-oo",
+            upper_inclusive=self.upper != "oo",
+        )
         return self
 
 
@@ -1394,13 +1435,140 @@ type DominanceCell = Annotated[
 
 class DominanceExclusion(StructuredModel):
     value: str
-    reason: str = "pole"
+    reason: Literal["pole"] = "pole"
+
+    @field_validator("value")
+    @classmethod
+    def exact_value(cls, value: str) -> str:
+        exact = parse_exact_scalar(value)
+        if exact is None or render_exact(exact) != value:
+            raise ValueError("dominance exclusions must be canonical finite exact values")
+        return value
 
 
 class DominanceEvidence(StructuredModel):
     pair: tuple[str, str]
-    difference: str
+    difference: str = Field(min_length=1, max_length=MAX_FORMULA_BYTES)
     sign: Literal[-1, 0, 1] | None = None
+    roots: tuple[str, ...] = Field(default=(), max_length=256)
+
+
+def _dominance_exact_sort_key(value: str) -> Fraction:
+    exact = parse_exact_scalar(value)
+    assert exact is not None
+    return Fraction(exact.numerator, exact.denominator)
+
+
+def _dominance_cell_bounds(
+    cell: DominanceCell,
+) -> tuple[Fraction | None, Fraction | None, bool, bool]:
+    if isinstance(cell, DominancePointCell):
+        point = _dominance_exact_sort_key(cell.value)
+        return point, point, True, True
+    lower = None if cell.lower == "-oo" else _dominance_exact_sort_key(cell.lower)
+    upper = None if cell.upper == "oo" else _dominance_exact_sort_key(cell.upper)
+    if isinstance(cell, DominanceIntegerRangeCell):
+        return lower, upper, lower is not None, upper is not None
+    return lower, upper, cell.lower_inclusive, cell.upper_inclusive
+
+
+def _validate_dominance_cell_order(
+    cells: tuple[DominanceCell, ...], exclusions: tuple[str, ...]
+) -> None:
+    previous: tuple[Fraction | None, bool] | None = None
+    for cell in cells:
+        lower, upper, lower_inclusive, upper_inclusive = _dominance_cell_bounds(cell)
+        if previous is not None:
+            previous_upper, previous_inclusive = previous
+            if previous_upper is None:
+                raise ValueError("unbounded dominance cell must be last")
+            if lower is None or lower < previous_upper or (
+                lower == previous_upper and lower_inclusive and previous_inclusive
+            ):
+                raise ValueError("dominance cells must be ordered and disjoint")
+        previous = (upper, upper_inclusive)
+    for value in exclusions:
+        point = _dominance_exact_sort_key(value)
+        for cell in cells:
+            lower, upper, lower_inclusive, upper_inclusive = _dominance_cell_bounds(cell)
+            inside = (lower is None or point > lower or (point == lower and lower_inclusive)) and (
+                upper is None or point < upper or (point == upper and upper_inclusive)
+            )
+            if inside:
+                raise ValueError("dominance exclusions cannot be covered by cells")
+
+
+def _range_bounds(
+    value: DominanceRange,
+) -> tuple[Fraction | None, Fraction | None, bool, bool]:
+    lower = None if value.lower == "-oo" else _dominance_exact_sort_key(value.lower)
+    upper = None if value.upper == "oo" else _dominance_exact_sort_key(value.upper)
+    return lower, upper, value.lower_inclusive, value.upper_inclusive
+
+
+def _validate_complete_dominance_coverage(
+    cells: tuple[DominanceCell, ...],
+    exclusions: tuple[str, ...],
+    effective: DominanceRange,
+    *,
+    integer: bool,
+) -> None:
+    if not cells:
+        raise ValueError("complete nonzero dominance requires domain coverage")
+    excluded = {_dominance_exact_sort_key(item) for item in exclusions}
+    effective_lower, effective_upper, lower_inclusive, upper_inclusive = _range_bounds(
+        effective
+    )
+    bounds = [_dominance_cell_bounds(cell) for cell in cells]
+    first_lower, _, first_inclusive, _ = bounds[0]
+    _, last_upper, _, last_inclusive = bounds[-1]
+    if integer:
+        low = (
+            None
+            if effective_lower is None
+            else int(effective_lower.__ceil__())
+            if lower_inclusive
+            else int(effective_lower.__floor__()) + 1
+        )
+        high = (
+            None
+            if effective_upper is None
+            else int(effective_upper.__floor__())
+            if upper_inclusive
+            else int(effective_upper.__ceil__()) - 1
+        )
+        if first_lower != (None if low is None else Fraction(low)):
+            raise ValueError("complete integer dominance must start at its active domain")
+        if last_upper != (None if high is None else Fraction(high)):
+            raise ValueError("complete integer dominance must end at its active domain")
+        for previous, current in pairwise(bounds):
+            previous_upper, current_lower = previous[1], current[0]
+            if previous_upper is None or current_lower is None:
+                raise ValueError("unbounded integer dominance cells are misplaced")
+            gap_start = int(previous_upper) + 1
+            gap_end = int(current_lower) - 1
+            if gap_start <= gap_end and {
+                Fraction(item) for item in range(gap_start, gap_end + 1)
+            } - excluded:
+                raise ValueError("complete integer dominance has an uncovered lattice gap")
+        return
+    if first_lower != effective_lower or last_upper != effective_upper:
+        raise ValueError("complete real dominance must match its active-domain bounds")
+    if lower_inclusive and not first_inclusive and effective_lower not in excluded:
+        raise ValueError("complete real dominance omits its inclusive lower endpoint")
+    if upper_inclusive and not last_inclusive and effective_upper not in excluded:
+        raise ValueError("complete real dominance omits its inclusive upper endpoint")
+    for previous, current in pairwise(bounds):
+        previous_upper, previous_inclusive = previous[1], previous[3]
+        current_lower, current_inclusive = current[0], current[2]
+        if previous_upper != current_lower:
+            raise ValueError("complete real dominance has an uncovered interval")
+        if (
+            not previous_inclusive
+            and not current_inclusive
+            and previous_upper not in excluded
+        ):
+            raise ValueError("complete real dominance has an uncovered point")
 
 
 class DominanceAnalysisSuccess(StructuredModel):
@@ -1409,18 +1577,19 @@ class DominanceAnalysisSuccess(StructuredModel):
     analysis: AnalysisSuccess
     metric: Literal["aggregate_abstract_work"] = "aggregate_abstract_work"
     axis: str
+    axis_domain: MathematicalDomain
     fixed: dict[str, str] = Field(default_factory=dict)
     requested_range: DominanceRange | None = None
-    effective_range: DominanceRange
+    effective_range: DominanceRange | None
     shared_denominator: str | None = None
     terms: tuple[DominanceTerm, ...] = Field(default=(), max_length=16)
     cells: tuple[DominanceCell, ...] = Field(default=(), max_length=513)
     exclusions: tuple[DominanceExclusion, ...] = Field(default=(), max_length=256)
-    never_dominant: tuple[str, ...] = ()
+    never_dominant: tuple[str, ...] = Field(default=(), max_length=16)
     conditions: tuple[str, ...] = ()
     assumptions_used: tuple[RelationshipUse, ...] = ()
     blockers: tuple[str, ...] = ()
-    evidence: tuple[DominanceEvidence, ...] = ()
+    evidence: tuple[DominanceEvidence, ...] = Field(default=(), max_length=120)
     dominance_status: Literal["complete", "unresolved", "empty"]
 
     @model_validator(mode="after")
@@ -1430,27 +1599,84 @@ class DominanceAnalysisSuccess(StructuredModel):
             ids
         ) != len(set(ids)):
             raise ValueError("terms must be unique and descending by power")
-        if set(self.never_dominant) - set(ids):
-            raise ValueError("never-dominant terms must be reported terms")
+        if len(self.fixed) != len(set(self.fixed)):
+            raise ValueError("fixed substitutions must be unique")
+        for value in self.fixed.values():
+            if parse_exact_scalar(value) is None:
+                raise ValueError("fixed substitutions must be canonical exact scalars")
         if self.dominance_status == "empty":
+            if self.effective_range is not None:
+                raise ValueError("empty dominance has no effective range")
             if self.cells or self.exclusions or self.blockers or self.never_dominant:
                 raise ValueError("empty dominance has no cells, exclusions, blockers, or claims")
-        elif self.dominance_status == "complete":
+        elif self.effective_range is None:
+            raise ValueError("nonempty dominance requires an effective range")
+        if self.dominance_status == "complete":
             if self.blockers or any(cell.blockers for cell in self.cells):
                 raise ValueError("complete dominance has no blockers")
-            if not self.terms and (
-                self.cells or "aggregate work is identically zero" not in self.conditions
-            ):
-                raise ValueError("empty complete decomposition is only zero work")
-        elif not self.blockers and not any(cell.blockers for cell in self.cells):
-            raise ValueError("unresolved dominance requires blockers or unresolved cells")
+            if not self.terms:
+                if (
+                    self.cells
+                    or self.exclusions
+                    or self.never_dominant
+                    or self.shared_denominator is None
+                    or "aggregate work is identically zero" not in self.conditions
+                ):
+                    raise ValueError("empty complete decomposition is only zero work")
+            elif not self.cells or self.shared_denominator is None:
+                raise ValueError("complete decomposition requires terms, denominator, and cells")
+        elif self.dominance_status == "unresolved":
+            if not self.blockers and not any(cell.blockers for cell in self.cells):
+                raise ValueError("unresolved dominance requires blockers or unresolved cells")
+            if not self.terms and (self.shared_denominator is not None or self.cells):
+                raise ValueError("pre-decomposition unresolved dominance has no decomposition")
+        if len(self.never_dominant) != len(set(self.never_dominant)) or set(
+            self.never_dominant
+        ) - set(ids):
+            raise ValueError("never-dominant terms must be unique reported terms")
         for cell in self.cells:
+            if self.axis_domain.is_integer != (cell.kind.startswith("integer")):
+                raise ValueError("dominance cell kind must match the axis domain")
             if cell.blockers == () and not cell.dominant:
                 raise ValueError("complete dominance cells require dominant terms")
             if cell.blockers and cell.dominant:
                 raise ValueError("unresolved dominance cells cannot claim dominant terms")
-            if set(cell.dominant) - set(ids) or len(cell.dominant) != len(set(cell.dominant)):
+            if len(cell.dominant) != len(set(cell.dominant)) or any(
+                item not in ids for item in cell.dominant
+            ):
                 raise ValueError("cell terms must be unique reported ids")
+            if tuple(item for item in ids if item in cell.dominant) != cell.dominant:
+                raise ValueError("dominant ids must follow canonical term order")
+        active = {item for cell in self.cells for item in cell.dominant}
+        if self.dominance_status == "complete" and self.terms and tuple(
+            item for item in ids if item not in active
+        ) != self.never_dominant:
+            raise ValueError("never-dominant ids must be the proved complement")
+        expected_pairs = tuple(combinations(ids, 2))
+        pairs = tuple(item.pair for item in self.evidence)
+        if len(pairs) != len(set(pairs)) or any(pair not in expected_pairs for pair in pairs):
+            raise ValueError("dominance evidence pairs must be unique reported term pairs")
+        if self.dominance_status == "complete" and self.terms and pairs != expected_pairs:
+            raise ValueError("complete dominance requires every pair in canonical order")
+        exclusion_values = tuple(item.value for item in self.exclusions)
+        if exclusion_values != tuple(
+            sorted(set(exclusion_values), key=_dominance_exact_sort_key)
+        ):
+            raise ValueError("dominance exclusions must be unique and ordered")
+        if self.axis_domain.is_integer and any(
+            _dominance_exact_sort_key(item).denominator != 1
+            for item in exclusion_values
+        ):
+            raise ValueError("integer dominance exclusions must be integral")
+        _validate_dominance_cell_order(self.cells, exclusion_values)
+        if self.dominance_status == "complete" and self.terms:
+            assert self.effective_range is not None
+            _validate_complete_dominance_coverage(
+                self.cells,
+                exclusion_values,
+                self.effective_range,
+                integer=self.axis_domain.is_integer,
+            )
         return self
 
 

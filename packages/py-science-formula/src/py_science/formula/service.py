@@ -256,7 +256,10 @@ def analyze_dominance(request: DominanceAnalysisRequest) -> DominanceAnalysisOut
     computed = _analyze_computation(request.analysis_request())
     if isinstance(computed, AnalysisFailure):
         return computed
-    return analyze_retained(request, computed)
+    outcome = analyze_retained(request, computed)
+    if len(outcome.model_dump_json().encode("utf-8")) > MAX_RESULT_BYTES:
+        return _complexity_failure("dominance result exceeds its size bound")
+    return outcome
 
 
 def _analyze_computation(request: AnalysisRequest) -> _AnalyzedComputation | AnalysisFailure:

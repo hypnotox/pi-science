@@ -1539,3 +1539,85 @@ def _binary_to_sympy(expression: BinaryExpression) -> SympyExpression:
     power = cast(Callable[..., SympyExpression], sympy.Pow)
     unevaluated = cast(Callable[[object], SympyExpression], sympy.UnevaluatedExpr)
     return unevaluated(power(left, right, evaluate=False))
+
+
+def dominance_symbol(name: str) -> Any:
+    """Return a backend symbol for bounded dominance helpers."""
+    return sympy.Symbol(name)
+
+
+def dominance_one() -> Any:
+    return sympy.Integer(1)
+
+
+def dominance_exact_rational(value: Fraction) -> Any:
+    return sympy.Rational(value.numerator, value.denominator)
+
+
+def dominance_rational_form(
+    value: Any,
+    substitutions: dict[str, Fraction],
+    axis_name: str,
+) -> tuple[Any, Any, Any, Any, list[tuple[int, Any]]]:
+    """Specialize, reduce, and collect one checked univariate rational form."""
+    replacements = {
+        sympy.Symbol(name): dominance_exact_rational(item)
+        for name, item in substitutions.items()
+    }
+    specialized = value.subs(replacements)
+    original_denominator = sympy.fraction(specialized)[1]
+    reduced = sympy.cancel(specialized)
+    numerator, denominator = sympy.fraction(reduced)
+    axis = sympy.Symbol(axis_name)
+    if any(symbol != axis for symbol in reduced.free_symbols):
+        raise ValueError("non-axis coefficients")
+    if numerator == 0:
+        return specialized, original_denominator, numerator, denominator, []
+    polynomial = sympy.Poly(numerator, axis)
+    items = [
+        (int(power[0]), coefficient)
+        for power, coefficient in zip(
+            polynomial.monoms(), polynomial.coeffs(), strict=True
+        )
+        if coefficient != 0
+    ]
+    if any(power < 0 for power, _ in items):
+        raise ValueError("negative polynomial power")
+    return specialized, original_denominator, numerator, denominator, items
+
+
+def dominance_node_count(value: Any, limit: int) -> int:
+    count = 0
+    for _ in sympy.preorder_traversal(value):
+        count += 1
+        if count > limit:
+            break
+    return count
+
+
+def dominance_reconstructs(
+    items: list[tuple[int, Any]], numerator: Any, axis_name: str
+) -> bool:
+    axis = sympy.Symbol(axis_name)
+    reconstructed = sum(coefficient * axis**power for power, coefficient in items)
+    return sympy.expand(reconstructed - numerator) == 0
+
+
+def dominance_pair_difference(
+    left: tuple[int, Any], right: tuple[int, Any], axis_name: str
+) -> Any:
+    axis = sympy.Symbol(axis_name)
+    return sympy.expand(
+        (left[1] * axis ** left[0]) ** 2 - (right[1] * axis ** right[0]) ** 2
+    )
+
+
+def dominance_term_expression(power: int, coefficient: Any, axis_name: str) -> Any:
+    return coefficient * sympy.Symbol(axis_name) ** power
+
+
+def dominance_magnitudes(
+    items: list[tuple[int, Any]], value: Fraction, axis_name: str
+) -> list[Any]:
+    point = dominance_exact_rational(value)
+    return [abs(coefficient * point**power) for power, coefficient in items]
