@@ -19,6 +19,9 @@ Derived query targets cross protocol v9 as strict correlation data only; Python 
 The direct-Python tier covers canonical dominance decomposition, poles, exact cells, and bounded abstention; Pi dominance transport remains pending.
 
 
+Bounded aggregate-work dominance is available in Python and Pi protocol v10. Python owns its canonical rational decomposition and exact one-axis regions; Pi validates and presents the report without recomputing mathematical policy. It excludes multiple axes, exponentials, opaque aggregates, rewrites, resource vectors, scheduling, and empirical performance.
+
+
 <!-- awf:edit layout: from .awf/docs/parts/testing/layout.md -->
 ## Layout and test shape
 Python tests cover the transport-free public formula API and distribution. `packages/pi-science/tests/` exercises the actual private adapter, strict envelopes and result shapes, UTF-8 request and response bounds, installed-extension schema compilation and tool invocation under the host Pi runtime, stderr draining, process failure, timeout and cancellation cleanup, real Pi command/tool result contracts, mode-aware warnings, immutable checkout identity, health validation, and prerequisite-specific diagnostics. A barrier wrapper around real uv proves two healthy concurrent starts reuse one immutable-source cache without modifying the checkout; a separate synchronized failure proves identical fail-closed results.
@@ -28,4 +31,7 @@ Pi regressions also cover protocol-v9 analysis and candidate-comparison requests
 Derived query targets cross protocol v9 as strict correlation data only; Python owns earlier-only validation, verified-candidate eligibility, bounded qualification composition, and unavailable-target results. Focused regressions cover the partial direct nested finite-polynomial closed-form family and preserve submitted work separately from its informational candidate.
 
 `tests/e2e/test_formula_dominance.py` covers the direct-Python dominance contract and preserves ordinary nested analysis.
+
+
+Bounded aggregate-work dominance is available in Python and Pi protocol v10. Python owns its canonical rational decomposition and exact one-axis regions; Pi validates and presents the report without recomputing mathematical policy. It excludes multiple axes, exponentials, opaque aggregates, rewrites, resource vectors, scheduling, and empirical performance.
 

@@ -19,6 +19,9 @@ You are a developer on `pi-science`, responsible for its long-term health as wel
 `pi-science` provides the transport-free `py-science-formula` typed Python analysis API and an aggregate Pi package from one pinned public-source snapshot. Python and Pi accept strict restricted-SymPy expression, equation-system, or exactly-two-candidate comparison requests and return bounded qualified reports. Keep the public model and mathematical policy backend-independent, but prefer extending resource-checked SymPy algebra, rendering, and verification seams over recreating backend mathematics. Pi eagerly validates an isolated uv backend, then exposes the matching formula tool and product skill only while ready; its diagnostic command remains available when provisioning fails.
 
 
+Bounded aggregate-work dominance is available in Python and Pi protocol v10. Python owns its canonical rational decomposition and exact one-axis regions; Pi validates and presents the report without recomputing mathematical policy. It excludes multiple axes, exponentials, opaque aggregates, rewrites, resource vectors, scheduling, and empirical performance.
+
+
 <!-- awf:edit invariants: default; create .awf/parts/agents-doc/invariants.md to override -->
 ## Invariants
 

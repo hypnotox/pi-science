@@ -5,3 +5,6 @@ Pi regressions also cover protocol-v9 analysis and candidate-comparison requests
 Derived query targets cross protocol v9 as strict correlation data only; Python owns earlier-only validation, verified-candidate eligibility, bounded qualification composition, and unavailable-target results. Focused regressions cover the partial direct nested finite-polynomial closed-form family and preserve submitted work separately from its informational candidate.
 
 `tests/e2e/test_formula_dominance.py` covers the direct-Python dominance contract and preserves ordinary nested analysis.
+
+
+Bounded aggregate-work dominance is available in Python and Pi protocol v10. Python owns its canonical rational decomposition and exact one-axis regions; Pi validates and presents the report without recomputing mathematical policy. It excludes multiple axes, exponentials, opaque aggregates, rewrites, resource vectors, scheduling, and empirical performance.

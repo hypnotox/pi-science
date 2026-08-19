@@ -431,8 +431,8 @@
     "AGENTS.md": {
       "templateId": "agents-doc/AGENTS.md.tmpl",
       "templateHash": "sha256:70408b662372da03dd91013d9a7e541e7f127889c14e6f5b95e4b29b97cbb92a",
-      "configHash": "sha256:843dcc04f4c5773c07539911c9b6811c75d5d2937f0091681f246c208720cef8",
-      "outputHash": "sha256:ea22044852467b8bcbab1d51f58cb12d7d5691fa8c871ac8253706a3d8f9e2c2"
+      "configHash": "sha256:828bc04d9551285a3ed82369d59ffc1e3af7b30e13eab47daa7e4359df82aec9",
+      "outputHash": "sha256:0b59c9397f056e344b07887db3be8bb4b138e9dea8999f9924f9e1a4c3cc25f5"
     },
     "CLAUDE.md": {
       "templateId": "claude/CLAUDE.md.tmpl",
@@ -462,8 +462,8 @@
     "docs/architecture.md": {
       "templateId": "docs/architecture.md.tmpl",
       "templateHash": "sha256:a1d5d26b03573cc86862912fdc8f46ecf0d4b27455d18cc558b3621a76d0e1c9",
-      "configHash": "sha256:1c31731e76a22f41f5fb43cd3059f8221c842e2e93960b499c0c2c725071a800",
-      "outputHash": "sha256:81880109e520a117a6fc3137589348b3b80b37bcf346ada66caad05ea5edf816"
+      "configHash": "sha256:9193ab9f43999f3c6d63c9ffc70fe34d5123d600c19aed0dafa16b6bd3bbe9ed",
+      "outputHash": "sha256:428f234d0d4df97c1f543ff7dc3287cefe25ffdb5705e8f9ba6191af45116028"
     },
     "docs/config-reference.md": {
       "templateId": "",
@@ -567,8 +567,8 @@
     "docs/testing.md": {
       "templateId": "docs/testing.md.tmpl",
       "templateHash": "sha256:a57a68e1550ff6762ec8021fb14948cf40b221bc228459e70af8e8be4ea16c51",
-      "configHash": "sha256:f5fd8a3a767852385ab268af472b91dbb548afe4141b033db4ec05e734756c9c",
-      "outputHash": "sha256:a4f7749aaf03457d20f98410924c998e71d2142906deed3e3c414659dd48b77e"
+      "configHash": "sha256:54da926076f7faf7577a3bcf11f0907a64c33d487f7e9f1f88b0b909849dccc8",
+      "outputHash": "sha256:53c6204f831f4006da50cfeb68945a389600bf8628732ab818d5c4ac7025f0bb"
     },
     "docs/topics/product/analysis-report-contract.md": {
       "templateId": "topics/topic.md.tmpl",
@@ -597,8 +597,8 @@
     "docs/topics/product/mathematical-input-contract.md": {
       "templateId": "topics/topic.md.tmpl",
       "templateHash": "sha256:25b4ec23c7a22667f9d78b1e5883af8702d82f67896c3a42ac0ad19032d7c7bb",
-      "configHash": "sha256:a160ad44091bf3dd3825df3df638dbe5d750adb7dfc84f91d23ec8bf3addf373",
-      "outputHash": "sha256:8cb5799918082e8c0b0bcc65956ae542518b48a33049b5c22b46c35960f84bc8"
+      "configHash": "sha256:fd7d713621df1be962409708b3d6497bce313c71eb27b678ad59d4c23139de12",
+      "outputHash": "sha256:4523dfc862bcf91647104e01ed24b78ab1220959127494590e70c4434ebc3bdb"
     },
     "docs/topics/product/product-boundary.md": {
       "templateId": "topics/topic.md.tmpl",

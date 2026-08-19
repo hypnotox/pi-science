@@ -10,15 +10,17 @@ from typing import Any, cast
 from py_science.formula import (
     AnalysisRequest,
     CandidateComparisonRequest,
+    DominanceAnalysisRequest,
     analyze,
+    analyze_dominance,
     compare_candidates,
 )
 from pydantic import TypeAdapter, ValidationError
 
-PROTOCOL_VERSION = 9
-REQUEST_ADAPTER: TypeAdapter[AnalysisRequest | CandidateComparisonRequest] = TypeAdapter(
-    AnalysisRequest | CandidateComparisonRequest
-)
+PROTOCOL_VERSION = 10
+REQUEST_ADAPTER: TypeAdapter[
+    AnalysisRequest | CandidateComparisonRequest | DominanceAnalysisRequest
+] = TypeAdapter(AnalysisRequest | CandidateComparisonRequest | DominanceAnalysisRequest)
 # The public request permits 262,144 UTF-8 source bytes. This whole-envelope
 # limit also covers JSON escaping and every bounded collection/name field.
 MAX_ENVELOPE_BYTES = 2_097_152
@@ -97,11 +99,14 @@ def main() -> int:
         request = REQUEST_ADAPTER.validate_json(
             json.dumps(request_payload, ensure_ascii=False, separators=(",", ":"))
         )
-        if isinstance(request, CandidateComparisonRequest):
-            outcome = compare_candidates(request)
+        if getattr(request, "operation", None) == "compare_candidates":
+            outcome = compare_candidates(cast(CandidateComparisonRequest, request))
+            result = outcome.model_dump(mode="json", exclude_none=False)
+        elif getattr(request, "operation", None) == "analyze_dominance":
+            outcome = analyze_dominance(cast(DominanceAnalysisRequest, request))
             result = outcome.model_dump(mode="json", exclude_none=False)
         else:
-            outcome = analyze(request)
+            outcome = analyze(cast(AnalysisRequest, request))
             result = outcome.model_dump(mode="json", exclude_none=True)
             if outcome.status == "success":
                 result["abstract_work"] = outcome.abstract_work

@@ -12,6 +12,7 @@ import {
   type CandidateComparisonRequest,
   type ExpressionAnalysisRequest,
   type SystemAnalysisRequest,
+  type DominanceRequest,
 } from "./bridge.js";
 import { provision, type Readiness } from "./provision.js";
 
@@ -21,7 +22,8 @@ export const formulaSchema = structuredClone(formulaSchemaJson) as TSchema;
 export type FormulaParameters =
   | Omit<ExpressionAnalysisRequest, "syntax">
   | Omit<SystemAnalysisRequest, "syntax">
-  | Omit<CandidateComparisonRequest, "syntax">;
+  | Omit<CandidateComparisonRequest, "syntax">
+  | Omit<DominanceRequest, "syntax">;
 
 export type PinnedSource = { revision: string; repo: string };
 
@@ -74,6 +76,44 @@ function compactToolText(result: BridgeResult): string {
       "Blockers",
       `- ${result.error.message}`,
     ].join("\n");
+
+  if ("kind" in result && result.kind === "dominance_analysis") {
+    return [
+      "Axis",
+      `- ${result.axis} (${result.axis_domain})`,
+      "Effective domain",
+      `- ${result.effective_range ? `${result.effective_range.lower}${result.effective_range.lower_inclusive ? " ≤" : " <"} ${result.axis} ${result.effective_range.upper_inclusive ? "≤" : "<"} ${result.effective_range.upper}` : "empty"}`,
+      "Status",
+      `- ${result.dominance_status}`,
+      "Canonical signed terms",
+      ...(result.terms.length
+        ? result.terms.map((term) => `- ${term.id}: ${term.expression}`)
+        : ["- none"]),
+      "Dominant regions and ties",
+      ...(result.cells.length
+        ? result.cells.map(
+            (cell) =>
+              `- ${"value" in cell ? cell.value : `${cell.lower} to ${cell.upper}`}: ${cell.dominant.join(", ") || "unresolved"}`,
+          )
+        : ["- none"]),
+      "Excluded poles",
+      ...(result.exclusions.length
+        ? result.exclusions.map((pole) => `- ${pole.value}`)
+        : ["- none"]),
+      "Never-dominant terms",
+      ...(result.never_dominant.length
+        ? result.never_dominant.map((term) => `- ${term}`)
+        : ["- none"]),
+      "Qualifications",
+      ...(result.conditions.length
+        ? result.conditions.map((condition) => `- ${condition}`)
+        : ["- none"]),
+      "Blockers",
+      ...(result.blockers.length
+        ? result.blockers.map((blocker) => `- ${blocker}`)
+        : ["- none"]),
+    ].join("\n");
+  }
 
   if ("kind" in result && result.kind === "candidate_comparison") {
     const blockers = result.outputs.flatMap((output) =>
@@ -218,9 +258,9 @@ export async function start(
     name: "analyze_formula",
     label: "Analyze formula",
     description:
-      "Analyze one restricted SymPy expression or named equation system, or run bounded two-candidate comparison with semantic qualification before aggregate-work preference",
+      "Analyze one restricted SymPy expression or named equation system, compare two candidates, or identify bounded aggregate-work term dominance on one axis",
     promptSnippet:
-      "Analyze restricted-SymPy formulas for normalized interpretation and qualified symbolic work, or run conservative candidate comparison over two mapped formulations",
+      "Analyze restricted-SymPy formulas for qualified symbolic work, candidate comparison, or bounded one-axis aggregate-work term dominance",
     promptGuidelines: [
       "Before first using analyze_formula, read the available pi-science-formula-analysis skill for the accepted dialect, request modeling, and result interpretation.",
       "When analyze_formula rejects a request, use its Python-owned message and any returned path, span, or supported alternative to correct the request.",
@@ -230,7 +270,7 @@ export async function start(
       const result = await invokeAdapter(
         state.command,
         state.args,
-        { syntax: "sympy", ...params },
+        { syntax: "sympy", ...params } as import("./bridge.js").FormulaRequest,
         10_000,
         signal,
       );

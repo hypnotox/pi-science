@@ -100,7 +100,7 @@ def test_generated_pi_schema_uses_the_pinned_provider_safe_subset() -> None:
 def test_generated_pi_schema_has_public_expression_and_system_branches() -> None:
     schema = json.loads(ARTIFACT.read_text())
 
-    expression, system, comparison = schema["anyOf"]
+    expression, system, comparison, dominance_expression, dominance_system = schema["anyOf"]
     assert expression["required"] == ["expression"]
     assert "syntax" not in expression["properties"]
     assert "equations" not in expression["properties"]
@@ -121,11 +121,16 @@ def test_generated_pi_schema_has_public_expression_and_system_branches() -> None
     assert "expression" not in system_candidate["properties"]
     assert system_candidate["properties"]["equations"]["minItems"] == 1
     assert comparison["properties"]["outputs"]["maxItems"] == 32
+    assert dominance_expression["properties"]["operation"]["enum"] == ["analyze_dominance"]
+    assert "syntax" not in dominance_expression["properties"]
+    assert dominance_expression["required"] == ["operation", "expression", "axis"]
+    assert dominance_system["required"] == ["operation", "equations", "axis"]
+    assert dominance_system["properties"]["equations"]["minItems"] == 1
 
 
 def test_generated_pi_schema_preserves_query_and_population_bounds() -> None:
     schema = json.loads(ARTIFACT.read_text())
-    expression, system, _comparison = schema["anyOf"]
+    expression, system, _comparison, _dominance_expression, _dominance_system = schema["anyOf"]
 
     assert expression["properties"]["queries"]["maxItems"] == 32
     assert system["properties"]["queries"]["maxItems"] == 32

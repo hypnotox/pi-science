@@ -1,6 +1,6 @@
 ---
 name: pi-science-formula-analysis
-description: Analyze one restricted SymPy expression or named equation system, or compare two mapped candidates, for normalized interpretation, qualified symbolic work, reuse, provenance, bounded mathematical conclusions, and unresolved costs. Use for formula structure and abstract work, not numeric evaluation, benchmarking, physical validation, or implementation generation.
+description: Analyze one restricted SymPy expression or named equation system, compare two mapped candidates, or analyze bounded one-axis aggregate-work term dominance, for normalized interpretation, qualified symbolic work, reuse, provenance, bounded mathematical conclusions, and unresolved costs. Use for formula structure and abstract work, not numeric evaluation, benchmarking, physical validation, or implementation generation.
 ---
 
 # Formula analysis
@@ -10,6 +10,10 @@ Use `analyze_formula` for one bounded restricted-SymPy expression or one nonempt
 ## Compare two candidates
 
 `analyze_formula` also accepts `{ "operation": "compare_candidates", "candidates": [first, second], "outputs": [...] }`; Pi supplies `syntax`. Map every logical output once to each candidate with an expression target or named equation target. Inspect semantic status and mapped-output blockers before any work preference. `aggregate_abstract_work` is mathematical work, never speed, runtime, storage, or IEEE-754 behavior; unknown costs and unresolved semantics forbid a preference. Scenarios, transformations, resource vectors, parameter search, and AFMM expansion are excluded from comparison requests.
+
+## Analyze aggregate-work term dominance
+
+Use `{ "operation": "analyze_dominance", "expression" | "equations", "axis": "N", ... }` to inspect one retained aggregate-work expression on one declared numeric axis; Pi supplies `syntax`. `fixed` supplies exact values for other declared variables and `range` may restrict the active interval. Terms retain their signs, but relevance compares absolute magnitude: a negative term is not negative work, and a dominant term is not a runtime or global-optimality claim. Read `details` for canonical cells, ties, poles, conditions, and blockers. `complete` cells are proved; unresolved cells are not guesses. Multiple axes, exponentials, opaque `Sum`/`Max`, rewrites, resource vectors, scheduling, and empirical performance are excluded.
 
 ## Restricted expression dialect
 

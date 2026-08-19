@@ -1,3 +1,6 @@
 The repository contains the independently importable `py-science-formula` Python 3.13 distribution and the aggregate `pi-science` Pi package. Formula parsing, expression representation, mathematical policy, and bounded SymPy algebra, rendering, and verification remain transport-free behind `py_science.formula`. Pi carries the same strict analysis-or-comparison request and qualified report through a private bounded JSON subprocess adapter.
 
 At extension startup Pi provisions an isolated, immutable-revision uv environment outside its checkout. It registers formula analysis and its product skill only after that readiness check; otherwise only its diagnostic command remains available. [Vision](vision.md) owns the product boundary, [Analysis Model](analysis-model.md) owns request and report semantics, and [Roadmap](roadmap.md) owns uncommitted expansion work.
+
+
+Bounded aggregate-work dominance is available in Python and Pi protocol v10. Python owns its canonical rational decomposition and exact one-axis regions; Pi validates and presents the report without recomputing mathematical policy. It excludes multiple axes, exponentials, opaque aggregates, rewrites, resource vectors, scheduling, and empirical performance.

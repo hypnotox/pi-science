@@ -53,3 +53,4 @@ The operation remains intentionally partial. It does not analyze mathematical-va
 
 - 2026-08-19: Implementing; content-sha256: ba0de47644df26bb7f7c6cf554d0bfe918eac5fbdfc0782e442cbbe3cdfc3023
 - 2026-08-19: Applied; operations: update `product/product-boundary:symbolic-analysis-only`, add `product/mathematical-input-contract:bounded-dominance-analysis-requests`, add `product/mathematical-analysis-model:canonical-aggregate-work-term-dominance`, add `product/analysis-report-contract:qualified-dominance-regions`
+- 2026-08-19: Reapplied; operations: add `product/mathematical-input-contract:bounded-dominance-analysis-requests`

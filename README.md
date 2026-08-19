@@ -67,6 +67,10 @@ The installed `pi-science-formula-analysis` skill contains a compact `analyze_fo
 
 Only formulas and directly attached mathematical schema are inputs. Analysis does not infer from source code, validate physics, profile implementations, predict runtime or hardware behavior, or generate code. LaTeX is an output representation, not an input syntax.
 
+## Bounded aggregate-work dominance
+
+`analyze_formula` accepts `operation: "analyze_dominance"` with one expression or system, one declared `axis`, optional exact non-axis `fixed` values, and an optional exact `range`; Pi injects `syntax`. Its compact report lists axis, effective domain, status, canonical signed terms, regions/ties, poles, never-dominant terms, qualifications, and blockers; `details` retains the canonical report. Term signs do not mean negative work, absolute magnitude does not predict runtime importance, and active-domain relevance is not global optimality. Complete cells are proved while unresolved cells remain unresolved. Multiple axes, exponentials, opaque `Sum`/`Max`, rewrites, resource vectors, scheduling, and empirical performance are excluded.
+
 ## Verification and releases
 
 `./scripts/check` is the fast development gate. `./scripts/check-release` builds a temporary clean Git snapshot from the current working tree and drives Pi's real Git-package startup plus both Python dependency forms without publishing. Before a real release, run it after render settlement, tag and push the immutable commit, then verify the public tag and its intended commit:

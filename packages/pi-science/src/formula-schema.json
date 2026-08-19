@@ -1730,6 +1730,455 @@
         "operation"
       ],
       "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "assumptions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                "type": "string"
+              },
+              "relationship": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "relationship"
+            ],
+            "type": "object"
+          },
+          "maxItems": 128,
+          "type": "array"
+        },
+        "axis": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+          "type": "string"
+        },
+        "definitions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "expression": {
+                "type": "string"
+              },
+              "variable": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "variable",
+              "expression"
+            ],
+            "type": "object"
+          },
+          "maxItems": 128,
+          "type": "array"
+        },
+        "expression": {
+          "type": "string"
+        },
+        "fixed": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ]
+          },
+          "type": "object"
+        },
+        "functions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "body": {
+                "type": "string"
+              },
+              "name": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                "type": "string"
+              },
+              "parameters": {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 32,
+                "type": "array"
+              }
+            },
+            "required": [
+              "name",
+              "parameters",
+              "body"
+            ],
+            "type": "object"
+          },
+          "maxItems": 128,
+          "type": "array"
+        },
+        "operation": {
+          "enum": [
+            "analyze_dominance"
+          ],
+          "type": "string"
+        },
+        "primitive_costs": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                "type": "string"
+              },
+              "parameters": {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 32,
+                "type": "array"
+              },
+              "work": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "parameters",
+              "work"
+            ],
+            "type": "object"
+          },
+          "maxItems": 128,
+          "type": "array"
+        },
+        "range": {
+          "additionalProperties": false,
+          "properties": {
+            "lower": {
+              "type": "string"
+            },
+            "lower_inclusive": {
+              "type": "boolean"
+            },
+            "upper": {
+              "type": "string"
+            },
+            "upper_inclusive": {
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "variables": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "domain": {
+                "enum": [
+                  "integer",
+                  "nonnegative_integer",
+                  "positive_integer",
+                  "real",
+                  "positive_real",
+                  "nonnegative_real"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "domain"
+            ],
+            "type": "object"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "operation",
+        "expression",
+        "axis"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "assumptions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                "type": "string"
+              },
+              "relationship": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "relationship"
+            ],
+            "type": "object"
+          },
+          "maxItems": 128,
+          "type": "array"
+        },
+        "axis": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+          "type": "string"
+        },
+        "definitions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "expression": {
+                "type": "string"
+              },
+              "variable": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "variable",
+              "expression"
+            ],
+            "type": "object"
+          },
+          "maxItems": 128,
+          "type": "array"
+        },
+        "equations": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "constraints": {
+                "items": {
+                  "additionalProperties": false,
+                  "description": "One named, equation-local relationship tightening an output index.",
+                  "properties": {
+                    "name": {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                      "type": "string"
+                    },
+                    "relationship": {
+                      "maxLength": 65536,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "target": {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "target",
+                    "relationship"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 32,
+                "type": "array"
+              },
+              "domains": {
+                "additionalProperties": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "lower": {
+                      "type": "string"
+                    },
+                    "upper": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "lower",
+                    "upper"
+                  ],
+                  "type": "object"
+                },
+                "type": "object"
+              },
+              "expression": {
+                "type": "string"
+              },
+              "name": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "expression"
+            ],
+            "type": "object"
+          },
+          "maxItems": 128,
+          "minItems": 1,
+          "type": "array"
+        },
+        "fixed": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ]
+          },
+          "type": "object"
+        },
+        "functions": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "body": {
+                "type": "string"
+              },
+              "name": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                "type": "string"
+              },
+              "parameters": {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 32,
+                "type": "array"
+              }
+            },
+            "required": [
+              "name",
+              "parameters",
+              "body"
+            ],
+            "type": "object"
+          },
+          "maxItems": 128,
+          "type": "array"
+        },
+        "operation": {
+          "enum": [
+            "analyze_dominance"
+          ],
+          "type": "string"
+        },
+        "primitive_costs": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                "type": "string"
+              },
+              "parameters": {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 32,
+                "type": "array"
+              },
+              "work": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "parameters",
+              "work"
+            ],
+            "type": "object"
+          },
+          "maxItems": 128,
+          "type": "array"
+        },
+        "range": {
+          "additionalProperties": false,
+          "properties": {
+            "lower": {
+              "type": "string"
+            },
+            "lower_inclusive": {
+              "type": "boolean"
+            },
+            "upper": {
+              "type": "string"
+            },
+            "upper_inclusive": {
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "variables": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "domain": {
+                "enum": [
+                  "integer",
+                  "nonnegative_integer",
+                  "positive_integer",
+                  "real",
+                  "positive_real",
+                  "nonnegative_real"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "domain"
+            ],
+            "type": "object"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "operation",
+        "equations",
+        "axis"
+      ],
+      "type": "object"
     }
   ]
 }

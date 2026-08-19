@@ -8,6 +8,7 @@ import type {
   AnalysisRequest,
   CandidateComparisonRequest,
   CandidateComparisonSuccess,
+  DominanceRequest,
   SystemReport,
 } from "../src/bridge.js";
 import {
@@ -562,7 +563,11 @@ describe("private formula bridge", () => {
       ["run", "--locked", "python", adapter],
       expressionRequest,
     );
-    if (result.status !== "success" || !("kind" in result))
+    if (
+      result.status !== "success" ||
+      !("kind" in result) ||
+      result.kind !== "candidate_comparison"
+    )
       throw new Error("expected candidate comparison success");
     const firstSystem: SystemReport | null =
       result.candidates[0].analysis.system;
@@ -812,7 +817,7 @@ describe("private formula bridge", () => {
       await kind(invokeAdapter(node, responder(value), request()), "protocol");
   });
 
-  it("strictly validates populated protocol-v9 query result unions", async () => {
+  it("strictly validates populated protocol-v10 query result unions", async () => {
     const identityAnswer = {
       check: null,
       conclusion: "proved",
@@ -2013,5 +2018,37 @@ describe("private formula bridge", () => {
       vi.doUnmock("../src/process.js");
       vi.resetModules();
     }
+  });
+  it("round trips dominance through the strict bridge", async () => {
+    const dominance: DominanceRequest = {
+      syntax: "sympy",
+      operation: "analyze_dominance",
+      expression: "cost(N)",
+      axis: "N",
+      variables: { N: { domain: "nonnegative_integer" } },
+      primitive_costs: [
+        { name: "cost", parameters: ["n"], work: "n**2 - n + 1" },
+      ],
+    };
+    const adapter = fileURLToPath(
+      new URL("../bridge/formula_adapter.py", import.meta.url),
+    );
+    const result = await invokeAdapter(
+      "uv",
+      ["run", "--locked", "python", adapter],
+      dominance,
+    );
+    expect(result).toMatchObject({
+      kind: "dominance_analysis",
+      dominance_status: "complete",
+      axis: "N",
+    });
+    if (!("kind" in result) || result.kind !== "dominance_analysis")
+      throw new Error("expected dominance");
+    expect(result.cells.map((cell) => cell.kind)).toEqual([
+      "integer_point",
+      "integer_point",
+      "integer_range",
+    ]);
   });
 });

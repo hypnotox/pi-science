@@ -44,7 +44,7 @@ async function options(uv: string): Promise<ProvisionOptions> {
   };
 }
 
-const health = JSON.stringify({ version: 9, result: { status: "healthy" } });
+const health = JSON.stringify({ version: 10, result: { status: "healthy" } });
 const leakedPids: number[] = [];
 
 const pause = (milliseconds: number) =>

@@ -114,7 +114,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 9, result: response }),
+            JSON.stringify({ version: 10, result: response }),
           )}))`,
         ],
       }),
@@ -123,10 +123,10 @@ describe("readiness gate", () => {
     expect(current.tools).toHaveLength(1);
     expect(current.tools[0]).toMatchObject({
       description: expect.stringMatching(
-        /restricted SymPy.*candidate comparison/,
+        /restricted SymPy.*candidate.*dominance/,
       ),
       promptSnippet: expect.stringMatching(
-        /qualified symbolic work.*candidate comparison/,
+        /qualified symbolic work.*candidate.*dominance/,
       ),
       promptGuidelines: [
         expect.stringMatching(
@@ -531,7 +531,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 9, result: response }),
+            JSON.stringify({ version: 10, result: response }),
           )}))`,
         ],
       }),

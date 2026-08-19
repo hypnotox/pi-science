@@ -8,6 +8,9 @@ The repository contains the independently importable `py-science-formula` Python
 At extension startup Pi provisions an isolated, immutable-revision uv environment outside its checkout. It registers formula analysis and its product skill only after that readiness check; otherwise only its diagnostic command remains available. [Vision](vision.md) owns the product boundary, [Analysis Model](analysis-model.md) owns request and report semantics, and [Roadmap](roadmap.md) owns uncommitted expansion work.
 
 
+Bounded aggregate-work dominance is available in Python and Pi protocol v10. Python owns its canonical rational decomposition and exact one-axis regions; Pi validates and presents the report without recomputing mathematical policy. It excludes multiple axes, exponentials, opaque aggregates, rewrites, resource vectors, scheduling, and empirical performance.
+
+
 <!-- awf:edit components: from .awf/docs/parts/architecture/components.md -->
 ## Components
 - `packages/py-science-formula/src/py_science/formula/`: independently importable typed formula and equation-system analysis API.
@@ -37,6 +40,9 @@ Optional general-context query requests and their exact discriminated qualified 
 Derived query targets cross protocol v9 as strict correlation data only; Python owns earlier-only validation, verified-candidate eligibility, bounded qualification composition, and unavailable-target results. Direct `closed_form` may additionally evaluate one partial finite-polynomial nested Sum tree in Python; the bridge transports its checked candidate and never classifies or verifies it.
 
 Direct Python dominance requests bypass Pi transport (which remains pending), analyze retained original aggregate work once, and use the typed explicit-axis sign-chart seam for bounded canonical regions.
+
+
+Bounded aggregate-work dominance is available in Python and Pi protocol v10. Python owns its canonical rational decomposition and exact one-axis regions; Pi validates and presents the report without recomputing mathematical policy. It excludes multiple axes, exponentials, opaque aggregates, rewrites, resource vectors, scheduling, and empirical performance.
 
 
 <!-- awf:edit dependencies: from .awf/docs/parts/architecture/dependencies.md -->

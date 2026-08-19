@@ -115,9 +115,9 @@ For an unresolved query, use its blocker to identify the failed family, exceeded
 
 For the AFMM-style omitted tail, `Sum((k + 1) * q**k, (k, p, oo))` with nonnegative integral `p`, real `q`, and global `0 <= q`, `q < 1` assumptions can request `ClosedFormQuery(name="afmm_tail")`. Its qualified candidate is informational: it never changes submitted operation counts or direct work, and the infinite submitted sum still has no finite work count. Scenarios intentionally do not execute queries. Restricted LaTeX input, scenario-context queries, complex values, dimensions, vector shorthand, differentiation, numerical approximation, and general theorem proving remain outside this initial contract.
 
-## Aggregate-work dominance (direct Python)
+## Aggregate-work dominance
 
-`analyze_dominance` is a separate direct-Python operation over the original retained aggregate abstract work. It orders canonical signed `power:<p>` terms by absolute magnitude only within its active domain; it is not a runtime, rewrite, candidate-ranking, scenario, or global-relevance claim. Pi transport is pending.
+`analyze_dominance` is a separate Python operation, also available through Pi's `analyze_formula` tool, over original retained aggregate abstract work. It orders canonical signed `power:<p>` terms by absolute magnitude only within its active domain; signed corrections are not negative work, and dominance is neither runtime importance nor a rewrite, candidate-ranking, scenario, or global-relevance claim.
 
 ```python
 from py_science.formula import DominanceAnalysisRequest, FormulaSyntax, MathematicalDomain, PrimitiveCost, VariableDeclaration, analyze_dominance

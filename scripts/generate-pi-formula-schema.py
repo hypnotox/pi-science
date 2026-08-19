@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from py_science.formula import AnalysisRequest, CandidateComparisonRequest
+from py_science.formula import AnalysisRequest, CandidateComparisonRequest, DominanceAnalysisRequest
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT = ROOT / "packages" / "pi-science" / "src" / "formula-schema.json"
@@ -269,7 +269,38 @@ def generate_schema() -> JsonObject:
     comparison["properties"]["candidates"]["items"] = {
         "anyOf": [candidate_expression, candidate_system]
     }
-    schema = {"anyOf": [expression, system, comparison]}
+    dominance_raw = DominanceAnalysisRequest.model_json_schema()
+    dominance_definitions = dominance_raw.get("$defs")
+    dominance_properties = dominance_raw.get("properties")
+    if not isinstance(dominance_definitions, dict) or not isinstance(dominance_properties, dict):
+        raise ValueError("DominanceAnalysisRequest emitted an incompatible JSON Schema")
+    dominance_metadata = {
+        name: _normalize(copy.deepcopy(item), dominance_definitions)
+        for name, item in dominance_properties.items()
+        if name not in {"syntax", "expression", "equations"}
+    }
+    dominance_expression = {
+        "additionalProperties": False,
+        "properties": {
+            "expression": _normalize(
+                copy.deepcopy(dominance_properties["expression"]), dominance_definitions
+            ),
+            **dominance_metadata,
+        },
+        "required": ["operation", "expression", "axis"],
+        "type": "object",
+    }
+    dominance_equations = _normalize(
+        copy.deepcopy(dominance_properties["equations"]), dominance_definitions
+    )
+    dominance_equations["minItems"] = 1
+    dominance_system = {
+        "additionalProperties": False,
+        "properties": {"equations": dominance_equations, **dominance_metadata},
+        "required": ["operation", "equations", "axis"],
+        "type": "object",
+    }
+    schema = {"anyOf": [expression, system, comparison, dominance_expression, dominance_system]}
     validate_schema(schema)
     return schema
 

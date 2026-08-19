@@ -1,7 +1,7 @@
 import { TextDecoder } from "node:util";
 import { spawnIsolated, terminateTree } from "./process.js";
 
-export const PROTOCOL_VERSION = 9;
+export const PROTOCOL_VERSION = 10;
 export const MAX_FORMULA_BYTES = 65_536;
 export const MAX_ENVELOPE_BYTES = 2_097_152;
 export const MAX_RESPONSE_BYTES = 262_400;
@@ -195,7 +195,27 @@ export type CandidateComparisonRequest = Omit<
   candidates: [CandidateComputation, CandidateComputation];
   outputs: CandidateOutputMapping[];
 };
-export type FormulaRequest = AnalysisRequest | CandidateComparisonRequest;
+export type DominanceRange = {
+  lower?: ExactScenarioScalar | "-oo";
+  upper?: ExactScenarioScalar | "oo";
+  lower_inclusive?: boolean;
+  upper_inclusive?: boolean;
+};
+export type DominanceRequest = Omit<
+  RequestMetadata<QueryRequest>,
+  "scenarios" | "queries"
+> & {
+  syntax: "sympy";
+  operation: "analyze_dominance";
+  axis: string;
+  fixed?: Record<string, ExactScenarioScalar>;
+  range?: DominanceRange;
+} & (
+    | { expression: string; equations?: never }
+    | { equations: EquationRequest[]; expression?: never }
+  );
+export type FormulaRequest =
+  AnalysisRequest | CandidateComparisonRequest | DominanceRequest;
 
 export type Interpretation = {
   normalized_sympy: string;
@@ -401,8 +421,76 @@ export type CandidateComparisonSuccess = {
     evidence: Record<string, unknown> | null;
   };
 };
+export type DominanceTerm = {
+  id: string;
+  power: number;
+  coefficient: string;
+  expression: string;
+};
+export type DominanceCell =
+  | {
+      kind: "real_interval";
+      lower: string;
+      upper: string;
+      lower_inclusive: boolean;
+      upper_inclusive: boolean;
+      dominant: string[];
+      blockers: string[];
+    }
+  | {
+      kind: "real_point" | "integer_point";
+      value: string;
+      dominant: string[];
+      blockers: string[];
+    }
+  | {
+      kind: "integer_range";
+      lower: string;
+      upper: string;
+      dominant: string[];
+      blockers: string[];
+    };
+export type DominanceSuccess = {
+  kind: "dominance_analysis";
+  status: "success";
+  analysis: AnalysisSuccess;
+  metric: "aggregate_abstract_work";
+  axis: string;
+  axis_domain: MathematicalDomain;
+  fixed: Record<string, string>;
+  requested_range: {
+    lower: string;
+    upper: string;
+    lower_inclusive: boolean;
+    upper_inclusive: boolean;
+  } | null;
+  effective_range: {
+    lower: string;
+    upper: string;
+    lower_inclusive: boolean;
+    upper_inclusive: boolean;
+  } | null;
+  shared_denominator: string | null;
+  terms: DominanceTerm[];
+  cells: DominanceCell[];
+  exclusions: Array<{ value: string; reason: "pole" }>;
+  never_dominant: string[];
+  conditions: string[];
+  assumptions_used: RelationshipUse[];
+  blockers: string[];
+  evidence: Array<{
+    pair: [string, string];
+    difference: string;
+    sign: -1 | 0 | 1 | null;
+    roots: string[];
+  }>;
+  dominance_status: "complete" | "unresolved" | "empty";
+};
 export type BridgeResult =
-  AnalysisSuccess | CandidateComparisonSuccess | AnalysisFailure;
+  | AnalysisSuccess
+  | CandidateComparisonSuccess
+  | DominanceSuccess
+  | AnalysisFailure;
 
 export function appendResponseChunk(
   retained: Buffer,
@@ -1758,6 +1846,249 @@ function validComparisonResult(
   );
 }
 
+function dominanceRange(value: unknown): value is Record<string, unknown> {
+  return (
+    isRecord(value) &&
+    exactKeys(value, [
+      "lower",
+      "upper",
+      "lower_inclusive",
+      "upper_inclusive",
+    ]) &&
+    typeof value.lower === "string" &&
+    typeof value.upper === "string" &&
+    (value.lower === "-oo" || canonicalExactScalar(value.lower)) &&
+    (value.upper === "oo" || canonicalExactScalar(value.upper)) &&
+    typeof value.lower_inclusive === "boolean" &&
+    typeof value.upper_inclusive === "boolean" &&
+    value.lower !== "oo" &&
+    value.upper !== "-oo" &&
+    !(value.lower === "-oo" && value.lower_inclusive) &&
+    !(value.upper === "oo" && value.upper_inclusive)
+  );
+}
+function dominanceAnalysisRequest(request: DominanceRequest): AnalysisRequest {
+  const {
+    operation: _operation,
+    axis: _axis,
+    fixed: _fixed,
+    range: _range,
+    ...analysis
+  } = request;
+  return analysis as AnalysisRequest;
+}
+function validDominanceResult(
+  value: unknown,
+  request: DominanceRequest,
+): boolean {
+  const keys = [
+    "kind",
+    "status",
+    "analysis",
+    "metric",
+    "axis",
+    "axis_domain",
+    "fixed",
+    "requested_range",
+    "effective_range",
+    "shared_denominator",
+    "terms",
+    "cells",
+    "exclusions",
+    "never_dominant",
+    "conditions",
+    "assumptions_used",
+    "blockers",
+    "evidence",
+    "dominance_status",
+  ];
+  if (
+    !isRecord(value) ||
+    !exactKeys(value, keys) ||
+    value.kind !== "dominance_analysis" ||
+    value.status !== "success" ||
+    value.metric !== "aggregate_abstract_work" ||
+    value.axis !== request.axis ||
+    !validResult(value.analysis, dominanceAnalysisRequest(request)) ||
+    !isRecord(value.fixed) ||
+    !Object.values(value.fixed).every(
+      (x) => typeof x === "string" && canonicalExactScalar(x),
+    ) ||
+    Object.prototype.hasOwnProperty.call(value.fixed, request.axis) ||
+    ![
+      "integer",
+      "nonnegative_integer",
+      "positive_integer",
+      "real",
+      "positive_real",
+      "nonnegative_real",
+    ].includes(String(value.axis_domain)) ||
+    !isRecord(request.variables) ||
+    value.axis_domain !== request.variables[request.axis]?.domain ||
+    !(
+      value.requested_range === null || dominanceRange(value.requested_range)
+    ) ||
+    !(
+      value.effective_range === null || dominanceRange(value.effective_range)
+    ) ||
+    !(
+      value.shared_denominator === null ||
+      typeof value.shared_denominator === "string"
+    ) ||
+    !Array.isArray(value.terms) ||
+    value.terms.length > 16 ||
+    !Array.isArray(value.cells) ||
+    value.cells.length > 513 ||
+    !Array.isArray(value.exclusions) ||
+    value.exclusions.length > 256 ||
+    !validStringArray(value.never_dominant) ||
+    !validStringArray(value.conditions) ||
+    !validRelationshipUses(value.assumptions_used) ||
+    !validStringArray(value.blockers) ||
+    !Array.isArray(value.evidence) ||
+    value.evidence.length > 120 ||
+    !["complete", "unresolved", "empty"].includes(
+      String(value.dominance_status),
+    )
+  )
+    return false;
+  const terms = value.terms;
+  if (
+    !terms.every(
+      (term) =>
+        isRecord(term) &&
+        exactKeys(term, ["id", "power", "coefficient", "expression"]) &&
+        typeof term.id === "string" &&
+        nonNegativeInteger(term.power) &&
+        term.id === `power:${term.power}` &&
+        typeof term.coefficient === "string" &&
+        typeof term.expression === "string",
+    ) ||
+    !terms.every(
+      (term, i) =>
+        i === 0 ||
+        ((terms[i - 1] as Record<string, unknown>).power as number) >
+          ((term as Record<string, unknown>).power as number),
+    )
+  )
+    return false;
+  const ids = terms.map(
+    (term) => (term as Record<string, unknown>).id as string,
+  );
+  if (
+    new Set(ids).size !== ids.length ||
+    !value.never_dominant.every((id) => ids.includes(id)) ||
+    new Set(value.never_dominant).size !== value.never_dominant.length
+  )
+    return false;
+  const integer = String(value.axis_domain).includes("integer");
+  const cellOk = value.cells.every((cell) => {
+    if (
+      !isRecord(cell) ||
+      !validStringArray(cell.dominant) ||
+      !validStringArray(cell.blockers) ||
+      cell.dominant.some((id) => !ids.includes(id)) ||
+      new Set(cell.dominant).size !== cell.dominant.length ||
+      JSON.stringify(cell.dominant) !==
+        JSON.stringify(
+          ids.filter((id) => (cell.dominant as string[]).includes(id)),
+        ) ||
+      cell.blockers.length > 0 === cell.dominant.length > 0
+    )
+      return false;
+    if (integer && !String(cell.kind).startsWith("integer")) return false;
+    if (!integer && String(cell.kind).startsWith("integer")) return false;
+    if (cell.kind === "real_interval")
+      return (
+        exactKeys(cell, [
+          "kind",
+          "lower",
+          "upper",
+          "lower_inclusive",
+          "upper_inclusive",
+          "dominant",
+          "blockers",
+        ]) && dominanceRange(cell)
+      );
+    if (cell.kind === "integer_range")
+      return (
+        exactKeys(cell, ["kind", "lower", "upper", "dominant", "blockers"]) &&
+        typeof cell.lower === "string" &&
+        typeof cell.upper === "string" &&
+        [cell.lower, cell.upper].every(
+          (x) =>
+            x === "-oo" ||
+            x === "oo" ||
+            (canonicalExactScalar(x) && !x.includes("/")),
+        )
+      );
+    return (
+      (cell.kind === "real_point" || cell.kind === "integer_point") &&
+      exactKeys(cell, ["kind", "value", "dominant", "blockers"]) &&
+      typeof cell.value === "string" &&
+      canonicalExactScalar(cell.value) &&
+      (cell.kind !== "integer_point" || !cell.value.includes("/"))
+    );
+  });
+  if (
+    !cellOk ||
+    !value.exclusions.every(
+      (x) =>
+        isRecord(x) &&
+        exactKeys(x, ["value", "reason"]) &&
+        x.reason === "pole" &&
+        typeof x.value === "string" &&
+        canonicalExactScalar(x.value) &&
+        (!integer || !x.value.includes("/")),
+    )
+  )
+    return false;
+  const pairs = value.evidence.map((x) => (isRecord(x) ? x.pair : undefined));
+  if (
+    !value.evidence.every(
+      (x) =>
+        isRecord(x) &&
+        exactKeys(x, ["pair", "difference", "sign", "roots"]) &&
+        Array.isArray(x.pair) &&
+        x.pair.length === 2 &&
+        x.pair.every((id) => typeof id === "string" && ids.includes(id)) &&
+        typeof x.difference === "string" &&
+        (x.sign === -1 || x.sign === 0 || x.sign === 1 || x.sign === null) &&
+        Array.isArray(x.roots) &&
+        x.roots.every((r) => typeof r === "string" && canonicalExactScalar(r)),
+    ) ||
+    new Set(pairs.map((pair) => JSON.stringify(pair))).size !== pairs.length
+  )
+    return false;
+  if (value.dominance_status === "empty")
+    return (
+      value.effective_range === null &&
+      value.cells.length === 0 &&
+      value.exclusions.length === 0 &&
+      value.blockers.length === 0 &&
+      value.never_dominant.length === 0
+    );
+  if (value.effective_range === null) return false;
+  if (value.dominance_status === "complete")
+    return (
+      value.blockers.length === 0 &&
+      value.cells.every(
+        (x) => isRecord(x) && (x.blockers as unknown[]).length === 0,
+      ) &&
+      (ids.length === 0
+        ? value.cells.length === 0 &&
+          value.shared_denominator !== null &&
+          value.conditions.includes("aggregate work is identically zero")
+        : value.shared_denominator !== null &&
+          value.cells.length > 0 &&
+          value.evidence.length === (ids.length * (ids.length - 1)) / 2)
+    );
+  return (
+    value.blockers.length > 0 ||
+    value.cells.some((x) => isRecord(x) && (x.blockers as unknown[]).length > 0)
+  );
+}
+
 function validResult(
   value: unknown,
   request?: AnalysisRequest,
@@ -2000,11 +2331,17 @@ export async function invokeAdapter(
           !isRecord(envelope) ||
           !exactKeys(envelope, ["version", "result"]) ||
           envelope.version !== PROTOCOL_VERSION ||
-          !("operation" in request
+          !("operation" in request && request.operation === "compare_candidates"
             ? isRecord(envelope.result) && envelope.result.status === "failure"
               ? validResult(envelope.result)
               : validComparisonResult(envelope.result, request)
-            : validResult(envelope.result, request))
+            : "operation" in request &&
+                request.operation === "analyze_dominance"
+              ? isRecord(envelope.result) &&
+                envelope.result.status === "failure"
+                ? validResult(envelope.result)
+                : validDominanceResult(envelope.result, request)
+              : validResult(envelope.result, request as AnalysisRequest))
         )
           return finish(
             new BridgeError(

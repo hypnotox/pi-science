@@ -30,5 +30,5 @@ Origin: ADR-0004
 Revised-by: ADR-0011, ADR-0014
 
 ### `rule: bounded-dominance-analysis-requests`
-Direct Python accepts one bounded dominance request for one expression or equation system, one declared numeric axis, exact non-axis fixed values, and an optional exact range. Pi transport remains pending; scenarios, queries, candidates, multiple axes, and mathematical-value summands are excluded.
+Python and Pi accept one bounded dominance request for one expression or equation system, one declared numeric axis, exact non-axis fixed values, and an optional exact range. Scenarios, queries, candidates, multiple axes, and mathematical-value summands are excluded.
 Origin: ADR-adopt-bounded-aggregate-work-dominance-analysis
