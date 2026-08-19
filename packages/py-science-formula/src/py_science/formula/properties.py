@@ -1,5 +1,3 @@
-# ruff: noqa: E501
-# pyright: basic, reportUnusedImport=false, reportUnusedFunction=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportAttributeAccessIssue=false
 """Bounded exact rational properties and limits.
 
 Mathematical policy lives here; every SymPy transformation is confined to the
@@ -32,7 +30,12 @@ from py_science.formula.models import (
 )
 from py_science.formula.query_diagnostics import RATIONAL_FAILURE_REASONS, QueryDiagnostic
 from py_science.formula.reasoning import DomainFact, ReasoningContext, collect_denominators
-from py_science.formula.sign_chart import ExplicitAxis, explicit_axis_sign_chart
+from py_science.formula.sign_chart import (
+    ChartRefusal,
+    ExplicitAxis,
+    StructuralSignChart,
+    explicit_axis_sign_chart,
+)
 from py_science.formula.sympy_backend import (
     RationalMeasureFailure,
     property_affine_coefficients,
@@ -389,16 +392,25 @@ def _shape(
 
 def structural_sign_chart(
     expression: Expression, axis: str, reasoning: ReasoningContext
-):
+) -> StructuralSignChart:
     """Build an internal chart from checked IR on a caller-declared axis."""
+    fact = reasoning.facts.get(axis)
+    explicit_axis = ExplicitAxis(axis, bool(fact and fact.integer))
     shape = _shape(expression, axis, reasoning, subject="structural sign chart target")
     if isinstance(shape, QueryDiagnostic):
-        return None
-    fact = reasoning.facts.get(axis)
+        return StructuralSignChart(
+            explicit_axis,
+            (),
+            (),
+            (),
+            (),
+            (),
+            ChartRefusal(shape.render()),
+        )
     return explicit_axis_sign_chart(
         shape.numerator,
         shape.denominator,
-        ExplicitAxis(axis, bool(fact and fact.integer)),
+        explicit_axis,
         reasoning,
         original_denominators=shape.original_denominators,
     )
@@ -494,14 +506,22 @@ def _sign_chart(
     if chart.refusal is not None:
         return None
     roots = sorted(
-        {sympy.Rational(item.value.numerator, item.value.denominator) for item in (*chart.roots, *chart.poles)},
-        key=lambda root: Fraction(int(root.p), int(root.q)),
+        {
+            sympy.Rational(item.value.numerator, item.value.denominator)
+            for item in (*chart.roots, *chart.poles)
+        },
+        key=_sympy_fraction,
     )
     intervals: list[str] = []
     for item in chart.intervals:
-        left = None if item.left is None else sympy.Rational(item.left.numerator, item.left.denominator)
+        left = (
+            None
+            if item.left is None
+            else sympy.Rational(item.left.numerator, item.left.denominator)
+        )
         index = 0 if left is None else roots.index(left) + 1
-        intervals.append(f"{_interval(index, roots)}: {'positive' if item.sign > 0 else 'negative'}")
+        sign = "positive" if item.sign > 0 else "negative"
+        intervals.append(f"{_interval(index, roots)}: {sign}")
     intervals.extend(
         f"{_number(sympy.Rational(item.value.numerator, item.value.denominator))}: zero"
         for item in chart.points
@@ -509,99 +529,8 @@ def _sign_chart(
     return ("sign chart", tuple(intervals), chart.provenance) if intervals else None
 
 
-def _factor_sign_at(
-    value: Any, variable: Any, point: Any, reasoning: ReasoningContext
-) -> tuple[int, tuple[RelationshipUse, ...]] | None:
-    """Compose signs only from isolated parameter factors and univariate factors."""
-    factors = property_factor_components(value)
-    if factors is None:
-        return None
-    sign: int = 1
-    uses: tuple[RelationshipUse, ...] = ()
-    for factor, multiplicity in factors:
-        if variable in factor.free_symbols:
-            # A parameter in a variable-bearing factor moves a root and is never
-            # replaced by a same-sign witness.
-            if factor.free_symbols != {variable}:
-                return None
-            evaluated = property_substitute(factor, variable, point)
-            factor_sign = _known_rational_sign(evaluated)
-            factor_uses: tuple[RelationshipUse, ...] = ()
-        else:
-            proved = _known_sign_with_uses(factor, reasoning)
-            if proved is None:
-                return None
-            factor_sign, factor_uses = proved
-        if factor_sign is None or factor_sign == 0:
-            return None
-        sign *= factor_sign if multiplicity % 2 else 1
-        uses = _unique((*uses, *factor_uses))
-    return sign, uses
-
-
-def _domain_interior_point(
-    left: Any | None, right: Any | None, fact: DomainFact | None
-) -> Any | None:
-    chart_lower = Fraction(int(left.p), int(left.q)) if left is not None else None
-    chart_upper = Fraction(int(right.p), int(right.q)) if right is not None else None
-    if fact is not None and fact.integer:
-        # Chart boundaries are open, while active-domain boundaries retain their
-        # own inclusive/strict spelling. Pick an actual integer in the
-        # intersection instead of accidentally discarding an inclusive endpoint.
-        least = (
-            chart_lower.numerator // chart_lower.denominator + 1
-            if chart_lower is not None
-            else None
-        )
-        greatest = (
-            -((-chart_upper.numerator) // chart_upper.denominator) - 1
-            if chart_upper is not None
-            else None
-        )
-        if fact.lower is not None:
-            domain_least = (
-                fact.lower.numerator // fact.lower.denominator + 1
-                if fact.lower_strict
-                else -((-fact.lower.numerator) // fact.lower.denominator)
-            )
-            least = domain_least if least is None else max(least, domain_least)
-        if fact.upper is not None:
-            domain_greatest = (
-                -((-fact.upper.numerator) // fact.upper.denominator) - 1
-                if fact.upper_strict
-                else fact.upper.numerator // fact.upper.denominator
-            )
-            greatest = (
-                domain_greatest
-                if greatest is None
-                else min(greatest, domain_greatest)
-            )
-        if least is not None and greatest is not None and least > greatest:
-            return None
-        integer = least if least is not None else min(0, greatest or 0)
-        candidate = Fraction(integer)
-    else:
-        lower = chart_lower
-        upper = chart_upper
-        if fact is not None:
-            if fact.lower is not None and (lower is None or fact.lower > lower):
-                lower = fact.lower
-            if fact.upper is not None and (upper is None or fact.upper < upper):
-                upper = fact.upper
-        if lower is not None and upper is not None:
-            if lower >= upper:
-                return None
-            candidate = (lower + upper) / 2
-        elif lower is not None:
-            candidate = lower + 1
-        elif upper is not None:
-            candidate = upper - 1
-        else:
-            candidate = Fraction(0)
-    point = sympy.Rational(candidate.numerator, candidate.denominator)
-    if (left is not None and point <= left) or (right is not None and point >= right):
-        return None
-    return point if fact is None or fact.accepts(point) else None  # pyright: ignore[reportArgumentType]
+def _sympy_fraction(value: Any) -> Fraction:
+    return Fraction(int(value.p), int(value.q))
 
 
 def _infinite_limit(

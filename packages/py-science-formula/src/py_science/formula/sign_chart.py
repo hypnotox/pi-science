@@ -1,5 +1,3 @@
-# ruff: noqa: E501, E701
-# pyright: basic, reportArgumentType=false
 """Typed, bounded structural sign charts over one explicitly declared axis.
 
 This module owns chart admissibility and witnesses.  SymPy is used only through
@@ -27,6 +25,7 @@ from py_science.formula.sympy_backend import (
 @dataclass(frozen=True, slots=True)
 class ExplicitAxis:
     """The caller-declared axis; chart construction never infers one."""
+
     name: str
     integer: bool
 
@@ -79,25 +78,52 @@ def explicit_axis_sign_chart(
     """Return the bounded sign chart for checked rational components.
 
     ``original_denominators`` are retained as exclusion obligations even after
-    cancellation.  They are structural poles, but only reduced denominator
+    cancellation. They are structural poles, but only reduced denominator
     poles participate in ordinary value-sign rendering.
     """
+    try:
+        return _build_explicit_axis_sign_chart(
+            numerator,
+            denominator,
+            axis,
+            reasoning,
+            original_denominators,
+        )
+    except Exception:
+        return _refused(axis, "sign chart backend failed")
+
+
+def _build_explicit_axis_sign_chart(
+    numerator: Any,
+    denominator: Any,
+    axis: ExplicitAxis,
+    reasoning: ReasoningContext,
+    original_denominators: tuple[Any, ...],
+) -> StructuralSignChart:
     variable = sympy.Symbol(axis.name)
     roots_n = _roots(numerator, variable)
     roots_d = _roots(denominator, variable)
-    original = tuple(root for value in original_denominators if (_roots(value, variable) is not None) for root in (_roots(value, variable) or ()))
-    if roots_n is None or roots_d is None or any(not root.is_Rational for root, _ in (*roots_n, *roots_d)):
+    if roots_n is None or roots_d is None:
         return _refused(axis, "exact factor sign chart is unsupported")
-    if any(not root.is_Rational for root, _ in original):
-        return _refused(axis, "exact factor sign chart is unsupported")
+
+    original: list[tuple[Any, int]] = []
+    for value in original_denominators:
+        roots = _roots(value, variable)
+        if roots is None:
+            return _refused(axis, "original denominator roots are unsupported")
+        original.extend(roots)
+
+    fact = reasoning.facts.get(axis.name)
+    if fact is not None and fact.integer != axis.integer:
+        return _refused(axis, "explicit axis domain is inconsistent")
+
     root_values = {root for root, _ in roots_n}
     reduced_poles = {root for root, _ in roots_d}
     boundaries = sorted(root_values | reduced_poles, key=_fraction)
-    fact = reasoning.facts.get(axis.name)
     uses: list[RelationshipUse] = []
     intervals: list[ChartInterval] = []
     for left, right in pairwise((None, *boundaries, None)):
-        witness = _interior(left, right, fact)
+        witness = _interior(left, right, fact, integer=axis.integer)
         if witness is None:
             continue
         if fact is not None:
@@ -111,21 +137,54 @@ def explicit_axis_sign_chart(
         if sign * other == 0:
             return _refused(axis, "exact factor sign chart is unsupported", uses)
         uses.extend((*numerator_uses, *denominator_uses))
-        intervals.append(ChartInterval(_as_fraction(left), _as_fraction(right), 1 if sign * other > 0 else -1))
-    roots = tuple(ExactBoundary(_fraction(root), "root", order) for root, order in roots_n)
-    poles = tuple(ExactBoundary(_fraction(root), "pole", order) for root, order in roots_d) + tuple(
-        ExactBoundary(_fraction(root), "pole", order, True) for root, order in original if root not in reduced_poles
+        intervals.append(
+            ChartInterval(
+                _as_fraction(left),
+                _as_fraction(right),
+                1 if sign * other > 0 else -1,
+            )
+        )
+    roots = tuple(
+        ExactBoundary(_fraction(root), "root", order) for root, order in roots_n
+    )
+    poles = tuple(
+        ExactBoundary(_fraction(root), "pole", order) for root, order in roots_d
+    ) + tuple(
+        ExactBoundary(_fraction(root), "pole", order, True)
+        for root, order in original
+        if root not in reduced_poles
     )
     points = tuple(
         ChartPoint(_fraction(root), 0)
         for root, _ in roots_n
-        if root not in reduced_poles and (fact is None or fact.accepts(root))
+        if root not in reduced_poles
+        and (not axis.integer or root.q == 1)
+        and (fact is None or fact.accepts(root))
     )
-    return StructuralSignChart(axis, roots, poles, tuple(intervals), points, _unique(tuple(uses)))
+    return StructuralSignChart(
+        axis,
+        roots,
+        poles,
+        tuple(intervals),
+        points,
+        _unique(tuple(uses)),
+    )
 
 
-def _refused(axis: ExplicitAxis, reason: str, uses: list[RelationshipUse] | tuple[RelationshipUse, ...] = ()) -> StructuralSignChart:
-    return StructuralSignChart(axis, (), (), (), (), _unique(tuple(uses)), ChartRefusal(reason))
+def _refused(
+    axis: ExplicitAxis,
+    reason: str,
+    uses: list[RelationshipUse] | tuple[RelationshipUse, ...] = (),
+) -> StructuralSignChart:
+    return StructuralSignChart(
+        axis,
+        (),
+        (),
+        (),
+        (),
+        _unique(tuple(uses)),
+        ChartRefusal(reason),
+    )
 
 
 def _roots(value: Any, variable: Any) -> tuple[tuple[Any, int], ...] | None:
@@ -145,7 +204,12 @@ def _as_fraction(value: Any | None) -> Fraction | None:
     return _fraction(value) if value is not None else None
 
 
-def _factor_sign(value: Any, variable: Any, point: Any, reasoning: ReasoningContext) -> tuple[int, tuple[RelationshipUse, ...]] | None:
+def _factor_sign(
+    value: Any,
+    variable: Any,
+    point: Any,
+    reasoning: ReasoningContext,
+) -> tuple[int, tuple[RelationshipUse, ...]] | None:
     factors = property_factor_components(value)
     if factors is None:
         return None
@@ -168,7 +232,9 @@ def _factor_sign(value: Any, variable: Any, point: Any, reasoning: ReasoningCont
     return sign, uses
 
 
-def _known_sign(value: Any, reasoning: ReasoningContext) -> tuple[int, tuple[RelationshipUse, ...]] | None:
+def _known_sign(
+    value: Any, reasoning: ReasoningContext
+) -> tuple[int, tuple[RelationshipUse, ...]] | None:
     rational = _rational_sign(value)
     if rational is not None:
         return rational, ()
@@ -197,31 +263,72 @@ def _rational_sign(value: Any | None) -> int | None:
     return 1 if value > 0 else -1 if value < 0 else 0
 
 
-def _interior(left: Any | None, right: Any | None, fact: DomainFact | None) -> Any | None:
+def _interior(
+    left: Any | None,
+    right: Any | None,
+    fact: DomainFact | None,
+    *,
+    integer: bool,
+) -> Any | None:
     lower, upper = _as_fraction(left), _as_fraction(right)
-    if fact is not None and not fact.integer:
-        if fact.lower is not None and (lower is None or fact.lower > lower): lower = fact.lower
-        if fact.upper is not None and (upper is None or fact.upper < upper): upper = fact.upper
-    if fact is not None and fact.integer:
-        least = None if lower is None else lower.numerator // lower.denominator + 1
-        greatest = None if upper is None else -((-upper.numerator) // upper.denominator) - 1
-        if fact.lower is not None:
-            domain_least = fact.lower.numerator // fact.lower.denominator + (1 if fact.lower_strict else 0)
+    if fact is not None and not integer:
+        if fact.lower is not None and (lower is None or fact.lower > lower):
+            lower = fact.lower
+        if fact.upper is not None and (upper is None or fact.upper < upper):
+            upper = fact.upper
+    if integer:
+        least = None if lower is None else _floor(lower) + 1
+        greatest = None if upper is None else _ceil(upper) - 1
+        if fact is not None and fact.lower is not None:
+            domain_least = (
+                _floor(fact.lower) + 1
+                if fact.lower_strict
+                else _ceil(fact.lower)
+            )
             least = domain_least if least is None else max(least, domain_least)
-        if fact.upper is not None:
-            domain_greatest = fact.upper.numerator // fact.upper.denominator - (1 if fact.upper_strict else 0)
-            greatest = domain_greatest if greatest is None else min(greatest, domain_greatest)
-        if least is not None and greatest is not None and least > greatest: return None
+        if fact is not None and fact.upper is not None:
+            domain_greatest = (
+                _ceil(fact.upper) - 1
+                if fact.upper_strict
+                else _floor(fact.upper)
+            )
+            greatest = (
+                domain_greatest
+                if greatest is None
+                else min(greatest, domain_greatest)
+            )
+        if least is not None and greatest is not None and least > greatest:
+            return None
         candidate = Fraction(least if least is not None else min(0, greatest or 0))
     else:
         if lower is not None and upper is not None:
-            if lower >= upper: return None
+            if lower >= upper:
+                return None
             candidate = (lower + upper) / 2
-        elif lower is not None: candidate = lower + 1
-        elif upper is not None: candidate = upper - 1
-        else: candidate = Fraction(0)
+        elif lower is not None:
+            candidate = lower + 1
+        elif upper is not None:
+            candidate = upper - 1
+        else:
+            candidate = Fraction(0)
     point = sympy.Rational(candidate.numerator, candidate.denominator)
-    return point if (left is None or point > left) and (right is None or point < right) and (fact is None or fact.accepts(point)) else None
+    admissible = (
+        (left is None or point > left)
+        and (right is None or point < right)
+        and (
+            fact is None
+            or fact.accepts(point)  # pyright: ignore[reportArgumentType]
+        )
+    )
+    return point if admissible else None
+
+
+def _floor(value: Fraction) -> int:
+    return value.numerator // value.denominator
+
+
+def _ceil(value: Fraction) -> int:
+    return -((-value.numerator) // value.denominator)
 
 
 def _unique(values: tuple[RelationshipUse, ...]) -> tuple[RelationshipUse, ...]:

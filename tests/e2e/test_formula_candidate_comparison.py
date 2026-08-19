@@ -356,6 +356,13 @@ def test_exact_sign_chart_reports_work_crossover() -> None:
         "(1, oo): negative",
         "1: zero",
     )
+    assert work.model_dump_json() == (
+        '{"metric":"aggregate_abstract_work","candidate_names":["first","second"],'
+        '"candidate_works":["N + 1","2"],"delta":"1 - N","status":"crossover",'
+        '"conditions":[],"assumptions_used":[],"relevant_unsupported_assumptions":[],'
+        '"blockers":[],"evidence":{"kind":"property","value":"sign chart",'
+        '"intervals":["(-oo, 1): positive","(1, oo): negative","1: zero"]}}'
+    )
 
 
 def test_unknown_and_nonfinite_work_never_produce_a_preference() -> None:
@@ -399,6 +406,14 @@ def test_constant_positive_delta_reports_first_candidate_lower() -> None:
     assert result.work_comparison.delta == "1"
     assert result.work_comparison.status == "first_lower"
     assert isinstance(result.work_comparison.evidence, PropertyEvidence)
+    assert result.work_comparison.model_dump_json() == (
+        '{"metric":"aggregate_abstract_work","candidate_names":["first","second"],'
+        '"candidate_works":["0","1"],"delta":"1","status":"first_lower",'
+        '"conditions":[],"assumptions_used":[],"relevant_unsupported_assumptions":[],'
+        '"blockers":[],"evidence":{"kind":"property",'
+        '"value":"exact constant aggregate-work sign",'
+        '"intervals":["all values: positive"]}}'
+    )
 
 
 def test_multivariate_work_ordering_retains_delta_and_abstains() -> None:

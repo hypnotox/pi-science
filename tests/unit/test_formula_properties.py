@@ -1,11 +1,14 @@
 # ruff: noqa: I001
 from fractions import Fraction
+from types import SimpleNamespace
 # pyright: basic, reportArgumentType=false, reportOptionalMemberAccess=false, reportAttributeAccessIssue=false, reportOperatorIssue=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownParameterType=false, reportMissingParameterType=false
 import sympy
 import py_science.formula.properties as properties
+import py_science.formula.sign_chart as sign_charts
 import py_science.formula.sympy_backend as backend
 from py_science.formula.parser import parse_expression
 from py_science.formula.reasoning import ReasoningContext
+from py_science.formula.sign_chart import ExplicitAxis, explicit_axis_sign_chart
 from py_science.formula import (
     AnalysisRequest,
     FormulaSyntax,
@@ -28,11 +31,14 @@ def query(expression, *queries, domain=MathematicalDomain.REAL):
 
 def test_explicit_axis_structural_chart_retains_roots_poles_points_and_provenance():
     expression = parse_expression("(x + 1) / (x - 1)")
+    lower = parse_expression("x > -2")
     chart = properties.structural_sign_chart(
         expression,
         "x",
         ReasoningContext.build(
-            {"x": MathematicalDomain.REAL}, (), (),
+            {"x": MathematicalDomain.REAL},
+            (),
+            (SimpleNamespace(name="lower", source="x > -2", value=lower),),
         ),
     )
     assert chart is not None and chart.refusal is None
@@ -44,6 +50,170 @@ def test_explicit_axis_structural_chart_retains_roots_poles_points_and_provenanc
         (Fraction(1), None, 1),
     ]
     assert chart.points[0].value == Fraction(-1) and chart.points[0].sign == 0
+    assert [(item.name, item.relationship) for item in chart.provenance] == [
+        ("lower", "x > -2")
+    ]
+
+
+def test_structural_chart_retains_canceled_denominators_and_refuses_unknown_roots():
+    reasoning = ReasoningContext.build({"x": MathematicalDomain.REAL}, (), ())
+    supported = properties.structural_sign_chart(
+        parse_expression("(x - 1) / (x - 1)"), "x", reasoning
+    )
+    unsupported = properties.structural_sign_chart(
+        parse_expression("(x**2 + 1) / (x**2 + 1)"), "x", reasoning
+    )
+
+    assert supported is not None and supported.refusal is None
+    assert [
+        (item.value, item.order, item.original_denominator)
+        for item in supported.poles
+    ] == [(Fraction(1), 1, True)]
+    assert unsupported is not None
+    assert unsupported.refusal is not None
+    assert unsupported.refusal.reason == "original denominator roots are unsupported"
+
+
+def test_structural_chart_honors_axis_kind_roots_and_active_domain():
+    integer_reasoning = ReasoningContext.build(
+        {"x": MathematicalDomain.INTEGER}, (), ()
+    )
+    half_root = properties.structural_sign_chart(
+        parse_expression("x - 1/2"), "x", integer_reasoning
+    )
+    assert half_root is not None and half_root.refusal is None
+    assert [item.value for item in half_root.roots] == [Fraction(1, 2)]
+    assert half_root.points == ()
+    assert [item.sign for item in half_root.intervals] == [-1, 1]
+
+    mismatch = explicit_axis_sign_chart(
+        sympy.Symbol("x"),
+        sympy.Integer(1),
+        ExplicitAxis("x", False),
+        integer_reasoning,
+    )
+    assert mismatch.refusal is not None
+    assert mismatch.refusal.reason == "explicit axis domain is inconsistent"
+
+
+def test_structural_chart_keeps_repeated_boundaries_outside_active_domain():
+    lower = parse_expression("x >= 0")
+    upper = parse_expression("x < 2")
+    reasoning = ReasoningContext.build(
+        {"x": MathematicalDomain.REAL},
+        (),
+        (
+            SimpleNamespace(name="lower", source="x >= 0", value=lower),
+            SimpleNamespace(name="upper", source="x < 2", value=upper),
+        ),
+    )
+    chart = properties.structural_sign_chart(
+        parse_expression("(x - 1)**2 / (x + 2)**3"), "x", reasoning
+    )
+
+    assert chart.refusal is None
+    assert [(item.value, item.order) for item in chart.roots] == [(Fraction(1), 2)]
+    assert [(item.value, item.order) for item in chart.poles] == [(Fraction(-2), 3)]
+    assert [(item.left, item.right) for item in chart.intervals] == [
+        (Fraction(-2), Fraction(1)),
+        (Fraction(1), None),
+    ]
+    assert [item.value for item in chart.points] == [Fraction(1)]
+    assert {item.name for item in chart.provenance} == {"lower", "upper"}
+
+
+def test_structural_chart_localizes_unsupported_factors_and_backend_failure(monkeypatch):
+    reasoning = ReasoningContext.build({"x": MathematicalDomain.REAL}, (), ())
+    unsupported = properties.structural_sign_chart(
+        parse_expression("sin(x)"), "x", reasoning
+    )
+    assert unsupported is not None and unsupported.refusal is not None
+
+    monkeypatch.setattr(sign_charts, "property_factor_roots", lambda _value, _variable: None)
+    refused = explicit_axis_sign_chart(
+        sympy.Symbol("x"),
+        sympy.Integer(1),
+        ExplicitAxis("x", False),
+        reasoning,
+    )
+    assert refused.refusal is not None
+    assert refused.refusal.reason == "exact factor sign chart is unsupported"
+
+    def fail_roots(_value, _variable):
+        raise RuntimeError("backend failure")
+
+    monkeypatch.setattr(sign_charts, "property_factor_roots", fail_roots)
+    failed = explicit_axis_sign_chart(
+        sympy.Symbol("x"),
+        sympy.Integer(1),
+        ExplicitAxis("x", False),
+        reasoning,
+    )
+    assert failed.refusal is not None
+    assert failed.refusal.reason == "sign chart backend failed"
+
+
+def test_integer_fractional_domain_sign_answers_preserve_public_bytes():
+    cases = (
+        (
+            "x - 2",
+            {"name": "lower", "relationship": "x >= 1/2"},
+            '{"check":{"kind":"sign"},"conclusion":"proved_under_assumptions",'
+            '"conditions":[],"assumptions_used":[{"name":"lower",'
+            '"relationship":"x >= 1/2"}],"relevant_unsupported_assumptions":[],'
+            '"blockers":[],"evidence":{"kind":"property","value":"sign chart",'
+            '"intervals":["(-oo, 2): negative","(2, oo): positive","2: zero"]},'
+            '"derived_candidates":[],"constraint_uses":[]}',
+        ),
+        (
+            "x",
+            {"name": "upper", "relationship": "x < 3/2"},
+            '{"check":{"kind":"sign"},"conclusion":"proved_under_assumptions",'
+            '"conditions":[],"assumptions_used":[{"name":"upper",'
+            '"relationship":"x < 3/2"}],"relevant_unsupported_assumptions":[],'
+            '"blockers":[],"evidence":{"kind":"property","value":"sign chart",'
+            '"intervals":["(-oo, 0): negative","(0, oo): positive","0: zero"]},'
+            '"derived_candidates":[],"constraint_uses":[]}',
+        ),
+    )
+    for expression, assumption, expected in cases:
+        outcome = analyze(
+            AnalysisRequest(
+                syntax=FormulaSyntax.SYMPY,
+                expression=expression,
+                variables={
+                    "x": VariableDeclaration(domain=MathematicalDomain.INTEGER)
+                },
+                assumptions=(assumption,),
+                queries=(
+                    {
+                        "name": "p",
+                        "kind": "properties",
+                        "checks": ({"kind": "sign"},),
+                    },
+                ),
+            )
+        )
+        assert outcome.queries[0].answers[0].model_dump_json() == expected
+
+
+def test_ambiguous_implicit_sign_axis_remains_localized():
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="x + y",
+            variables={
+                "x": VariableDeclaration(domain=MathematicalDomain.REAL),
+                "y": VariableDeclaration(domain=MathematicalDomain.REAL),
+            },
+            queries=(
+                {"name": "p", "kind": "properties", "checks": ({"kind": "sign"},)},
+            ),
+        )
+    )
+    answer = outcome.queries[0].answers[0]
+    assert answer.conclusion == "unresolved"
+    assert "ambiguous" in answer.blockers[0]
 
 
 def test_exact_domain_singularities_and_factor_sign_chart():
