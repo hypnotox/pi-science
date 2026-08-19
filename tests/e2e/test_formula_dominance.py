@@ -243,6 +243,12 @@ def test_result_models_reject_bad_truth_tables_and_correlations() -> None:
                 "blockers": (),
             }
         )
+    localized = _success(_request("N**3 + 2", MathematicalDomain.REAL))
+    assert localized.dominance_status == "unresolved"
+    with pytest.raises(ValidationError, match="unresolved dominance cannot claim"):
+        DominanceAnalysisSuccess.model_validate(
+            {**localized.model_dump(), "never_dominant": ("power:3",)}
+        )
 
 
 def test_every_dominance_budget_has_a_deterministic_outcome(

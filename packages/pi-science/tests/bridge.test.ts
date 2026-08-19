@@ -2056,6 +2056,22 @@ describe("private formula bridge", () => {
       "integer_point",
       "integer_range",
     ]);
+    const singleton = await invokeAdapter(
+      "uv",
+      ["run", "--locked", "python", adapter],
+      { ...dominance, range: { lower: 2, upper: 2 } },
+    );
+    if (!("kind" in singleton) || singleton.kind !== "dominance_analysis")
+      throw new Error("expected singleton dominance");
+    expect(singleton.cells).toEqual([
+      {
+        kind: "integer_range",
+        lower: "2",
+        upper: "2",
+        dominant: ["power:2"],
+        blockers: [],
+      },
+    ]);
   });
 
   it("rejects malformed dominance correlations, geometry, and truth tables", async () => {
@@ -2135,6 +2151,19 @@ describe("private formula bridge", () => {
         value.dominance_status = "unresolved";
         value.shared_denominator = null;
         value.blockers = ["forced"];
+      },
+      (value) => {
+        value.dominance_status = "unresolved";
+        value.cells = [
+          {
+            kind: "integer_range",
+            lower: "0",
+            upper: "oo",
+            dominant: [],
+            blockers: ["forced pair refusal"],
+          },
+        ];
+        value.never_dominant = ["power:2"];
       },
       (value) => {
         value.cells.splice(

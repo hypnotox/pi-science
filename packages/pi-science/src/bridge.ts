@@ -2104,7 +2104,7 @@ function dominanceCellBounds(
       cell.upper !== "oo",
     );
     return bounds !== null &&
-      compareDominanceBoundaries(bounds.lower, bounds.upper) < 0
+      compareDominanceBoundaries(bounds.lower, bounds.upper) <= 0
       ? bounds
       : null;
   }
@@ -2587,7 +2587,7 @@ function validDominanceResult(
   const hasBlocker =
     value.blockers.length > 0 ||
     cells.some((cell) => (cell.blockers as unknown[]).length > 0);
-  if (!hasBlocker) return false;
+  if (!hasBlocker || value.never_dominant.length > 0) return false;
   return ids.length === 0
     ? value.shared_denominator === null &&
         value.cells.length === 0 &&

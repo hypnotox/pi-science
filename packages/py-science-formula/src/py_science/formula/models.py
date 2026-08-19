@@ -1703,6 +1703,8 @@ class DominanceAnalysisSuccess(StructuredModel):
         elif self.dominance_status == "unresolved":
             if not self.blockers and not any(cell.blockers for cell in self.cells):
                 raise ValueError("unresolved dominance requires blockers or unresolved cells")
+            if self.never_dominant:
+                raise ValueError("unresolved dominance cannot claim never-dominant terms")
             if not self.terms and (self.shared_denominator is not None or self.cells):
                 raise ValueError("pre-decomposition unresolved dominance has no decomposition")
         if len(self.never_dominant) != len(set(self.never_dominant)) or set(
