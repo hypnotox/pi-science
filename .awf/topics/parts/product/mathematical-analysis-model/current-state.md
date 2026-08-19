@@ -27,4 +27,4 @@ Origin: ADR-0004
 
 ### `rule: canonical-aggregate-work-term-dominance`
 Direct Python decomposes only retained original aggregate abstract work into bounded reduced-rational signed power terms and uses exact absolute-magnitude regions on one active axis. Unsupported exponentials, opaque aggregates, rewrites, runtime/resources/scheduling/optimality, and global relevance remain excluded.
-Origin: ADR-adopt-bounded-aggregate-work-dominance-analysis
+Origin: ADR-0016

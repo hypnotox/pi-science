@@ -31,4 +31,4 @@ Revised-by: ADR-0005, ADR-0011, ADR-0012, ADR-0013, ADR-0014
 
 ### `rule: qualified-dominance-regions`
 Dominance reports canonical terms, active-domain cells, poles, ties, provenance, and bounded unresolved blockers. They state relevance only within the active domain and never imply speed, ranking, or optimality.
-Origin: ADR-adopt-bounded-aggregate-work-dominance-analysis
+Origin: ADR-0016

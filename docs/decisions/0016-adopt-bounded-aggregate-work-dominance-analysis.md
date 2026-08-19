@@ -4,7 +4,7 @@ slug: adopt-bounded-aggregate-work-dominance-analysis
 status: Implementing
 date: 2026-08-19
 ---
-# ADR-adopt-bounded-aggregate-work-dominance-analysis: Adopt bounded aggregate-work dominance analysis
+# ADR-0016: Adopt bounded aggregate-work dominance analysis
 
 ## Context
 
