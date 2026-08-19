@@ -3,3 +3,5 @@ Python tests cover the transport-free public formula API, qualified equation sys
 The Pi tier includes protocol-v9 analysis and candidate-comparison request/result parity, a query-bearing AFMM tail round trip, and partial nested finite-polynomial closed-form transport separate from preserved submitted-work fixtures. Comparison coverage proves strict result variants, correlation, syntax injection, and semantic-before-work presentation without duplicating Python mathematics.
 
 Derived query targets cross protocol v9 as strict correlation data only; Python owns earlier-only validation, verified-candidate eligibility, bounded qualification composition, and unavailable-target results.
+
+The direct-Python tier covers canonical dominance decomposition, poles, exact cells, and bounded abstention; Pi dominance transport remains pending.

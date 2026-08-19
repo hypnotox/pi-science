@@ -16,6 +16,8 @@ The Pi tier includes protocol-v9 analysis and candidate-comparison request/resul
 
 Derived query targets cross protocol v9 as strict correlation data only; Python owns earlier-only validation, verified-candidate eligibility, bounded qualification composition, and unavailable-target results.
 
+The direct-Python tier covers canonical dominance decomposition, poles, exact cells, and bounded abstention; Pi dominance transport remains pending.
+
 
 <!-- awf:edit layout: from .awf/docs/parts/testing/layout.md -->
 ## Layout and test shape
@@ -24,4 +26,6 @@ Python tests cover the transport-free public formula API and distribution. `pack
 Pi regressions also cover protocol-v9 analysis and candidate-comparison requests, exact discriminated result shapes, malformed transport, correlation, named constrained-domain reports, and registered-tool round trips. Candidate tests preserve mapped semantics, original aggregate work, second-minus-first delta, syntax injection, and semantic-before-work compact output without TypeScript mathematical recomputation.
 
 Derived query targets cross protocol v9 as strict correlation data only; Python owns earlier-only validation, verified-candidate eligibility, bounded qualification composition, and unavailable-target results. Focused regressions cover the partial direct nested finite-polynomial closed-form family and preserve submitted work separately from its informational candidate.
+
+`tests/e2e/test_formula_dominance.py` covers the direct-Python dominance contract and preserves ordinary nested analysis.
 

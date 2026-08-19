@@ -114,3 +114,25 @@ A query has a unique `name`. `equivalence` supplies `comparison`; `closed_form` 
 For an unresolved query, use its blocker to identify the failed family, exceeded bound, ambiguous axis, or missing supported precondition. When the blocker includes a measured observation and recovery hint, simplify the target, reformulate the question, or select the named supported source family. Recovery hints are conservative: they do not certify that a rewrite is equivalent or promise wider evaluator support.
 
 For the AFMM-style omitted tail, `Sum((k + 1) * q**k, (k, p, oo))` with nonnegative integral `p`, real `q`, and global `0 <= q`, `q < 1` assumptions can request `ClosedFormQuery(name="afmm_tail")`. Its qualified candidate is informational: it never changes submitted operation counts or direct work, and the infinite submitted sum still has no finite work count. Scenarios intentionally do not execute queries. Restricted LaTeX input, scenario-context queries, complex values, dimensions, vector shorthand, differentiation, numerical approximation, and general theorem proving remain outside this initial contract.
+
+## Aggregate-work dominance (direct Python)
+
+`analyze_dominance` is a separate direct-Python operation over the original retained aggregate abstract work. It orders canonical signed `power:<p>` terms by absolute magnitude only within its active domain; it is not a runtime, rewrite, candidate-ranking, scenario, or global-relevance claim. Pi transport is pending.
+
+```python
+from py_science.formula import DominanceAnalysisRequest, FormulaSyntax, MathematicalDomain, VariableDeclaration, analyze_dominance
+
+correction = analyze_dominance(DominanceAnalysisRequest(
+    syntax=FormulaSyntax.SYMPY, expression="n * n - n + 1", axis="n",
+    variables={"n": VariableDeclaration(domain=MathematicalDomain.POSITIVE_INTEGER)},
+))
+```
+
+```python
+from py_science.formula import DominanceAnalysisRequest, FormulaSyntax, MathematicalDomain, VariableDeclaration, analyze_dominance
+
+pole_scope = analyze_dominance(DominanceAnalysisRequest(
+    syntax=FormulaSyntax.SYMPY, expression="1 / (n - 1)", axis="n",
+    variables={"n": VariableDeclaration(domain=MathematicalDomain.REAL)},
+))
+```

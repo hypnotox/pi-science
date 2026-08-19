@@ -36,6 +36,8 @@ Optional general-context query requests and their exact discriminated qualified 
 
 Derived query targets cross protocol v9 as strict correlation data only; Python owns earlier-only validation, verified-candidate eligibility, bounded qualification composition, and unavailable-target results. Direct `closed_form` may additionally evaluate one partial finite-polynomial nested Sum tree in Python; the bridge transports its checked candidate and never classifies or verifies it.
 
+Direct Python dominance requests bypass Pi transport (which remains pending), analyze retained original aggregate work once, and use the typed explicit-axis sign-chart seam for bounded canonical regions.
+
 
 <!-- awf:edit dependencies: from .awf/docs/parts/architecture/dependencies.md -->
 ## Key dependencies

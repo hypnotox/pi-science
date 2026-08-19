@@ -14,7 +14,7 @@
 | conservative bound | A qualified limit guaranteed by stated assumptions when an exact range cannot be derived. |
 | continuity notice | The routine checkpoint's one-line summary on the clear branch, naming the completed phase and the immediate next action. Informational, never a stop. |
 | current-state topic | A domain-owned document of prose plus a closing claims section. Its claims, not the decision-record corpus, are what tooling reads for the rules in force now. |
-| dominant term | A term that controls growth under a declared scenario or parameter region. |
+| dominant term | A canonical aggregate-work term with greatest absolute magnitude within an active declared domain; it implies neither scenario control nor growth control. |
 | drift | Divergence between a generated file and what the config would produce now, or between a declaration and reality. The check command is the oracle, and drift fails it. |
 | effort | One active slugged unit of continuity, owning a working-memory file when multi-step work, likely continuation, coordination, delegation, or durable observations make continuity materially useful. Work without that need uses none. |
 | equation system | Named indexed equations whose domains and references define aggregate work and dependencies. |

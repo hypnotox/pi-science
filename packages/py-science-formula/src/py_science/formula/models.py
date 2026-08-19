@@ -88,7 +88,9 @@ class DirectedDefinition(StructuredModel):
 
 def _exact_scenario_scalar(value: object) -> str:
     if isinstance(value, bool) or not isinstance(value, (str, int)):
-        raise ValueError("scenario scalar must be an exact scalar string or JavaScript-safe integer")
+        raise ValueError(
+            "scenario scalar must be an exact scalar string or JavaScript-safe integer"
+        )
     if isinstance(value, int) and abs(value) > 9_007_199_254_740_991:
         raise ValueError("numeric scenario scalar must be a JavaScript-safe integer")
     parsed = parse_exact_scalar(str(value))
@@ -167,9 +169,7 @@ class Scenario(StructuredModel):
             *self.bounds,
         ]
         if any(
-            name == "oo"
-            or len(name) > MAX_NAME_LENGTH
-            or re.fullmatch(_NAME_PATTERN, name) is None
+            name == "oo" or len(name) > MAX_NAME_LENGTH or re.fullmatch(_NAME_PATTERN, name) is None
             for name in names
         ):
             raise ValueError("scenario variable names must be ordinary identifiers")
@@ -201,7 +201,9 @@ class EquationRequest(StructuredModel):
     name: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
     expression: str
     domains: dict[str, IndexDomain] = Field(default_factory=dict)
-    constraints: tuple[DomainConstraint, ...] = Field(default=(), max_length=MAX_CONSTRAINTS_PER_EQUATION)
+    constraints: tuple[DomainConstraint, ...] = Field(
+        default=(), max_length=MAX_CONSTRAINTS_PER_EQUATION
+    )
 
     @field_validator("constraints")
     @classmethod
@@ -213,12 +215,16 @@ class EquationRequest(StructuredModel):
             if constraint.name in names:
                 raise ValidationError.from_exception_data(
                     cls.__name__,
-                    [{
-                        "type": "value_error",
-                        "loc": (position, "name"),
-                        "input": constraint.name,
-                        "ctx": {"error": ValueError("equation constraint names must be unique")},
-                    }],
+                    [
+                        {
+                            "type": "value_error",
+                            "loc": (position, "name"),
+                            "input": constraint.name,
+                            "ctx": {
+                                "error": ValueError("equation constraint names must be unique")
+                            },
+                        }
+                    ],
                 )
             names.add(constraint.name)
         return constraints
@@ -228,9 +234,7 @@ class EquationRequest(StructuredModel):
         if len(self.domains) > MAX_DOMAINS_PER_EQUATION:
             raise ValueError("equation domain collection exceeds its bound")
         if any(
-            name == "oo"
-            or len(name) > MAX_NAME_LENGTH
-            or re.fullmatch(_NAME_PATTERN, name) is None
+            name == "oo" or len(name) > MAX_NAME_LENGTH or re.fullmatch(_NAME_PATTERN, name) is None
             for name in self.domains
         ):
             raise ValueError("equation domain names must be ordinary identifiers")
@@ -273,7 +277,6 @@ def _validate_parameters(parameters: tuple[str, ...]) -> None:
         for parameter in parameters
     ):
         raise ValueError("function parameters must be ordinary identifiers")
-
 
 
 class EquationTarget(StructuredModel):
@@ -320,7 +323,9 @@ class SignPropertyCheck(StructuredModel):
     kind: Literal["sign"] = "sign"
 
 
-type PropertyCheck = Annotated[VariablePropertyCheck | SignPropertyCheck, Field(discriminator="kind")]
+type PropertyCheck = Annotated[
+    VariablePropertyCheck | SignPropertyCheck, Field(discriminator="kind")
+]
 
 
 class QueryBase(StructuredModel):
@@ -365,6 +370,7 @@ class LimitQuery(QueryBase):
         if variable == "oo":
             raise ValueError("oo is reserved for mathematical infinity")
         return variable
+
     point: str | int
     direction: Literal["left", "right", "both"] | None = None
 
@@ -389,6 +395,7 @@ class AsymptoticQuery(QueryBase):
         if variable == "oo":
             raise ValueError("oo is reserved for mathematical infinity")
         return variable
+
     point: str | int
     direction: Literal["left", "right", "both"] | None = None
     order: int = Field(ge=1, le=8)
@@ -404,10 +411,15 @@ class AsymptoticQuery(QueryBase):
         return self
 
 
-QueryRequest = Annotated[EquivalenceQuery | ClosedFormQuery | PropertiesQuery | LimitQuery | AsymptoticQuery, Field(discriminator="kind")]
+QueryRequest = Annotated[
+    EquivalenceQuery | ClosedFormQuery | PropertiesQuery | LimitQuery | AsymptoticQuery,
+    Field(discriminator="kind"),
+]
 
 
-type ResolvedTarget = Annotated[ExpressionTarget | EquationTarget | DerivedTarget, Field(discriminator="kind")]
+type ResolvedTarget = Annotated[
+    ExpressionTarget | EquationTarget | DerivedTarget, Field(discriminator="kind")
+]
 
 
 class DerivedCandidate(StructuredModel):
@@ -429,14 +441,15 @@ class CounterexampleEvidence(StructuredModel):
     @model_validator(mode="after")
     def canonical_substitutions(self) -> "CounterexampleEvidence":
         if any(
-            len(name) > MAX_NAME_LENGTH
-            or re.fullmatch(_NAME_PATTERN, name) is None
-            or name == "oo"
+            len(name) > MAX_NAME_LENGTH or re.fullmatch(_NAME_PATTERN, name) is None or name == "oo"
             for name in self.substitutions
         ):
             raise ValueError("counterexample substitution names must be ordinary identifiers")
         parsed = (parse_exact_scalar(value) for value in self.substitutions.values())
-        if any(item is None or render_exact(item) != value for item, value in zip(parsed, self.substitutions.values(), strict=True)):
+        if any(
+            item is None or render_exact(item) != value
+            for item, value in zip(parsed, self.substitutions.values(), strict=True)
+        ):
             raise ValueError("counterexample substitutions must be canonical exact scalars")
         for value in (self.target_value, self.comparison_value):
             exact = parse_exact_scalar(value)
@@ -481,14 +494,21 @@ class AsymptoticEvidence(StructuredModel):
 
 
 type QueryEvidence = Annotated[
-    IdentityEvidence | CounterexampleEvidence | ClosedFormEvidence | PropertyEvidence | LimitEvidence | AsymptoticEvidence,
+    IdentityEvidence
+    | CounterexampleEvidence
+    | ClosedFormEvidence
+    | PropertyEvidence
+    | LimitEvidence
+    | AsymptoticEvidence,
     Field(discriminator="kind"),
 ]
 
 
 class QueryAnswer(StructuredModel):
     check: PropertyCheck | None = None
-    conclusion: Literal["proved", "proved_under_assumptions", "disproved", "unresolved", "inapplicable"]
+    conclusion: Literal[
+        "proved", "proved_under_assumptions", "disproved", "unresolved", "inapplicable"
+    ]
     conditions: tuple[str, ...] = Field(default=(), max_length=256)
     assumptions_used: tuple["RelationshipUse", ...] = Field(default=(), max_length=128)
     relevant_unsupported_assumptions: tuple[str, ...] = Field(default=(), max_length=128)
@@ -517,6 +537,7 @@ class QueryResultCommon(StructuredModel):
         if name == "oo":
             raise ValueError("oo is reserved for mathematical infinity")
         return name
+
     normalized_target: "Interpretation | None"
     summary: str = Field(min_length=1, max_length=4096)
     answers: tuple[QueryAnswer, ...]
@@ -580,10 +601,15 @@ class PropertiesResult(QueryResultCommon):
     def property_answers(self) -> "PropertiesResult":
         if not self.answers or any(answer.check is None for answer in self.answers):
             raise ValueError("properties results require checked answers")
-        checks = tuple(answer.check.model_dump_json() for answer in self.answers if answer.check is not None)
+        checks = tuple(
+            answer.check.model_dump_json() for answer in self.answers if answer.check is not None
+        )
         if len(checks) != len(set(checks)):
             raise ValueError("properties result checks must be unique")
-        if any(answer.evidence is not None and answer.evidence.kind != "property" for answer in self.answers):
+        if any(
+            answer.evidence is not None and answer.evidence.kind != "property"
+            for answer in self.answers
+        ):
             raise ValueError("properties results require property evidence")
         return self
 
@@ -606,7 +632,9 @@ class AsymptoticResult(QueryResultCommon):
         return self
 
 
-def _validate_query_answers(answers: tuple[QueryAnswer, ...], check: None, evidence_kinds: set[str]) -> None:
+def _validate_query_answers(
+    answers: tuple[QueryAnswer, ...], check: None, evidence_kinds: set[str]
+) -> None:
     if len(answers) != 1 or answers[0].check is not check:
         raise ValueError("query result requires exactly one unchecked answer")
     if answers[0].evidence is not None and answers[0].evidence.kind not in evidence_kinds:
@@ -617,7 +645,6 @@ type QueryResult = Annotated[
     EquivalenceResult | ClosedFormResult | PropertiesResult | LimitResult | AsymptoticResult,
     Field(discriminator="kind"),
 ]
-
 
 
 class AnalysisRequest(StructuredModel):
@@ -639,9 +666,7 @@ class AnalysisRequest(StructuredModel):
         if len(self.variables) > MAX_VARIABLES:
             raise ValueError("variable collection exceeds its bound")
         if any(
-            name == "oo"
-            or len(name) > MAX_NAME_LENGTH
-            or re.fullmatch(_NAME_PATTERN, name) is None
+            name == "oo" or len(name) > MAX_NAME_LENGTH or re.fullmatch(_NAME_PATTERN, name) is None
             for name in self.variables
         ):
             raise ValueError("variable names must be ordinary identifiers")
@@ -665,7 +690,13 @@ class AnalysisRequest(StructuredModel):
         )
         _require_unique((item.name for item in self.scenarios), "scenario names")
         _require_unique((item.name for item in self.queries), "query names")
-        if sum(len(item.comparison.encode("utf-8")) if isinstance(item, EquivalenceQuery) else 0 for item in self.queries) > MAX_FORMULA_BYTES:
+        if (
+            sum(
+                len(item.comparison.encode("utf-8")) if isinstance(item, EquivalenceQuery) else 0
+                for item in self.queries
+            )
+            > MAX_FORMULA_BYTES
+        ):
             raise ValueError("query source exceeds its aggregate bound")
         for position, item in enumerate(self.queries):
             if self.expression is not None and isinstance(item.target, EquationTarget):
@@ -679,11 +710,22 @@ class AnalysisRequest(StructuredModel):
                     raise ValueError(
                         f"queries[{position}].target: derived targets require equivalence, properties, limit, or asymptotic"
                     )
-                earlier = next((source for source in self.queries[:position] if source.name == item.target.query), None)
+                earlier = next(
+                    (
+                        source
+                        for source in self.queries[:position]
+                        if source.name == item.target.query
+                    ),
+                    None,
+                )
                 if earlier is None:
-                    raise ValueError(f"queries[{position}].target: derived query must reference an earlier query")
+                    raise ValueError(
+                        f"queries[{position}].target: derived query must reference an earlier query"
+                    )
                 if not isinstance(earlier, ClosedFormQuery):
-                    raise ValueError(f"queries[{position}].target: derived source must be a closed_form query")
+                    raise ValueError(
+                        f"queries[{position}].target: derived source must be a closed_form query"
+                    )
         for item in self.queries:
             if isinstance(item, (LimitQuery, AsymptoticQuery)):
                 infinity = str(item.point) in {"oo", "-oo"}
@@ -748,13 +790,9 @@ class CandidateComparisonRequest(StructuredModel):
     outputs: tuple[CandidateOutputMapping, ...] = Field(min_length=1, max_length=32)
     variables: dict[str, VariableDeclaration] = Field(default_factory=dict)
     functions: tuple[FunctionDefinition, ...] = Field(default=(), max_length=MAX_FUNCTIONS)
-    primitive_costs: tuple[PrimitiveCost, ...] = Field(
-        default=(), max_length=MAX_PRIMITIVE_COSTS
-    )
+    primitive_costs: tuple[PrimitiveCost, ...] = Field(default=(), max_length=MAX_PRIMITIVE_COSTS)
     assumptions: tuple[Assumption, ...] = Field(default=(), max_length=MAX_ASSUMPTIONS)
-    definitions: tuple[DirectedDefinition, ...] = Field(
-        default=(), max_length=MAX_DEFINITIONS
-    )
+    definitions: tuple[DirectedDefinition, ...] = Field(default=(), max_length=MAX_DEFINITIONS)
 
     @model_validator(mode="after")
     def comparison_shape(self) -> "CandidateComparisonRequest":
@@ -881,9 +919,7 @@ class CandidateWorkComparison(StructuredModel):
     @model_validator(mode="after")
     def qualified_work_shape(self) -> "CandidateWorkComparison":
         if len(set(self.candidate_names)) != 2 or any(
-            name == "oo"
-            or len(name) > MAX_NAME_LENGTH
-            or re.fullmatch(_NAME_PATTERN, name) is None
+            name == "oo" or len(name) > MAX_NAME_LENGTH or re.fullmatch(_NAME_PATTERN, name) is None
             for name in self.candidate_names
         ):
             raise ValueError("work candidate names must be unique ordinary identifiers")
@@ -958,7 +994,9 @@ class CandidateComparisonSuccess(StructuredModel):
         return self
 
 
-type CandidateComparisonOutcome = Annotated[CandidateComparisonSuccess | AnalysisFailure, Field(discriminator="status")]
+type CandidateComparisonOutcome = Annotated[
+    CandidateComparisonSuccess | AnalysisFailure, Field(discriminator="status")
+]
 
 
 class SourceLocation(StructuredModel):
@@ -1117,7 +1155,9 @@ class ScenarioResult(StructuredModel):
     qualifications: tuple[str, ...] = ()
     unresolved: tuple[str, ...] = ()
     effective_domains: tuple["EquationEffectiveDomains", ...] = ()
-    choice_effective_domains: dict[str, tuple["EquationEffectiveDomains", ...]] = Field(default_factory=dict)
+    choice_effective_domains: dict[str, tuple["EquationEffectiveDomains", ...]] = Field(
+        default_factory=dict
+    )
 
 
 class ReuseReport(StructuredModel):
@@ -1149,8 +1189,7 @@ class SystemReport(StructuredModel):
             (self.aggregate_operation_counts, self.total_work, self.primitive_invocations),
         )
         has_nonfinite_equation = any(
-            equation.direct_work_applicability == "not_finite"
-            for equation in self.equations
+            equation.direct_work_applicability == "not_finite" for equation in self.equations
         )
         if has_nonfinite_equation != (self.direct_work_applicability == "not_finite"):
             raise ValueError("system direct work must agree with its equation reports")
@@ -1189,3 +1228,206 @@ class AnalysisFailure(StructuredModel):
 
 
 type AnalysisOutcome = Annotated[AnalysisSuccess | AnalysisFailure, Field(discriminator="status")]
+
+
+# Dominance is intentionally a separate request family: it shares computation
+# metadata with ordinary analysis but cannot carry scenarios or queries.
+class DominanceRange(StructuredModel):
+    lower: str = "-oo"
+    upper: str = "oo"
+    lower_inclusive: bool = True
+    upper_inclusive: bool = True
+
+    @field_validator("lower", "upper", mode="before")
+    @classmethod
+    def canonical_bound(cls, value: object) -> str:
+        text = str(value)
+        if text in {"-oo", "oo"}:
+            return text
+        return _exact_scenario_scalar(value)
+
+    @model_validator(mode="after")
+    def ordered(self) -> "DominanceRange":
+        if self.lower == "oo" or self.upper == "-oo":
+            raise ValueError("range infinities must be outward-facing")
+        if self.lower != "-oo" and self.upper != "oo":
+            left, right = parse_exact_scalar(self.lower), parse_exact_scalar(self.upper)
+            assert left is not None and right is not None
+            comparison = left.numerator * right.denominator - right.numerator * left.denominator
+            if comparison > 0 or (
+                comparison == 0 and not (self.lower_inclusive and self.upper_inclusive)
+            ):
+                raise ValueError("range bounds must define a nonempty interval")
+        if self.lower == "-oo" and self.lower_inclusive:
+            raise ValueError("infinite range bounds are open")
+        if self.upper == "oo" and self.upper_inclusive:
+            raise ValueError("infinite range bounds are open")
+        return self
+
+
+class DominanceAnalysisRequest(StructuredModel):
+    operation: Literal["analyze_dominance"] = "analyze_dominance"
+    syntax: FormulaSyntax
+    expression: str | None = None
+    equations: tuple[EquationRequest, ...] = Field(default=(), max_length=MAX_EQUATIONS)
+    axis: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
+    fixed: dict[str, ExactScenarioScalar] = Field(default_factory=dict)
+    range: DominanceRange | None = None
+    variables: dict[str, VariableDeclaration] = Field(default_factory=dict)
+    functions: tuple[FunctionDefinition, ...] = Field(default=(), max_length=MAX_FUNCTIONS)
+    primitive_costs: tuple[PrimitiveCost, ...] = Field(default=(), max_length=MAX_PRIMITIVE_COSTS)
+    assumptions: tuple[Assumption, ...] = Field(default=(), max_length=MAX_ASSUMPTIONS)
+    definitions: tuple[DirectedDefinition, ...] = Field(default=(), max_length=MAX_DEFINITIONS)
+
+    @field_validator("fixed", mode="before")
+    @classmethod
+    def canonical_fixed(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        raw = cast(dict[str, Any], value)
+        return {name: _exact_scenario_scalar(item) for name, item in raw.items()}
+
+    @model_validator(mode="after")
+    def dominance_shape(self) -> "DominanceAnalysisRequest":
+        # The ordinary model remains the single source of shared-shape rules.
+        AnalysisRequest(
+            syntax=self.syntax,
+            expression=self.expression,
+            equations=self.equations,
+            variables=self.variables,
+            functions=self.functions,
+            primitive_costs=self.primitive_costs,
+            assumptions=self.assumptions,
+            definitions=self.definitions,
+        )
+        if self.axis == "oo" or self.axis not in self.variables:
+            raise ValueError("axis must name one declared numeric variable")
+        if self.axis in self.fixed:
+            raise ValueError("axis cannot be fixed")
+        unknown = set(self.fixed) - set(self.variables)
+        if unknown:
+            raise ValueError("fixed substitutions must name declared variables")
+        return self
+
+    def analysis_request(self) -> AnalysisRequest:
+        return AnalysisRequest(
+            syntax=self.syntax,
+            expression=self.expression,
+            equations=self.equations,
+            variables=self.variables,
+            functions=self.functions,
+            primitive_costs=self.primitive_costs,
+            assumptions=self.assumptions,
+            definitions=self.definitions,
+        )
+
+
+class DominanceTerm(StructuredModel):
+    id: str = Field(pattern=r"^power:(0|[1-9][0-9]*)$")
+    power: int = Field(ge=0)
+    coefficient: str
+    expression: str
+
+    @model_validator(mode="after")
+    def canonical_id(self) -> "DominanceTerm":
+        if self.id != f"power:{self.power}":
+            raise ValueError("term id must correlate with canonical power")
+        return self
+
+
+class DominanceIntervalCell(StructuredModel):
+    kind: Literal["real_interval"] = "real_interval"
+    lower: str
+    upper: str
+    lower_inclusive: bool
+    upper_inclusive: bool
+    dominant: tuple[str, ...] = ()
+    blockers: tuple[str, ...] = ()
+
+
+class DominancePointCell(StructuredModel):
+    kind: Literal["real_point", "integer_point"]
+    value: str
+    dominant: tuple[str, ...] = ()
+    blockers: tuple[str, ...] = ()
+
+
+class DominanceIntegerRangeCell(StructuredModel):
+    kind: Literal["integer_range"] = "integer_range"
+    lower: str
+    upper: str
+    dominant: tuple[str, ...] = ()
+    blockers: tuple[str, ...] = ()
+
+
+type DominanceCell = Annotated[
+    DominanceIntervalCell | DominancePointCell | DominanceIntegerRangeCell,
+    Field(discriminator="kind"),
+]
+
+
+class DominanceExclusion(StructuredModel):
+    value: str
+    reason: str = "pole"
+
+
+class DominanceEvidence(StructuredModel):
+    pair: tuple[str, str]
+    difference: str
+    sign: Literal[-1, 0, 1] | None = None
+
+
+class DominanceAnalysisSuccess(StructuredModel):
+    kind: Literal["dominance_analysis"] = "dominance_analysis"
+    status: Literal["success"] = "success"
+    analysis: AnalysisSuccess
+    metric: Literal["aggregate_abstract_work"] = "aggregate_abstract_work"
+    axis: str
+    fixed: dict[str, str] = Field(default_factory=dict)
+    requested_range: DominanceRange | None = None
+    effective_range: DominanceRange
+    shared_denominator: str | None = None
+    terms: tuple[DominanceTerm, ...] = Field(default=(), max_length=16)
+    cells: tuple[DominanceCell, ...] = Field(default=(), max_length=513)
+    exclusions: tuple[DominanceExclusion, ...] = Field(default=(), max_length=256)
+    never_dominant: tuple[str, ...] = ()
+    conditions: tuple[str, ...] = ()
+    assumptions_used: tuple[RelationshipUse, ...] = ()
+    blockers: tuple[str, ...] = ()
+    evidence: tuple[DominanceEvidence, ...] = ()
+    dominance_status: Literal["complete", "unresolved", "empty"]
+
+    @model_validator(mode="after")
+    def truth_table(self) -> "DominanceAnalysisSuccess":
+        ids = tuple(term.id for term in self.terms)
+        if ids != tuple(sorted(ids, key=lambda item: int(item[6:]), reverse=True)) or len(
+            ids
+        ) != len(set(ids)):
+            raise ValueError("terms must be unique and descending by power")
+        if set(self.never_dominant) - set(ids):
+            raise ValueError("never-dominant terms must be reported terms")
+        if self.dominance_status == "empty":
+            if self.cells or self.exclusions or self.blockers or self.never_dominant:
+                raise ValueError("empty dominance has no cells, exclusions, blockers, or claims")
+        elif self.dominance_status == "complete":
+            if self.blockers or any(cell.blockers for cell in self.cells):
+                raise ValueError("complete dominance has no blockers")
+            if not self.terms and (
+                self.cells or "aggregate work is identically zero" not in self.conditions
+            ):
+                raise ValueError("empty complete decomposition is only zero work")
+        elif not self.blockers and not any(cell.blockers for cell in self.cells):
+            raise ValueError("unresolved dominance requires blockers or unresolved cells")
+        for cell in self.cells:
+            if cell.blockers == () and not cell.dominant:
+                raise ValueError("complete dominance cells require dominant terms")
+            if cell.blockers and cell.dominant:
+                raise ValueError("unresolved dominance cells cannot claim dominant terms")
+            if set(cell.dominant) - set(ids) or len(cell.dominant) != len(set(cell.dominant)):
+                raise ValueError("cell terms must be unique reported ids")
+        return self
+
+
+type DominanceAnalysisOutcome = Annotated[
+    DominanceAnalysisSuccess | AnalysisFailure, Field(discriminator="status")
+]

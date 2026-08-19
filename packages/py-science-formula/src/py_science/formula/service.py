@@ -48,6 +48,8 @@ from py_science.formula.models import (
     ConstraintUse,
     DerivedTarget,
     DomainConstraint,
+    DominanceAnalysisOutcome,
+    DominanceAnalysisRequest,
     EffectiveIndexDomain,
     EquationEffectiveDomains,
     EquationReport,
@@ -247,6 +249,16 @@ def analyze(request: AnalysisRequest) -> AnalysisOutcome:
     return _bound_result(outcome)
 
 
+def analyze_dominance(request: DominanceAnalysisRequest) -> DominanceAnalysisOutcome:
+    """Analyze retained aggregate work once, then delegate dominance policy."""
+    from py_science.formula.dominance import analyze_retained
+
+    computed = _analyze_computation(request.analysis_request())
+    if isinstance(computed, AnalysisFailure):
+        return computed
+    return analyze_retained(request, computed)
+
+
 def _analyze_computation(request: AnalysisRequest) -> _AnalyzedComputation | AnalysisFailure:
     request_failure = _request_size_failure(request)
     if request_failure is not None:
@@ -305,9 +317,7 @@ def _analyze_computation(request: AnalysisRequest) -> _AnalyzedComputation | Ana
     return analyzed
 
 
-def _attach_queries(
-    request: AnalysisRequest, analyzed: _AnalyzedComputation
-) -> AnalysisOutcome:
+def _attach_queries(request: AnalysisRequest, analyzed: _AnalyzedComputation) -> AnalysisOutcome:
     """Evaluate queries in request order, retaining only earlier result provenance."""
     outcome = analyzed.success
     knowledge = analyzed.knowledge
@@ -331,13 +341,15 @@ def _attach_queries(
             source = next(result for result in results if result.name == query.target.query)
             target_or_none = _derived_target(query.target, source)
             if target_or_none is None:
-                results.append(_compose_derived_qualification(_unavailable_derived_result(query, source), source))
+                results.append(
+                    _compose_derived_qualification(
+                        _unavailable_derived_result(query, source), source
+                    )
+                )
                 continue
             target = target_or_none
             if request.expression is None and isinstance(source.target, EquationTarget):
-                owning = next(
-                    item for item in request.equations if item.name == source.target.name
-                )
+                owning = next(item for item in request.equations if item.name == source.target.name)
                 report = next(
                     item
                     for item in outcome.system.equations  # type: ignore[union-attr]
@@ -358,11 +370,7 @@ def _attach_queries(
             )
             report = (
                 next(
-                    (
-                        item
-                        for item in outcome.system.equations
-                        if item.name == query.target.name
-                    ),
+                    (item for item in outcome.system.equations if item.name == query.target.name),
                     None,
                 )
                 if outcome.system is not None
@@ -374,11 +382,7 @@ def _attach_queries(
                     source=SourceReference(path=f"queries[{position}].target"),
                 )
             parsed = next(
-                (
-                    item.formula
-                    for item in analyzed.equations
-                    if item.name == selected.name
-                ),
+                (item.formula for item in analyzed.equations if item.name == selected.name),
                 None,
             )
             target = (
@@ -395,9 +399,7 @@ def _attach_queries(
         if request.expression is None:
             if not isinstance(query.target, DerivedTarget):
                 assert query.target is not None
-                owning = next(
-                    item for item in request.equations if item.name == query.target.name
-                )
+                owning = next(item for item in request.equations if item.name == query.target.name)
             assert owning is not None and report is not None
             # Equation-local facts are deliberately reconstructed only for the
             # submitted equation or its explicit verified derived operand. They
@@ -409,8 +411,7 @@ def _attach_queries(
         result = evaluated[0]
         if owning is not None:
             local_uses = {
-                (constraint.name, constraint.relationship)
-                for constraint in owning.constraints
+                (constraint.name, constraint.relationship) for constraint in owning.constraints
             }
             consumed = tuple(
                 ConstraintUse(
@@ -421,32 +422,40 @@ def _attach_queries(
                 )
                 for constraint in owning.constraints
                 if any(
-                    (use.name, use.relationship) in local_uses and
-                    use.name == constraint.name and use.relationship == constraint.relationship
-                    for answer in result.answers for use in answer.assumptions_used
+                    (use.name, use.relationship) in local_uses
+                    and use.name == constraint.name
+                    and use.relationship == constraint.relationship
+                    for answer in result.answers
+                    for use in answer.assumptions_used
                 )
             )
             if consumed:
-                result = result.model_copy(update={
-                    "answers": tuple(
-                        answer.model_copy(update={
-                            "assumptions_used": tuple(
-                                relationship
-                                for relationship in answer.assumptions_used
-                                if (relationship.name, relationship.relationship) not in local_uses
-                            ),
-                            "constraint_uses": tuple(
-                                use for use in consumed
-                                if any(
-                                    relationship.name == use.name and
-                                    relationship.relationship == use.relationship
-                                    for relationship in answer.assumptions_used
-                                )
-                            ),
-                        })
-                        for answer in result.answers
-                    )
-                })
+                result = result.model_copy(
+                    update={
+                        "answers": tuple(
+                            answer.model_copy(
+                                update={
+                                    "assumptions_used": tuple(
+                                        relationship
+                                        for relationship in answer.assumptions_used
+                                        if (relationship.name, relationship.relationship)
+                                        not in local_uses
+                                    ),
+                                    "constraint_uses": tuple(
+                                        use
+                                        for use in consumed
+                                        if any(
+                                            relationship.name == use.name
+                                            and relationship.relationship == use.relationship
+                                            for relationship in answer.assumptions_used
+                                        )
+                                    ),
+                                }
+                            )
+                            for answer in result.answers
+                        )
+                    }
+                )
         if isinstance(query.target, DerivedTarget):
             assert source is not None
             result = _compose_derived_qualification(result, source)
@@ -478,34 +487,54 @@ def _equation_query_reasoning(
             continue
         lower = parse_expression(domain.lower)
         upper = parse_expression(domain.upper)
-        if isinstance(lower, (ParseFailure, Equation, Relationship)) or isinstance(upper, (ParseFailure, Equation, Relationship)):
+        if isinstance(lower, (ParseFailure, Equation, Relationship)) or isinstance(
+            upper, (ParseFailure, Equation, Relationship)
+        ):
             return None
-        local.extend((
-            NamedRelationship(f"{equation.name}:{name}:lower", f"{name} >= {domain.lower}", Relationship(RelationshipOperator.GREATER_EQUAL, Symbol(name), lower)),
-            NamedRelationship(f"{equation.name}:{name}:upper", f"{name} <= {domain.upper}", Relationship(RelationshipOperator.LESS_EQUAL, Symbol(name), upper)),
-        ))
+        local.extend(
+            (
+                NamedRelationship(
+                    f"{equation.name}:{name}:lower",
+                    f"{name} >= {domain.lower}",
+                    Relationship(RelationshipOperator.GREATER_EQUAL, Symbol(name), lower),
+                ),
+                NamedRelationship(
+                    f"{equation.name}:{name}:upper",
+                    f"{name} <= {domain.upper}",
+                    Relationship(RelationshipOperator.LESS_EQUAL, Symbol(name), upper),
+                ),
+            )
+        )
     for constraint in equation.constraints:
         domain = effective.get(constraint.target)
         if domain is None:
             return None
         lower = parse_expression(domain.lower)
         upper = parse_expression(domain.upper)
-        if isinstance(lower, (ParseFailure, Equation, Relationship)) or isinstance(upper, (ParseFailure, Equation, Relationship)):
+        if isinstance(lower, (ParseFailure, Equation, Relationship)) or isinstance(
+            upper, (ParseFailure, Equation, Relationship)
+        ):
             return None
-        local.extend((
-            NamedRelationship(
-                constraint.name,
-                constraint.relationship,
-                Relationship(RelationshipOperator.GREATER_EQUAL, Symbol(constraint.target), lower),
-            ),
-            NamedRelationship(
-                constraint.name,
-                constraint.relationship,
-                Relationship(RelationshipOperator.LESS_EQUAL, Symbol(constraint.target), upper),
-            ),
-        ))
+        local.extend(
+            (
+                NamedRelationship(
+                    constraint.name,
+                    constraint.relationship,
+                    Relationship(
+                        RelationshipOperator.GREATER_EQUAL, Symbol(constraint.target), lower
+                    ),
+                ),
+                NamedRelationship(
+                    constraint.name,
+                    constraint.relationship,
+                    Relationship(RelationshipOperator.LESS_EQUAL, Symbol(constraint.target), upper),
+                ),
+            )
+        )
     try:
-        return ReasoningContext.build(domains, knowledge.definitions, (*knowledge.assumptions, *local))
+        return ReasoningContext.build(
+            domains, knowledge.definitions, (*knowledge.assumptions, *local)
+        )
     except (ExpressionTooComplex, RuntimeError):
         return None
 
@@ -514,8 +543,11 @@ def _derived_target(target: DerivedTarget, source: QueryResult) -> QueryTarget |
     if not isinstance(source, ClosedFormResult):
         return None
     answer = source.answers[0]
-    if (answer.conclusion not in {"proved", "proved_under_assumptions"} or
-        not isinstance(answer.evidence, ClosedFormEvidence) or len(answer.derived_candidates) != 1):
+    if (
+        answer.conclusion not in {"proved", "proved_under_assumptions"}
+        or not isinstance(answer.evidence, ClosedFormEvidence)
+        or len(answer.derived_candidates) != 1
+    ):
         return None
     parsed = parse_expression(answer.derived_candidates[0].interpretation.normalized_sympy)
     if isinstance(parsed, (ParseFailure, Equation, Relationship)):
@@ -572,42 +604,63 @@ def _compose_derived_qualification(result: QueryResult, source: QueryResult) -> 
     composed: list[QueryAnswer] = []
     for answer in result.answers:
         conditions = tuple(dict.fromkeys((*answer.conditions, *source_answer.conditions)))
-        uses = tuple({
-            (item.name, item.relationship): item
-            for item in (*answer.assumptions_used, *source_answer.assumptions_used)
-        }.values())
-        unsupported = tuple(dict.fromkeys((
-            *answer.relevant_unsupported_assumptions,
-            *source_answer.relevant_unsupported_assumptions,
-        )))
-        constraint_uses = tuple({
-            item.model_dump_json(): item
-            for item in (*answer.constraint_uses, *source_answer.constraint_uses)
-        }.values())
+        uses = tuple(
+            {
+                (item.name, item.relationship): item
+                for item in (*answer.assumptions_used, *source_answer.assumptions_used)
+            }.values()
+        )
+        unsupported = tuple(
+            dict.fromkeys(
+                (
+                    *answer.relevant_unsupported_assumptions,
+                    *source_answer.relevant_unsupported_assumptions,
+                )
+            )
+        )
+        constraint_uses = tuple(
+            {
+                item.model_dump_json(): item
+                for item in (*answer.constraint_uses, *source_answer.constraint_uses)
+            }.values()
+        )
         if (
             len(conditions) > 256
             or len(uses) > 128
             or len(unsupported) > 128
             or len(constraint_uses) > 128
         ):
-            composed.append(answer.model_copy(update={
-                "conclusion": "unresolved",
-                "blockers": tuple(dict.fromkeys((
-                    *answer.blockers,
-                    "derived target qualification exceeds its bound",
-                ))),
-            }))
+            composed.append(
+                answer.model_copy(
+                    update={
+                        "conclusion": "unresolved",
+                        "blockers": tuple(
+                            dict.fromkeys(
+                                (
+                                    *answer.blockers,
+                                    "derived target qualification exceeds its bound",
+                                )
+                            )
+                        ),
+                    }
+                )
+            )
             continue
-        composed.append(answer.model_copy(update={
-            "conclusion": "proved_under_assumptions"
-            if answer.conclusion == "proved" and (conditions or uses or constraint_uses)
-            else answer.conclusion,
-            "conditions": conditions,
-            "assumptions_used": uses,
-            "relevant_unsupported_assumptions": unsupported,
-            "constraint_uses": constraint_uses,
-        }))
+        composed.append(
+            answer.model_copy(
+                update={
+                    "conclusion": "proved_under_assumptions"
+                    if answer.conclusion == "proved" and (conditions or uses or constraint_uses)
+                    else answer.conclusion,
+                    "conditions": conditions,
+                    "assumptions_used": uses,
+                    "relevant_unsupported_assumptions": unsupported,
+                    "constraint_uses": constraint_uses,
+                }
+            )
+        )
     return result.model_copy(update={"answers": tuple(composed)})
+
 
 def _parse_knowledge(
     request: AnalysisRequest,
@@ -663,9 +716,7 @@ def _parse_knowledge(
         if isinstance(domain_result, AnalysisFailure):
             return domain_result
         resolved_definitions[name] = resolved
-        definitions.append(
-            NamedDefinition(name, f"{name} = {source}", expression, domain_result)
-        )
+        definitions.append(NamedDefinition(name, f"{name} = {source}", expression, domain_result))
     for scenario_position, scenario in enumerate(request.scenarios):
         scenario_expressions: dict[str, Expression] = {}
         for definition_position, definition in enumerate(scenario.definitions):
@@ -798,11 +849,7 @@ def _is_real_expression(expression: Expression, context: WorkContext) -> bool:
             expression.right, context
         )
     exponent = exact_integer_value(expression.right)
-    return (
-        expression.operator is BinaryOperator.POWER
-        and exponent is not None
-        and exponent >= 0
-    )
+    return expression.operator is BinaryOperator.POWER and exponent is not None and exponent >= 0
 
 
 def _definition_domain_result(
@@ -829,20 +876,20 @@ def _definition_domain_result(
     value = _constant_value(expression)
     if value is not None:
         contradicts = (
-            declaration.domain.is_integer and value.denominator != 1
-        ) or (
-            declaration.domain
-            in {MathematicalDomain.POSITIVE_INTEGER, MathematicalDomain.POSITIVE_REAL}
-            and value <= 0
-        ) or (
-            declaration.domain
-            in {MathematicalDomain.NONNEGATIVE_INTEGER, MathematicalDomain.NONNEGATIVE_REAL}
-            and value < 0
+            (declaration.domain.is_integer and value.denominator != 1)
+            or (
+                declaration.domain
+                in {MathematicalDomain.POSITIVE_INTEGER, MathematicalDomain.POSITIVE_REAL}
+                and value <= 0
+            )
+            or (
+                declaration.domain
+                in {MathematicalDomain.NONNEGATIVE_INTEGER, MathematicalDomain.NONNEGATIVE_REAL}
+                and value < 0
+            )
         )
         if contradicts:
-            return _invalid(
-                f"definition contradicts declared domain for {variable}", source=source
-            )
+            return _invalid(f"definition contradicts declared domain for {variable}", source=source)
     proven = {
         MathematicalDomain.INTEGER: is_integer_expression(expression, context),
         MathematicalDomain.NONNEGATIVE_INTEGER: is_integer_expression(expression, context)
@@ -868,10 +915,7 @@ def _scenario_definition_qualifications(
     scenario_position: int | None = None,
 ) -> dict[str, str | None] | AnalysisFailure:
     names = set(expressions)
-    graph = {
-        name: _symbol_names(expression) & names
-        for name, expression in expressions.items()
-    }
+    graph = {name: _symbol_names(expression) & names for name, expression in expressions.items()}
     order = _topological(graph)
     if order is None:
         return _invalid("definitions contain a cycle")
@@ -917,9 +961,7 @@ def _scenario_definition_qualifications(
             if isinstance(result, AnalysisFailure):
                 return result
         for name in order:
-            resolved = substitute(
-                expressions[name], replacements, max_nodes=MAX_WORK_NODES
-            )
+            resolved = substitute(expressions[name], replacements, max_nodes=MAX_WORK_NODES)
             result = _definition_domain_result(name, resolved, request, context)
             if isinstance(result, AnalysisFailure):
                 return result
@@ -1307,13 +1349,15 @@ def _analyze_system(
             domain_uses.extend(uses)
             for dependency in sorted(domain.dependencies):
                 predecessor = by_index[dependency]
-                domain_uses.append(RelationshipUse(
-                    name=f"domain:{dependency}",
-                    relationship=(
-                        f"{render(predecessor.lower).sympy} <= {dependency} <= "
-                        f"{render(predecessor.upper).sympy}"
-                    ),
-                ))
+                domain_uses.append(
+                    RelationshipUse(
+                        name=f"domain:{dependency}",
+                        relationship=(
+                            f"{render(predecessor.lower).sympy} <= {dependency} <= "
+                            f"{render(predecessor.upper).sympy}"
+                        ),
+                    )
+                )
             external_bound_symbols = (
                 domain_free_symbols(domain.lower) | domain_free_symbols(domain.upper)
             ) - set(by_index)
@@ -1328,7 +1372,8 @@ def _analyze_system(
                 proven_extent=count if ordered and relational_domain else None,
                 ordering_unresolved=(
                     f"equation {name} output index {index} ordering or finiteness is unproved"
-                    if relational_domain and not ordered else None
+                    if relational_domain and not ordered
+                    else None
                 ),
             )
             if unresolved is not None:
@@ -1343,8 +1388,11 @@ def _analyze_system(
         used = tuple({item.name: item for item in (*domain_uses, *used)}.values())
         domain_use_names = {item.name for item in domain_uses}
         analysis.unresolved = {
-            item for item in analysis.unresolved
-            if not any(item.startswith(f"assumption {used_name}:") for used_name in domain_use_names)
+            item
+            for item in analysis.unresolved
+            if not any(
+                item.startswith(f"assumption {used_name}:") for used_name in domain_use_names
+            )
         }
         relationship_uses.update({(item.name, item.relationship): item for item in used})
         analyses[name] = analysis
@@ -1406,7 +1454,9 @@ def _analyze_system(
         tuple(sorted(set(all_extractions))),
         work_render_budget,
         used_relationships,
-        tuple(item.name for item in knowledge.assumptions if item.name not in used_assumption_names),
+        tuple(
+            item.name for item in knowledge.assumptions if item.name not in used_assumption_names
+        ),
     )
     submitted = OperationTally()
     for name in order:
@@ -1475,7 +1525,8 @@ def _parse_equations(
         shadowed = set(lhs_indices_or_failure) & set(request.variables)
         if shadowed:
             return _invalid(
-                "output index cannot shadow a declared global variable: " + ", ".join(sorted(shadowed)),
+                "output index cannot shadow a declared global variable: "
+                + ", ".join(sorted(shadowed)),
                 source=SourceReference(path=f"equations[{equation_position}].expression"),
             )
         domains: dict[str, tuple[Expression, Expression]] = {}
@@ -1519,7 +1570,9 @@ def _parse_equations(
             if constraint.target not in lhs_indices_or_failure:
                 return _invalid(
                     f"constraint target {constraint.target} is not an output index",
-                    source=SourceReference(path=f"equations[{equation_position}].constraints[{constraint_position}].target"),
+                    source=SourceReference(
+                        path=f"equations[{equation_position}].constraints[{constraint_position}].target"
+                    ),
                 )
             constraints.append((str(constraint_position), constraint.target, relationship))
         built = build_output_domains(
@@ -1527,7 +1580,8 @@ def _parse_equations(
             lhs_indices_or_failure,
             equation_position,
             frozenset(
-                name for name, declaration in request.variables.items()
+                name
+                for name, declaration in request.variables.items()
                 if declaration.domain.is_integer
             ),
             tuple(constraints),
@@ -1647,9 +1701,7 @@ def _validate_system(
             return _invalid(f"equation {name}: {index_error}")
         for index, (lower, upper) in equation.domains.items():
             for endpoint, bound in (("lower", lower), ("upper", upper)):
-                bound_path = (
-                    f"equations[{equation_position}].domains.{index}.{endpoint}"
-                )
+                bound_path = f"equations[{equation_position}].domains.{index}.{endpoint}"
                 referenced_producers = _referenced_producers(bound, producers)
                 if referenced_producers:
                     return _invalid(
@@ -1998,11 +2050,7 @@ def _canonical_equality_replacement(
     left_integer = exact_integer_value(left)
     right_integer = exact_integer_value(right)
     if left_integer is not None:
-        return (
-            (right, IntegerLiteral(left_integer))
-            if right_integer is None
-            else None
-        )
+        return (right, IntegerLiteral(left_integer)) if right_integer is None else None
     if right_integer is not None:
         return left, IntegerLiteral(right_integer)
     left_nodes = expression_node_count(left)
@@ -2409,8 +2457,7 @@ def _scenario_results(
                 substitutions={
                     name: render_work(replacements[name], budget)
                     for name in sorted(
-                        set(scenario.fixed)
-                        | {item.variable for item in scenario.definitions}
+                        set(scenario.fixed) | {item.variable for item in scenario.definitions}
                     )
                     if name in replacements
                 },
@@ -2436,8 +2483,12 @@ def _specialized_effective_domains(
                 domains=tuple(
                     EffectiveIndexDomain(
                         index=domain.index,
-                        lower=render(substitute(domain.lower, replacements, max_nodes=MAX_WORK_NODES)).sympy,
-                        upper=render(substitute(domain.upper, replacements, max_nodes=MAX_WORK_NODES)).sympy,
+                        lower=render(
+                            substitute(domain.lower, replacements, max_nodes=MAX_WORK_NODES)
+                        ).sympy,
+                        upper=render(
+                            substitute(domain.upper, replacements, max_nodes=MAX_WORK_NODES)
+                        ).sympy,
                     )
                     for domain in equation.output_domains
                 ),
@@ -2462,12 +2513,16 @@ def _equation_report(
         name=name,
         interpretation=interpretation,
         operation_counts=_counts(submitted),
-        aggregate_operation_counts=None if blockers else render_operations(analysis.operations, work_render_budget),
+        aggregate_operation_counts=None
+        if blockers
+        else render_operations(analysis.operations, work_render_budget),
         aggregate_work=None if blockers else render_work(analysis.total_work, work_render_budget),
         direct_work_applicability="not_finite" if blockers else "finite",
         direct_work_blockers=blockers,
         dependencies=dependencies,
-        primitive_invocations=None if blockers else render_invocations(analysis.invocations, work_render_budget),
+        primitive_invocations=None
+        if blockers
+        else render_invocations(analysis.invocations, work_render_budget),
         unknown_costs=tuple(sorted(analysis.unknown_costs)),
         unresolved=tuple(sorted(analysis.unresolved)),
         relationships_used=relationships_used,
@@ -2497,18 +2552,23 @@ def _system_report(
 ) -> SystemReport:
     blockers = tuple(
         f"equation {equation.name}: {blocker}"
-        for equation in equations if equation.direct_work_blockers
+        for equation in equations
+        if equation.direct_work_blockers
         for blocker in equation.direct_work_blockers
     )
     return SystemReport(
         equations=equations,
-        aggregate_operation_counts=None if blockers else render_operations(analysis.operations, work_render_budget),
+        aggregate_operation_counts=None
+        if blockers
+        else render_operations(analysis.operations, work_render_budget),
         total_work=None if blockers else render_work(analysis.total_work, work_render_budget),
         direct_work_applicability="not_finite" if blockers else "finite",
         direct_work_blockers=blockers,
         dependency_edges=dependency_edges,
         reuse=reuse,
-        primitive_invocations=None if blockers else render_invocations(analysis.invocations, work_render_budget),
+        primitive_invocations=None
+        if blockers
+        else render_invocations(analysis.invocations, work_render_budget),
         unknown_costs=tuple(sorted(analysis.unknown_costs)),
         unresolved=tuple(sorted(analysis.unresolved)),
         extraction_opportunities=extraction_opportunities,
@@ -2590,12 +2650,20 @@ def _scenario_domain_failure(
             declaration = request.variables[name]
             lower, upper = _exact_fraction(bound.lower), _exact_fraction(bound.upper)
             if declaration.domain is MathematicalDomain.POSITIVE_REAL and upper <= 0:
-                return _invalid(f"scenario {scenario.name} interval misses declared domain for {name}")
-            if declaration.domain in {MathematicalDomain.NONNEGATIVE_REAL, MathematicalDomain.NONNEGATIVE_INTEGER} and (
-                upper < 0 or (upper == 0 and not bound.upper_inclusive)
-            ):
-                return _invalid(f"scenario {scenario.name} interval misses declared domain for {name}")
-            if declaration.domain in {MathematicalDomain.POSITIVE_INTEGER, MathematicalDomain.NONNEGATIVE_INTEGER}:
+                return _invalid(
+                    f"scenario {scenario.name} interval misses declared domain for {name}"
+                )
+            if declaration.domain in {
+                MathematicalDomain.NONNEGATIVE_REAL,
+                MathematicalDomain.NONNEGATIVE_INTEGER,
+            } and (upper < 0 or (upper == 0 and not bound.upper_inclusive)):
+                return _invalid(
+                    f"scenario {scenario.name} interval misses declared domain for {name}"
+                )
+            if declaration.domain in {
+                MathematicalDomain.POSITIVE_INTEGER,
+                MathematicalDomain.NONNEGATIVE_INTEGER,
+            }:
                 least = ceil(lower) if bound.lower_inclusive else floor(lower) + 1
                 greatest = floor(upper) if bound.upper_inclusive else ceil(upper) - 1
                 if declaration.domain is MathematicalDomain.POSITIVE_INTEGER:
@@ -2603,7 +2671,9 @@ def _scenario_domain_failure(
                 else:
                     least = max(least, 0)
                 if least > greatest:
-                    return _invalid(f"scenario {scenario.name} interval misses declared domain for {name}")
+                    return _invalid(
+                        f"scenario {scenario.name} interval misses declared domain for {name}"
+                    )
         choice_names = sorted(scenario.choices)
         for choice_values in product(*(scenario.choices[name] for name in choice_names)):
             replacements = {
@@ -2618,12 +2688,15 @@ def _scenario_domain_failure(
                 parsed = parse_expression(definition.expression)
                 if not isinstance(parsed, (ParseFailure, Equation, Relationship)):
                     parsed_definitions[definition.variable] = parsed
-            definition_order = _topological(
-                {
-                    name: _symbol_names(value) & set(parsed_definitions)
-                    for name, value in parsed_definitions.items()
-                }
-            ) or ()
+            definition_order = (
+                _topological(
+                    {
+                        name: _symbol_names(value) & set(parsed_definitions)
+                        for name, value in parsed_definitions.items()
+                    }
+                )
+                or ()
+            )
             for name in definition_order:
                 replacements[name] = substitute(
                     parsed_definitions[name], replacements, max_nodes=MAX_WORK_NODES
@@ -2712,7 +2785,11 @@ def _request_size_failure(request: AnalysisRequest) -> AnalysisFailure | None:
         for query in request.queries:
             sources.append(query.name)
             if query.target is not None:
-                sources.append(query.target.query if isinstance(query.target, DerivedTarget) else query.target.name)
+                sources.append(
+                    query.target.query
+                    if isinstance(query.target, DerivedTarget)
+                    else query.target.name
+                )
             if isinstance(query, EquivalenceQuery):
                 sources.append(query.comparison)
             if isinstance(query, (LimitQuery, AsymptoticQuery)):

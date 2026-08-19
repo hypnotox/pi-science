@@ -7,7 +7,7 @@ data:
     - term: conservative bound
       meaning: A qualified limit guaranteed by stated assumptions when an exact range cannot be derived.
     - term: dominant term
-      meaning: A term that controls growth under a declared scenario or parameter region.
+      meaning: A canonical aggregate-work term with greatest absolute magnitude within an active declared domain; it implies neither scenario control nor growth control.
     - term: equation system
       meaning: Named indexed equations whose domains and references define aggregate work and dependencies.
     - term: mathematical request
