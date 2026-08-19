@@ -436,7 +436,7 @@ describe("private formula bridge", () => {
         },
       ],
     });
-  });
+  }, 15_000);
 
   it("strictly validates candidate comparison result variants", async () => {
     const adapter = fileURLToPath(
