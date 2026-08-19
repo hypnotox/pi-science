@@ -28,23 +28,23 @@ def equivalence_answer(
     """Compare two already-parsed operands under bounded rational reasoning."""
     if reasoning is None:
         return _unresolved_with("query reasoning exceeds its bound")
-    operand_failure = _rational_diagnostic(
-        expression, "equivalence operand"
-    ) or _rational_diagnostic(comparison, "equivalence operand")
-    if operand_failure is not None:
-        return _unresolved_with(operand_failure.render())
     original_symbols = _symbol_names(expression) | _symbol_names(comparison)
     try:
         left, right = reasoning.apply(expression), reasoning.apply(comparison)
     except Exception:
         return _unresolved_with("query reasoning exceeds its bound")
+    relevant_symbols = _symbol_names(left) | _symbol_names(right) | original_symbols
+    unsupported = reasoning.relevant_unsupported(relevant_symbols)
+    operand_failure = _rational_diagnostic(
+        expression, "equivalence operand"
+    ) or _rational_diagnostic(comparison, "equivalence operand")
+    if operand_failure is not None:
+        return _unresolved_with(operand_failure.render())
     expansion_failure = _rational_diagnostic(left, "equivalence expansion") or _rational_diagnostic(
         right, "equivalence expansion"
     )
     if expansion_failure is not None:
         return _unresolved_with(expansion_failure.render())
-    relevant_symbols = _symbol_names(left) | _symbol_names(right) | original_symbols
-    unsupported = reasoning.relevant_unsupported(relevant_symbols)
     original_denominators = (*collect_denominators(left), *collect_denominators(right))
     normalized = bounded_rational_difference(left, right)
     if normalized is None:

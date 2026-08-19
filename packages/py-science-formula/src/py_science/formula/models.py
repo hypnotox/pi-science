@@ -902,6 +902,8 @@ class CandidateWorkComparison(StructuredModel):
             return self
         if not finite or self.delta is None:
             raise ValueError("comparable work requires two finite works and a delta")
+        if self.blockers:
+            raise ValueError("comparable work cannot carry blockers")
         if self.status == "equal":
             if not isinstance(self.evidence, IdentityEvidence):
                 raise ValueError("equal work requires identity evidence")

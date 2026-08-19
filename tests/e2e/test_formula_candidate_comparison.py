@@ -1,3 +1,5 @@
+from typing import Literal
+
 import py_science.formula.comparison as comparison_service
 import pytest
 from py_science.formula import (
@@ -69,6 +71,15 @@ def test_expression_candidates_disprove_before_work_preference() -> None:
     assert result.work_comparison.status == "not_comparable"
     assert result.work_comparison.delta == "0"
     assert result.work_comparison.evidence is None
+
+
+def test_identical_rational_outputs_retain_denominator_qualification() -> None:
+    result = compare_candidates(_expression_request("1 / d", "1 / d"))
+
+    assert isinstance(result, CandidateComparisonSuccess)
+    assert result.outputs[0].answer.conclusion == "proved_under_assumptions"
+    assert result.outputs[0].answer.conditions == ("d != 0",)
+    assert result.semantic_status == "proved_equal_under_assumptions"
 
 
 def test_scalar_producer_expansion_aligns_indexed_outputs_and_retains_work() -> None:
@@ -222,7 +233,8 @@ def test_sum_binders_are_alpha_renamed_during_producer_expansion() -> None:
 
     assert isinstance(result, CandidateComparisonSuccess)
     output = result.outputs[0]
-    assert output.answer.conclusion in {"proved", "proved_under_assumptions"}
+    assert output.answer.conclusion == "unresolved"
+    assert "bounded rational family" in output.answer.blockers[0]
     assert output.expanded_interpretations is not None
     left, right = output.expanded_interpretations
     assert left.normalized_sympy == right.normalized_sympy
@@ -302,8 +314,25 @@ def test_exact_sign_chart_reports_work_crossover() -> None:
 
 
 def test_unknown_and_nonfinite_work_never_produce_a_preference() -> None:
-    unknown = compare_candidates(_expression_request("opaque(x)", "opaque(x)"))
-    nonfinite = compare_candidates(_expression_request("oo", "oo"))
+    def request(extra: str) -> CandidateComparisonRequest:
+        return CandidateComparisonRequest(
+            syntax=FormulaSyntax.SYMPY,
+            variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
+            candidates=(
+                CandidateComputation(name="first", equations=(
+                    EquationRequest(name="out", expression="Eq(y, x)"),
+                    EquationRequest(name="extra", expression=f"Eq(u, {extra})"),
+                )),
+                CandidateComputation(name="second", equations=(
+                    EquationRequest(name="out", expression="Eq(z, x)"),
+                    EquationRequest(name="extra", expression=f"Eq(v, {extra})"),
+                )),
+            ),
+            outputs=(_mapping("value", "out", "out"),),
+        )
+
+    unknown = compare_candidates(request("opaque(x)"))
+    nonfinite = compare_candidates(request("oo"))
 
     assert isinstance(unknown, CandidateComparisonSuccess)
     assert unknown.semantic_status == "proved_equal"
@@ -591,6 +620,18 @@ def test_comparison_result_bound_can_fail(monkeypatch: pytest.MonkeyPatch) -> No
     assert "result exceeds its size bound" in result.error.message
 
 
+def test_unexpected_comparison_reasoning_errors_propagate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unexpected(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("unexpected reasoning defect")
+
+    monkeypatch.setattr(comparison_service.ReasoningContext, "build", unexpected)
+
+    with pytest.raises(RuntimeError, match="unexpected reasoning defect"):
+        compare_candidates(_expression_request("x", "x + 0"))
+
+
 def test_unexpected_comparison_backend_errors_propagate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -639,3 +680,25 @@ def test_result_models_reject_invalid_qualification_truth_tables() -> None:
             status="first_lower",
             evidence=None,
         )
+    comparable_cases: tuple[
+        tuple[
+            Literal["equal", "first_lower", "second_lower", "crossover"],
+            IdentityEvidence | PropertyEvidence,
+        ],
+        ...,
+    ] = (
+        ("equal", IdentityEvidence(statement="equal")),
+        ("first_lower", PropertyEvidence(value="positive")),
+        ("second_lower", PropertyEvidence(value="negative")),
+        ("crossover", PropertyEvidence(value="mixed")),
+    )
+    for status, evidence in comparable_cases:
+        with pytest.raises(ValidationError):
+            CandidateWorkComparison(
+                candidate_names=("first", "second"),
+                candidate_works=("1", "2"),
+                delta="1",
+                status=status,
+                blockers=("invalid comparable blocker",),
+                evidence=evidence,
+            )

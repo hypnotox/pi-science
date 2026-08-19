@@ -350,14 +350,7 @@ def _compare_output(
             ),
         )
         reasoning = _comparison_reasoning(request, left, domain_facts)
-        answer = (
-            QueryAnswer(
-                conclusion="proved",
-                evidence=IdentityEvidence(statement="expanded operands are structurally identical"),
-            )
-            if left_value == right_value
-            else equivalence_answer(left_value, right_value, reasoning)
-        )
+        answer = equivalence_answer(left_value, right_value, reasoning)
         answer = _merge_interface_qualification(answer, interface_answers)
         left_rendered = render(left_value)
         right_rendered = render(right_value)
@@ -435,14 +428,7 @@ def _compare_domains(
         for endpoint, left_bound, right_bound in zip(
             ("lower", "upper"), aligned_left, aligned_right, strict=True
         ):
-            answer = (
-                QueryAnswer(
-                    conclusion="proved",
-                    evidence=IdentityEvidence(statement="aligned domain bounds are identical"),
-                )
-                if left_bound == right_bound
-                else equivalence_answer(left_bound, right_bound, reasoning)
-            )
+            answer = equivalence_answer(left_bound, right_bound, reasoning)
             if answer.conclusion == "disproved":
                 return _incompatible(
                     name,
@@ -498,7 +484,7 @@ def _comparison_reasoning(
             analyzed.knowledge.definitions,
             (*analyzed.knowledge.assumptions, *domain_facts),
         )
-    except (ExpressionTooComplex, RuntimeError):
+    except ExpressionTooComplex:
         return None
 
 
