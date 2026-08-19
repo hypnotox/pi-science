@@ -358,9 +358,12 @@ export type AnalysisFailure = {
     supported_alternative: string | null;
   };
 };
+export type CandidateAnalysisSuccess = Omit<AnalysisSuccess, "system"> & {
+  system: SystemReport | null;
+};
 export type CandidateAnalysisReport = {
   name: string;
-  analysis: AnalysisSuccess;
+  analysis: CandidateAnalysisSuccess;
   aggregate_work: string | null;
 };
 export type CandidateComparisonSuccess = {

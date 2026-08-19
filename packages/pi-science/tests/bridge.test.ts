@@ -8,6 +8,7 @@ import type {
   AnalysisRequest,
   CandidateComparisonRequest,
   CandidateComparisonSuccess,
+  SystemReport,
 } from "../src/bridge.js";
 import {
   appendResponseChunk,
@@ -533,6 +534,42 @@ describe("private formula bridge", () => {
         },
       ],
     });
+  });
+
+  it("preserves canonical null systems for expression candidate reports", async () => {
+    const adapter = fileURLToPath(
+      new URL("../bridge/formula_adapter.py", import.meta.url),
+    );
+    const expressionRequest: CandidateComparisonRequest = {
+      syntax: "sympy",
+      operation: "compare_candidates",
+      candidates: [
+        { name: "first", expression: "x" },
+        { name: "second", expression: "x + 0" },
+      ],
+      outputs: [
+        {
+          name: "value",
+          targets: [
+            { candidate: "first", target: { kind: "expression" } },
+            { candidate: "second", target: { kind: "expression" } },
+          ],
+        },
+      ],
+    };
+    const result = await invokeAdapter(
+      "uv",
+      ["run", "--locked", "python", adapter],
+      expressionRequest,
+    );
+    if (result.status !== "success" || !("kind" in result))
+      throw new Error("expected candidate comparison success");
+    const firstSystem: SystemReport | null =
+      result.candidates[0].analysis.system;
+    const secondSystem: SystemReport | null =
+      result.candidates[1].analysis.system;
+    expect(firstSystem).toBeNull();
+    expect(secondSystem).toBeNull();
   });
 
   it("preserves Python request validation diagnostics from the real adapter", async () => {
