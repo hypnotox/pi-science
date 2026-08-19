@@ -1,5 +1,6 @@
 # ruff: noqa: E501, E701
 # pyright: basic, reportArgumentType=false, reportOptionalMemberAccess=false
+from dataclasses import FrozenInstanceError
 from types import SimpleNamespace
 
 import py_science.formula.equivalence as formula_equivalence
@@ -40,6 +41,94 @@ from pydantic import ValidationError
 
 def request(**extra):
     return AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x", **extra)
+
+
+@pytest.mark.parametrize(
+    ("analysis_request", "submitted_source"),
+    (
+        (
+            AnalysisRequest(
+                syntax=FormulaSyntax.SYMPY,
+                expression="x + 1",
+                queries=(
+                    {"name": "q", "kind": "equivalence", "comparison": "1 + x"},
+                ),
+            ),
+            "x + 1",
+        ),
+        (
+            AnalysisRequest(
+                syntax=FormulaSyntax.SYMPY,
+                equations=(EquationRequest(name="value", expression="Eq(y, x + 1)"),),
+                variables={
+                    "x": VariableDeclaration(domain=MathematicalDomain.REAL)
+                },
+                queries=(
+                    {
+                        "name": "q",
+                        "kind": "equivalence",
+                        "target": {"kind": "equation", "name": "value"},
+                        "comparison": "1 + x",
+                    },
+                ),
+            ),
+            "Eq(y, x + 1)",
+        ),
+    ),
+)
+def test_query_targets_reuse_retained_parsed_operands(
+    monkeypatch, analysis_request, submitted_source
+):
+    parsed_sources = []
+    original_parse = formula_query_service.parse_expression
+
+    def tracked_parse(source):
+        parsed_sources.append(source)
+        return original_parse(source)
+
+    monkeypatch.setattr(formula_query_service, "parse_expression", tracked_parse)
+    outcome = analyze(analysis_request)
+
+    assert outcome.status == "success"
+    assert parsed_sources == [submitted_source]
+
+
+def test_retained_analysis_state_is_deeply_read_only(monkeypatch):
+    retained = []
+    original_attach = formula_query_service._attach_queries
+
+    def capture(request, analyzed):
+        retained.append(analyzed)
+        return original_attach(request, analyzed)
+
+    monkeypatch.setattr(formula_query_service, "_attach_queries", capture)
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=(EquationRequest(name="value", expression="Eq(y[i], x[i])", domains={"i": {"lower": "0", "upper": "n"}}),),
+            variables={
+                "x": VariableDeclaration(domain=MathematicalDomain.REAL),
+                "n": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER),
+            },
+            queries=(
+                {
+                    "name": "q",
+                    "kind": "equivalence",
+                    "target": {"kind": "equation", "name": "value"},
+                    "comparison": "x[i]",
+                },
+            ),
+        )
+    )
+
+    assert outcome.status == "success"
+    analyzed = retained[0]
+    with pytest.raises(TypeError):
+        analyzed.equation_analyses["other"] = analyzed.aggregate_analysis
+    with pytest.raises(TypeError):
+        analyzed.equations[0].domains["j"] = analyzed.equations[0].domains["i"]
+    with pytest.raises(FrozenInstanceError):
+        analyzed.aggregate_analysis.opaque_work = IntegerLiteral(1)
 
 
 def test_bounded_integer_power_identities_normalize_in_query_backend():
