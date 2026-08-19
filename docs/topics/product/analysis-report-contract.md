@@ -20,6 +20,10 @@ Direct Python system reports preserve exact general symbolic work and identify e
 Origin: ADR-0003
 Revised-by: ADR-0009, ADR-0010, ADR-0013
 
+### `rule: qualified-candidate-comparison`
+Candidate comparison reports ordered ordinary analyses, mapped semantic evidence, and only then a second-minus-first reuse-aware aggregate abstract-work delta. Any unresolved or disproved mapping prevents preference; unsupported sign ordering remains explicit abstention rather than a runtime or optimality claim.
+Origin: ADR-adopt-bounded-candidate-comparison
+
 ### `rule: qualified-query-conclusions`
 Each query result preserves its submitted target and normalized interpretation and returns only `proved`, `proved_under_assumptions`, `disproved`, `unresolved`, or `inapplicable` conclusions with inspectable evidence and qualifications. Unresolved blockers identify the failed supported family, structural or resource bound, ambiguous axis, or missing precondition and provide safe reformulation guidance when one exists; observed and configured values appear only when bounded inspection measured them, and guidance neither proves equivalence nor promises broader evaluator support. Derived candidates are informational and never replace submitted operation counts or direct work; no-query reports remain valid with an empty query collection. A partial nested finite-polynomial candidate carries checked finite-antidifference evidence and an independently identity-verified bounded canonical factorization; proved-empty ranges close to zero, unknown ordering is a localized unresolved precondition, and failed canonicalization publishes no candidate. A dependent equivalence, properties, limit, or asymptotic result preserves its derived source target and reports that candidate as `normalized_target`; only an unavailable derived operand uses `normalized_target: null`, with a source-specific inapplicable blocker. Query constraint uses are equation-qualified and present only when the selected equation-local facts are consumed. Symbolic reports do not claim runtime, cache behaviour, numerical quality, or optimal tuning.
 Origin: ADR-0004

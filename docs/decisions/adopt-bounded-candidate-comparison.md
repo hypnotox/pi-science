@@ -1,7 +1,7 @@
 ---
 format: current-state-v4
 slug: adopt-bounded-candidate-comparison
-status: Accepted
+status: Implementing
 date: 2026-08-19
 ---
 # ADR-adopt-bounded-candidate-comparison: Adopt bounded candidate comparison
@@ -49,3 +49,5 @@ The operation retains the existing abstract mathematical-work model. It does not
 
 - 2026-08-19: Proposed
 - 2026-08-19: Accepted; content-sha256: fc0b639561cb669fbbe7ff6eaf3f6657f56defe1b313392167ce3a39b4a8d971
+- 2026-08-19: Implementing; content-sha256: fc0b639561cb669fbbe7ff6eaf3f6657f56defe1b313392167ce3a39b4a8d971
+- 2026-08-19: Applied; operations: update `product/product-boundary:symbolic-analysis-only`, add `product/mathematical-input-contract:bounded-candidate-comparison-requests`, add `product/mathematical-analysis-model:bounded-candidate-semantic-and-work-comparison`, add `product/analysis-report-contract:qualified-candidate-comparison`

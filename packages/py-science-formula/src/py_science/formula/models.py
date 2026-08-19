@@ -706,6 +706,102 @@ def _require_unique(values: Iterable[str], label: str) -> None:
         raise ValueError(f"{label} must be unique")
 
 
+class CandidateComputation(StructuredModel):
+    name: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
+    expression: str | None = None
+    equations: tuple[EquationRequest, ...] = Field(default=(), max_length=MAX_EQUATIONS)
+
+    @model_validator(mode="after")
+    def one_computation(self) -> "CandidateComputation":
+        if (self.expression is None) != bool(self.equations):
+            raise ValueError("provide exactly one expression or a nonempty equation list")
+        _require_unique((item.name for item in self.equations), "equation names")
+        return self
+
+    def to_analysis_request(self) -> "AnalysisRequest":
+        # Shared fields are supplied by CandidateComparisonRequest at call time.
+        raise RuntimeError("comparison computation must be bound to shared request metadata")
+
+
+class CandidateTargetReference(StructuredModel):
+    candidate: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
+    target: Annotated[ExpressionTarget | EquationTarget, Field(discriminator="kind")]
+
+
+class CandidateOutputMapping(StructuredModel):
+    name: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
+    targets: tuple[CandidateTargetReference, ...] = Field(min_length=2, max_length=2)
+
+
+class CandidateComparisonRequest(StructuredModel):
+    operation: Literal["compare_candidates"] = "compare_candidates"
+    syntax: FormulaSyntax
+    candidates: tuple[CandidateComputation, ...] = Field(min_length=2, max_length=2)
+    outputs: tuple[CandidateOutputMapping, ...] = Field(min_length=1, max_length=32)
+    variables: dict[str, VariableDeclaration] = Field(default_factory=dict)
+    functions: tuple[FunctionDefinition, ...] = Field(default=(), max_length=MAX_FUNCTIONS)
+    primitive_costs: tuple[PrimitiveCost, ...] = Field(default=(), max_length=MAX_PRIMITIVE_COSTS)
+    assumptions: tuple[Assumption, ...] = Field(default=(), max_length=MAX_ASSUMPTIONS)
+    definitions: tuple[DirectedDefinition, ...] = Field(default=(), max_length=MAX_DEFINITIONS)
+
+    @model_validator(mode="after")
+    def comparison_shape(self) -> "CandidateComparisonRequest":
+        _require_unique((item.name for item in self.candidates), "candidate names")
+        _require_unique((item.name for item in self.outputs), "output names")
+        _require_unique((item.name for item in self.functions), "function names")
+        _require_unique((item.name for item in self.primitive_costs), "primitive cost names")
+        _require_unique((item.name for item in self.assumptions), "assumption names")
+        _require_unique((item.variable for item in self.definitions), "directed definition variables")
+        names = {item.name for item in self.candidates}
+        for position, output in enumerate(self.outputs):
+            mapped = tuple(item.candidate for item in output.targets)
+            if set(mapped) != names or len(set(mapped)) != 2:
+                raise ValueError(f"outputs[{position}].targets must map each candidate exactly once")
+        return self
+
+    def analysis_request(self, candidate: CandidateComputation) -> "AnalysisRequest":
+        return AnalysisRequest(syntax=self.syntax, expression=candidate.expression, equations=candidate.equations, variables=self.variables, functions=self.functions, primitive_costs=self.primitive_costs, assumptions=self.assumptions, definitions=self.definitions)
+
+
+class CandidateAnalysisReport(StructuredModel):
+    name: str
+    analysis: "AnalysisSuccess"
+    aggregate_work: str | None = None
+
+
+class CandidateOutputComparison(StructuredModel):
+    name: str
+    targets: tuple[CandidateTargetReference, CandidateTargetReference]
+    interface_status: Literal["compatible", "incompatible", "unresolved"]
+    expanded_interpretations: "tuple[Interpretation, Interpretation] | None" = None
+    answer: "QueryAnswer"
+
+
+class CandidateWorkComparison(StructuredModel):
+    metric: Literal["aggregate_abstract_work"] = "aggregate_abstract_work"
+    candidate_names: tuple[str, str]
+    candidate_works: tuple[str | None, str | None]
+    delta: str | None = None
+    status: Literal["not_comparable", "equal", "first_lower", "second_lower", "crossover", "unresolved"]
+    conditions: tuple[str, ...] = ()
+    assumptions_used: "tuple[RelationshipUse, ...]" = ()
+    relevant_unsupported_assumptions: tuple[str, ...] = ()
+    blockers: tuple[str, ...] = ()
+    evidence: IdentityEvidence | PropertyEvidence | None = None
+
+
+class CandidateComparisonSuccess(StructuredModel):
+    kind: Literal["candidate_comparison"] = "candidate_comparison"
+    status: Literal["success"] = "success"
+    candidates: tuple[CandidateAnalysisReport, CandidateAnalysisReport]
+    outputs: tuple[CandidateOutputComparison, ...] = Field(min_length=1, max_length=32)
+    semantic_status: Literal["proved_equal", "proved_equal_under_assumptions", "disproved", "unresolved"]
+    work_comparison: CandidateWorkComparison
+
+
+type CandidateComparisonOutcome = Annotated[CandidateComparisonSuccess | AnalysisFailure, Field(discriminator="status")]
+
+
 class SourceLocation(StructuredModel):
     line: int = Field(ge=1)
     column: int = Field(ge=0)

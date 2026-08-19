@@ -58,6 +58,22 @@ Inspect each normalized SymPy and LaTeX interpretation before using submitted co
 
 For a one-off PEP 723 probe, put the same Git-subdirectory dependency in script metadata and invoke `uv run probe.py`. Never import from Pi's isolated backend or from `pi_science`.
 
+## Candidate comparison
+
+Direct Python can compare exactly two explicitly mapped candidates. Semantic equivalence is established before the retained ADR-0003 aggregate abstract-work delta (`second - first`) is qualified; this does not compare scenarios, runtime, machine arithmetic, resource vectors, rewrites, or global optimality.
+
+```python
+from py_science.formula import CandidateComparisonRequest, CandidateComputation, CandidateOutputMapping, CandidateTargetReference, ExpressionTarget, FormulaSyntax, compare_candidates
+
+result = compare_candidates(CandidateComparisonRequest(
+    syntax=FormulaSyntax.SYMPY,
+    candidates=(CandidateComputation(name="first", expression="x + 1"), CandidateComputation(name="second", expression="1 + x")),
+    outputs=(CandidateOutputMapping(name="value", targets=(CandidateTargetReference(candidate="first", target=ExpressionTarget()), CandidateTargetReference(candidate="second", target=ExpressionTarget()))),),
+))
+```
+
+Named systems may map an `EquationTarget` instead; comparison-only bounded expansion follows mapped producer references while each candidate's original reuse-aware graph supplies its work. Pi transport remains future work.
+
 ## Bounded queries
 
 General-context `queries` can compare an expression (or a named equation RHS) with one exact rational-expression candidate. Equivalence answers are conservative: identities retain denominator/domain conditions and use declared equalities; a nonidentity is returned only with an exact counterexample. `closed_form` also derives verified candidates for up to eight sibling, nonnested sums of `(a*k+b)*r**k`, with finite integral bounds or a finite integral lower bound and `oo`. It also partially supports one finite-polynomial nested tree (depth four, eight sums, degree eight), such as `Sum(Sum(1, (l, -k, k)), (k, 0, p))`, only when affine integral ranges are proved ordered or empty; its independently checked candidate is informational and never submitted work. Infinite candidates require a proved `Abs(r) < 1`; proved nonzero divergent series are inapplicable, and unsupported or undecidable cases stay unresolved. Candidates are informational, retain convergence and denominator conditions with assumption provenance, and never replace submitted operation counts or work. Exact univariate `properties` reports denominator exclusions, uncancelled poles, factor-sign charts, and real-derivative or integer-forward-difference monotonicity for the bounded rational family. `limit` supports exact finite substitution, directional poles, and polynomial-degree limits at signed infinity. `asymptotic` returns verified bounded Laurent expansions of rational forms in `t = x-c`, `t = 1/x`, or `t = -1/x`, with a structured exact `O(t**n)` remainder. Unsupported reasoning stays unresolved and missing realness is inapplicable. Queries do not run for scenarios or alter scenario work growth.

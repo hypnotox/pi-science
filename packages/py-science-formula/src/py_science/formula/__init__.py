@@ -1,3 +1,4 @@
+from py_science.formula.comparison import compare_candidates
 from py_science.formula.exact_values import ExactRational, parse_exact_scalar, render_exact
 from py_science.formula.expressions import InfinityLiteral, RationalLiteral
 from py_science.formula.models import (
@@ -12,6 +13,15 @@ from py_science.formula.models import (
     AsymptoticQuery,
     AsymptoticRemainder,
     AsymptoticResult,
+    CandidateAnalysisReport,
+    CandidateComparisonOutcome,
+    CandidateComparisonRequest,
+    CandidateComparisonSuccess,
+    CandidateComputation,
+    CandidateOutputComparison,
+    CandidateOutputMapping,
+    CandidateTargetReference,
+    CandidateWorkComparison,
     ClosedFormEvidence,
     ClosedFormQuery,
     ClosedFormResult,
@@ -77,6 +87,15 @@ __all__ = [
     "AsymptoticQuery",
     "AsymptoticRemainder",
     "AsymptoticResult",
+    "CandidateAnalysisReport",
+    "CandidateComparisonOutcome",
+    "CandidateComparisonRequest",
+    "CandidateComparisonSuccess",
+    "CandidateComputation",
+    "CandidateOutputComparison",
+    "CandidateOutputMapping",
+    "CandidateTargetReference",
+    "CandidateWorkComparison",
     "ClosedFormEvidence",
     "ClosedFormQuery",
     "ClosedFormResult",
@@ -131,6 +150,7 @@ __all__ = [
     "VariableDeclaration",
     "VariablePropertyCheck",
     "analyze",
+    "compare_candidates",
     "parse_exact_scalar",
     "render_exact",
 ]

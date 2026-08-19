@@ -3,7 +3,7 @@ data:
     - term: analysis scenario
       meaning: A named treatment of model variables as fixed values, bounds, finite choices, definitions, or retained scaling dimensions.
     - term: candidate comparison
-      meaning: Analysis of competing formulations under shared metadata and scenarios, including cost differences and crossover conditions.
+      meaning: Direct Python analysis of exactly two mapped formulations under shared mathematical metadata; scenarios are not compared, and work conclusions use qualified aggregate abstract-work evidence.
     - term: conservative bound
       meaning: A qualified limit guaranteed by stated assumptions when an exact range cannot be derived.
     - term: dominant term

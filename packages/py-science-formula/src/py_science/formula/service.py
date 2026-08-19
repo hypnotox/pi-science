@@ -237,6 +237,17 @@ class RenderingBudget:
 
 
 def analyze(request: AnalysisRequest) -> AnalysisOutcome:
+    """Analyze one ordinary request; comparison uses the retained private bundle."""
+    result = _analyze_computation(request)
+    if isinstance(result, AnalysisFailure):
+        return _bound_result(result)
+    outcome: AnalysisOutcome = result.success
+    if request.queries:
+        outcome = _attach_queries(request, result)
+    return _bound_result(outcome)
+
+
+def _analyze_computation(request: AnalysisRequest) -> _AnalyzedComputation | AnalysisFailure:
     request_failure = _request_size_failure(request)
     if request_failure is not None:
         return request_failure
@@ -290,11 +301,8 @@ def analyze(request: AnalysisRequest) -> AnalysisOutcome:
     except ExpressionTooComplex as error:
         return _complexity_failure(str(error))
     if isinstance(analyzed, AnalysisFailure):
-        return _bound_result(analyzed)
-    outcome: AnalysisOutcome = analyzed.success
-    if request.queries:
-        outcome = _attach_queries(request, analyzed)
-    return _bound_result(outcome)
+        return analyzed
+    return analyzed
 
 
 def _attach_queries(

@@ -8,7 +8,7 @@
 | Term | Meaning |
 |---|---|
 | analysis scenario | A named treatment of model variables as fixed values, bounds, finite choices, definitions, or retained scaling dimensions. |
-| candidate comparison | Analysis of competing formulations under shared metadata and scenarios, including cost differences and crossover conditions. |
+| candidate comparison | Direct Python analysis of exactly two mapped formulations under shared mathematical metadata; scenarios are not compared, and work conclusions use qualified aggregate abstract-work evidence. |
 | check-in | A deliberate stop for user attention: it names the issue, the options, a recommendation, and the blocked next action, then waits. |
 | claim | One statement of what holds today, declared in a current-state topic and carrying its provenance. An invariant claim is additionally backed, by a test or by stated reasoning. |
 | conservative bound | A qualified limit guaranteed by stated assumptions when an exact range cannot be derived. |

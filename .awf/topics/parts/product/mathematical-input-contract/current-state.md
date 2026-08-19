@@ -12,6 +12,10 @@ Direct Python requests safely accept either an ordinary expression or uniquely n
 Origin: ADR-0003
 Revised-by: ADR-0010, ADR-0013
 
+### `rule: bounded-candidate-comparison-requests`
+Direct Python accepts exactly two uniquely named expression or acyclic equation-system candidates with explicitly mapped outputs and shared mathematical metadata. Comparison requests contain no scenarios or general queries; Pi transport remains future work.
+Origin: ADR-adopt-bounded-candidate-comparison
+
 ### `rule: explicit-mathematical-queries`
 Formula requests may carry an optional bounded `queries` collection of explicitly named `equivalence`, `closed_form`, `properties`, `limit`, or `asymptotic` questions. An `equivalence`, `properties`, `limit`, or `asymptotic` query may instead spell `target: {kind: "derived", query: "earlier_name"}` to select exactly one verified candidate from an earlier `closed_form` query. No forward, self, scenario, or closed-form derived target is accepted; derived operands never replace submitted syntax, operation counts, or direct work. Exact finite points use canonical rational or decimal scalar syntax and signed infinity is explicit. Restricted LaTeX, complex values, dimensions, vector shorthand, differentiation, and scenario-context queries remain future capabilities.
 Origin: ADR-0004
