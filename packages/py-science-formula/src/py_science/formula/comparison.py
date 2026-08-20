@@ -8,18 +8,15 @@ from typing import Literal
 
 import py_science.formula.properties as properties
 from py_science.formula.domains import OutputDomain
-from py_science.formula.equivalence import equivalence_answer
-from py_science.formula.exact_values import parse_exact_scalar
+from py_science.formula.equivalence import equivalence_answer, mapped_output_equivalence
 from py_science.formula.expressions import (
     BinaryExpression,
-    BinaryOperator,
     Call,
     Equation,
     Expression,
     ExpressionTooComplex,
     IndexedValue,
     IntegerLiteral,
-    RationalLiteral,
     Relationship,
     RelationshipOperator,
     Sum,
@@ -46,7 +43,7 @@ from py_science.formula.models import (
 )
 from py_science.formula.parser import ParseFailure, parse_expression
 from py_science.formula.properties import property_answer
-from py_science.formula.reasoning import ReasoningContext
+from py_science.formula.reasoning import ReasoningContext, build_bounded_reasoning
 from py_science.formula.service import (
     MAX_REQUEST_BYTES,
     MAX_REQUEST_NODES,
@@ -59,8 +56,9 @@ from py_science.formula.service import (
 from py_science.formula.sympy_backend import NormalizationError, render
 from py_science.formula.work import (
     WorkRenderBudget,
+    aggregate_work_difference,
+    exact_work_sign,
     render_work,
-    simplify_constants,
 )
 
 MAX_COMPARISON_EXPANSION_NODES = 16_384
@@ -360,7 +358,7 @@ def _compare_output(
             ),
         )
         reasoning = _comparison_reasoning(request, left, domain_facts)
-        answer = equivalence_answer(left_value, right_value, reasoning)
+        answer = mapped_output_equivalence(left_value, right_value, reasoning)
         answer = _merge_interface_qualification(answer, interface_answers)
         left_rendered = render(left_value)
         right_rendered = render(right_value)
@@ -438,7 +436,7 @@ def _compare_domains(
         for endpoint, left_bound, right_bound in zip(
             ("lower", "upper"), aligned_left, aligned_right, strict=True
         ):
-            answer = equivalence_answer(left_bound, right_bound, reasoning)
+            answer = mapped_output_equivalence(left_bound, right_bound, reasoning)
             if answer.conclusion == "disproved":
                 return _incompatible(
                     name,
@@ -488,14 +486,11 @@ def _comparison_reasoning(
     analyzed: _AnalyzedComputation,
     domain_facts: tuple[NamedRelationship, ...],
 ) -> ReasoningContext | None:
-    try:
-        return ReasoningContext.build(
-            {name: declaration.domain for name, declaration in request.variables.items()},
-            analyzed.knowledge.definitions,
-            (*analyzed.knowledge.assumptions, *domain_facts),
-        )
-    except ExpressionTooComplex:
-        return None
+    return build_bounded_reasoning(
+        {name: declaration.domain for name, declaration in request.variables.items()},
+        analyzed.knowledge.definitions,
+        (*analyzed.knowledge.assumptions, *domain_facts),
+    )
 
 
 def _merge_interface_qualification(
@@ -628,12 +623,9 @@ def _work(
     delta_expression: Expression | None = None
     delta: str | None = None
     if works[0] is not None and works[1] is not None:
-        delta_expression = simplify_constants(
-            BinaryExpression(
-                BinaryOperator.SUBTRACT,
-                analyzed[1].aggregate_analysis.total_work,
-                analyzed[0].aggregate_analysis.total_work,
-            )
+        delta_expression = aggregate_work_difference(
+            analyzed[0].aggregate_analysis.total_work,
+            analyzed[1].aggregate_analysis.total_work,
         )
         delta = render_work(delta_expression, WorkRenderBudget())
     if semantic in {"disproved", "unresolved"}:
@@ -681,7 +673,7 @@ def _work(
             evidence=evidence,
         )
 
-    constant_sign = _constant_sign(delta_expression, delta)
+    constant_sign = exact_work_sign(delta_expression, delta)
     if constant_sign is not None:
         constant_status: Literal["first_lower", "second_lower"] = (
             "first_lower" if constant_sign > 0 else "second_lower"
@@ -769,17 +761,6 @@ def _work(
         relevant_unsupported_assumptions=sign_answer.relevant_unsupported_assumptions,
         evidence=sign_answer.evidence,
     )
-
-
-def _constant_sign(expression: Expression, rendered: str) -> int | None:
-    if isinstance(expression, IntegerLiteral):
-        return (expression.value > 0) - (expression.value < 0)
-    if isinstance(expression, RationalLiteral):
-        return (expression.numerator > 0) - (expression.numerator < 0)
-    exact = parse_exact_scalar(rendered)
-    if exact is None:
-        return None
-    return (exact.numerator > 0) - (exact.numerator < 0)
 
 
 def _comparison_request_size_failure(

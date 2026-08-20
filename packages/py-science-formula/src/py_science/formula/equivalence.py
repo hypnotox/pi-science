@@ -22,6 +22,13 @@ from py_science.formula.sympy_backend import (
 MAX_COUNTEREXAMPLE_STEPS = 256
 
 
+def mapped_output_equivalence(
+    expression: Expression, comparison: Expression, reasoning: ReasoningContext | None
+) -> QueryAnswer:
+    """Prove equality of retained or expanded outputs under bounded reasoning."""
+    return equivalence_answer(expression, comparison, reasoning)
+
+
 def equivalence_answer(
     expression: Expression, comparison: Expression, reasoning: ReasoningContext | None
 ) -> QueryAnswer:

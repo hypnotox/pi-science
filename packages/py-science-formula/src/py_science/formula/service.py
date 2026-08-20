@@ -1,7 +1,7 @@
 # ruff: noqa: E501
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass
 from fractions import Fraction
@@ -78,6 +78,9 @@ from py_science.formula.models import (
     SourceSpan,
     SystemReport,
     VariablePropertyCheck,
+)
+from py_science.formula.optimization import (
+    _extraction_opportunities,  # pyright: ignore[reportPrivateUsage]
 )
 from py_science.formula.parser import ParseFailure, ParseFailureKind, parse_expression
 from py_science.formula.query import QueryTarget, evaluate_queries
@@ -1504,7 +1507,14 @@ def _analyze_system(
                 for domain in equation.output_domains
             ),
         )
-        all_extractions.extend(_extraction_opportunities(name, equation.formula.right, producers))
+        all_extractions.extend(
+            _extraction_opportunities(
+                name,
+                equation.formula.right,
+                producers,
+                output_indices=equation.domain_order,
+            )
+        )
 
     combined = WorkAnalysis()
     for name in order:
@@ -2098,36 +2108,6 @@ def _contains_advanced(expression: Expression) -> bool:
     if isinstance(expression, (IndexedValue, Call, Sum, InfinityLiteral)):
         return True
     return any(_contains_advanced(child) for child in expression_children(expression))
-
-
-def _extraction_opportunities(
-    equation_name: str,
-    expression: Expression,
-    producers: dict[str, Producer],
-) -> tuple[str, ...]:
-    counts: Counter[Expression] = Counter()
-
-    def visit(node: Expression) -> None:
-        is_named_reference = (isinstance(node, Symbol) and node.name in producers) or (
-            isinstance(node, IndexedValue) and node.name in producers
-        )
-        if isinstance(node, (BinaryExpression, Call, Sum)) and not is_named_reference:
-            counts[node] += 1
-        for child in expression_children(node):
-            visit(child)
-
-    visit(expression)
-    opportunities: list[str] = []
-    for node, count in counts.items():
-        if count > 1:
-            try:
-                text = render(node).sympy
-            except NormalizationError:
-                continue
-            opportunities.append(
-                f"equation {equation_name}: extract repeated `{text}` ({count} occurrences)"
-            )
-    return tuple(sorted(opportunities))
 
 
 def _canonical_equality_replacement(

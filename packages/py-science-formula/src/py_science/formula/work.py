@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from py_science.formula.exact_values import parse_exact_scalar
 from py_science.formula.expressions import (
     BinaryExpression,
     BinaryOperator,
@@ -404,6 +405,23 @@ def is_integer_expression(expression: Expression, context: WorkContext) -> bool:
     if isinstance(expression, Sum):
         return is_integer_expression(expression.body, context.with_integer_symbol(expression.index))
     return False
+
+
+def aggregate_work_difference(first: Expression, second: Expression) -> Expression:
+    """Return the bounded-comparison convention: second aggregate work minus first."""
+    return simplify_constants(BinaryExpression(BinaryOperator.SUBTRACT, second, first))
+
+
+def exact_work_sign(expression: Expression, rendered: str) -> int | None:
+    """Determine a finite exact aggregate-work sign without rendering as policy."""
+    if isinstance(expression, IntegerLiteral):
+        return (expression.value > 0) - (expression.value < 0)
+    if isinstance(expression, RationalLiteral):
+        return (expression.numerator > 0) - (expression.numerator < 0)
+    exact = parse_exact_scalar(rendered)
+    if exact is None:
+        return None
+    return (exact.numerator > 0) - (exact.numerator < 0)
 
 
 def render_work(expression: Expression, budget: WorkRenderBudget) -> str:

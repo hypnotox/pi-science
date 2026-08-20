@@ -18,6 +18,7 @@ from py_science.formula.expressions import (
     BinaryExpression,
     BinaryOperator,
     Expression,
+    ExpressionTooComplex,
     IntegerLiteral,
     RationalLiteral,
     Relationship,
@@ -64,6 +65,18 @@ class DomainFact:
             self.upper is not None
             and (rational > self.upper or (rational == self.upper and self.upper_strict))
         )
+
+
+def build_bounded_reasoning(
+    domains: dict[str, MathematicalDomain],
+    definitions: tuple[Any, ...],
+    assumptions: tuple[Any, ...],
+) -> ReasoningContext | None:
+    """Build bounded reasoning for an internal consumer without exposing overflow."""
+    try:
+        return ReasoningContext.build(domains, definitions, assumptions)
+    except ExpressionTooComplex:
+        return None
 
 
 @dataclass(frozen=True, slots=True)
