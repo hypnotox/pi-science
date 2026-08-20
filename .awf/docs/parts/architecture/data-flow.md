@@ -12,7 +12,10 @@ Optional general-context query requests and their exact discriminated qualified 
 
 Derived query targets cross protocol v9 as strict correlation data only; Python owns earlier-only validation, verified-candidate eligibility, bounded qualification composition, and unavailable-target results. Direct `closed_form` may additionally evaluate one partial finite-polynomial nested Sum tree in Python; the bridge transports its checked candidate and never classifies or verifies it.
 
-Direct Python dominance requests bypass Pi transport (which remains pending), analyze retained original aggregate work once, and use the typed explicit-axis sign-chart seam for bounded canonical regions.
+Direct Python and Pi dominance requests analyze retained original aggregate work once, and use the typed explicit-axis sign-chart seam for bounded canonical regions.
 
 
-Bounded aggregate-work dominance is available in Python and Pi protocol v10. Python owns its canonical rational decomposition and exact one-axis regions; Pi validates and presents the report without recomputing mathematical policy. It excludes multiple axes, exponentials, opaque aggregates, rewrites, resource vectors, scheduling, and empirical performance.
+Bounded aggregate-work dominance is available in Python and Pi protocol v11. Python owns its canonical rational decomposition and exact one-axis regions; Pi validates and presents the report without recomputing mathematical policy. It excludes multiple axes, exponentials, opaque aggregates, rewrites, resource vectors, scheduling, and empirical performance.
+
+
+Ordinary analysis defaults to three bounded optimization suggestions; zero disables advice. Python proves and ranks only positive abstract aggregate-work reductions, while Pi strictly transports the qualified report. Phase 2 ships local repeated-structure, reuse, factoring, redundant-operation-removal, and iterator-invariant-hoisting advice; cross-equation sharing and Horner remain pending.

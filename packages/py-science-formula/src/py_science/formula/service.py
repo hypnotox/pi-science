@@ -88,6 +88,7 @@ from py_science.formula.models import (
 )
 from py_science.formula.optimization import (
     _extraction_opportunities,  # pyright: ignore[reportPrivateUsage]
+    _optimization_report,  # pyright: ignore[reportPrivateUsage]
 )
 from py_science.formula.parser import ParseFailure, ParseFailureKind, parse_expression
 from py_science.formula.query import QueryTarget, evaluate_queries
@@ -125,9 +126,9 @@ from py_science.formula.work import (
 MAX_REQUEST_BYTES = 262_144
 MAX_REQUEST_NODES = 16_384
 MAX_RESULT_BYTES = 262_144
+MAX_OPTIMIZATION_BYTES = 65_536
+MAX_COMBINED_RESULT_BYTES = MAX_RESULT_BYTES + MAX_OPTIMIZATION_BYTES
 MAX_RENDERED_BYTES = 196_608
-
-
 
 
 def _retain_work_analysis(analysis: WorkAnalysis) -> RetainedWorkAnalysis:
@@ -139,6 +140,7 @@ def _retain_work_analysis(analysis: WorkAnalysis) -> RetainedWorkAnalysis:
         unresolved=frozenset(analysis.unresolved),
         direct_work_blockers=frozenset(analysis.direct_work_blockers),
     )
+
 
 class FormulaLoader:
     def __init__(self) -> None:
@@ -184,6 +186,9 @@ def analyze(request: AnalysisRequest) -> AnalysisOutcome:
     outcome: AnalysisOutcome = result.success
     if request.queries:
         outcome = _attach_queries(request, result)
+    if isinstance(outcome, AnalysisSuccess):
+        optimization = _optimization_report(request, result.expression)
+        outcome = outcome.model_copy(update={"optimization": optimization})
     return _bound_result(outcome)
 
 
@@ -223,13 +228,17 @@ def _dominance_fixed_assumption_failure(
         fact = reasoning.facts.get(name)
         contradicts_fact = fact is not None and (
             (fact.integer and value.denominator != 1)
-            or (fact.lower is not None and (value < fact.lower or (value == fact.lower and fact.lower_strict)))
-            or (fact.upper is not None and (value > fact.upper or (value == fact.upper and fact.upper_strict)))
+            or (
+                fact.lower is not None
+                and (value < fact.lower or (value == fact.lower and fact.lower_strict))
+            )
+            or (
+                fact.upper is not None
+                and (value > fact.upper or (value == fact.upper and fact.upper_strict))
+            )
         )
         try:
-            resolved = substitute(
-                reasoning.apply(Symbol(name)), fixed_expressions, max_nodes=4_096
-            )
+            resolved = substitute(reasoning.apply(Symbol(name)), fixed_expressions, max_nodes=4_096)
         except Exception:
             resolved = Symbol(name)
         replacement_value = _constant_value(resolved)
@@ -256,8 +265,10 @@ def _dominance_fixed_assumption_failure(
             )
         except Exception:
             continue
-        if left is None or right is None or _fixed_relationship_holds(
-            assumption.value.operator, left, right
+        if (
+            left is None
+            or right is None
+            or _fixed_relationship_holds(assumption.value.operator, left, right)
         ):
             continue
         relevant = sorted(
@@ -1449,8 +1460,7 @@ def _analyze_system(
                 producers,
                 output_indices=equation.domain_order,
                 output_domains={
-                    domain.index: (domain.lower, domain.upper)
-                    for domain in equation.output_domains
+                    domain.index: (domain.lower, domain.upper) for domain in equation.output_domains
                 },
             )
         )
@@ -2835,11 +2845,28 @@ def _request_size_failure(request: AnalysisRequest) -> AnalysisFailure | None:
 
 
 def _bound_result(outcome: AnalysisOutcome) -> AnalysisOutcome:
-    if (
-        isinstance(outcome, AnalysisSuccess)
-        and len(outcome.model_dump_json().encode("utf-8")) > MAX_RESULT_BYTES
-    ):
-        return _complexity_failure("analysis result exceeds its size bound")
+    if isinstance(outcome, AnalysisSuccess):
+        base = outcome.model_copy(update={"optimization": None})
+        advice = outcome.optimization
+        if len(base.model_dump_json().encode("utf-8")) > MAX_RESULT_BYTES:
+            return _complexity_failure("analysis result exceeds its base size bound")
+        if (
+            advice is not None
+            and len(advice.model_dump_json().encode("utf-8")) > MAX_OPTIMIZATION_BYTES
+        ):
+            outcome = outcome.model_copy(
+                update={
+                    "optimization": advice.model_copy(
+                        update={
+                            "suggestions": (),
+                            "status": "incomplete",
+                            "qualifications": ("optimization advice exceeds its byte bound",),
+                        }
+                    )
+                }
+            )
+        if len(outcome.model_dump_json().encode("utf-8")) > MAX_COMBINED_RESULT_BYTES:
+            return _complexity_failure("analysis result exceeds its combined size bound")
     return outcome
 
 

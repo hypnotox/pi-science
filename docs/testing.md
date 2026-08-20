@@ -16,10 +16,13 @@ The Pi tier includes protocol-v9 analysis and candidate-comparison request/resul
 
 Derived query targets cross protocol v9 as strict correlation data only; Python owns earlier-only validation, verified-candidate eligibility, bounded qualification composition, and unavailable-target results.
 
-The direct-Python tier covers canonical dominance decomposition, poles, exact cells, and bounded abstention; Pi dominance transport remains pending.
+The Python and Pi tiers cover canonical dominance decomposition, poles, exact cells, bounded abstention, and strict dominance transport.
 
 
-Bounded aggregate-work dominance is available in Python and Pi protocol v10. Python owns its canonical rational decomposition and exact one-axis regions; Pi validates and presents the report without recomputing mathematical policy. It excludes multiple axes, exponentials, opaque aggregates, rewrites, resource vectors, scheduling, and empirical performance.
+Bounded aggregate-work dominance is available in Python and Pi protocol v11. Python owns its canonical rational decomposition and exact one-axis regions; Pi validates and presents the report without recomputing mathematical policy. It excludes multiple axes, exponentials, opaque aggregates, rewrites, resource vectors, scheduling, and empirical performance.
+
+
+Ordinary analysis defaults to three bounded optimization suggestions; zero disables advice. Python proves and ranks only positive abstract aggregate-work reductions, while Pi strictly transports the qualified report. Phase 2 ships local repeated-structure, reuse, factoring, redundant-operation-removal, and iterator-invariant-hoisting advice; cross-equation sharing and Horner remain pending.
 
 
 <!-- awf:edit layout: from .awf/docs/parts/testing/layout.md -->
@@ -33,5 +36,8 @@ Derived query targets cross protocol v9 as strict correlation data only; Python 
 `tests/e2e/test_formula_dominance.py` covers the direct-Python dominance contract and preserves ordinary nested analysis.
 
 
-Bounded aggregate-work dominance is available in Python and Pi protocol v10. Python owns its canonical rational decomposition and exact one-axis regions; Pi validates and presents the report without recomputing mathematical policy. It excludes multiple axes, exponentials, opaque aggregates, rewrites, resource vectors, scheduling, and empirical performance.
+Bounded aggregate-work dominance is available in Python and Pi protocol v11. Python owns its canonical rational decomposition and exact one-axis regions; Pi validates and presents the report without recomputing mathematical policy. It excludes multiple axes, exponentials, opaque aggregates, rewrites, resource vectors, scheduling, and empirical performance.
+
+
+Ordinary analysis defaults to three bounded optimization suggestions; zero disables advice. Python proves and ranks only positive abstract aggregate-work reductions, while Pi strictly transports the qualified report. Phase 2 ships local repeated-structure, reuse, factoring, redundant-operation-removal, and iterator-invariant-hoisting advice; cross-equation sharing and Horner remain pending.
 

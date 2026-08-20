@@ -142,3 +142,5 @@ pole_scope = analyze_dominance(DominanceAnalysisRequest(
 assert pole_scope.shared_denominator == "n - 1"
 assert [pole.value for pole in pole_scope.exclusions] == ["1"]
 ```
+
+Ordinary `AnalysisRequest` accepts frozen `optimization.max_suggestions` (default `3`, range `0..16`). Successful ordinary analysis carries a bounded qualified optimization report; zero disables advice.

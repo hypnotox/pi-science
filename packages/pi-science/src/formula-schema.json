@@ -83,6 +83,18 @@
           "maxItems": 128,
           "type": "array"
         },
+        "optimization": {
+          "additionalProperties": false,
+          "description": "Bounded, informational advice requested only for ordinary analysis.",
+          "properties": {
+            "max_suggestions": {
+              "maximum": 16,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
         "primitive_costs": {
           "items": {
             "additionalProperties": false,
@@ -749,6 +761,18 @@
           },
           "maxItems": 128,
           "type": "array"
+        },
+        "optimization": {
+          "additionalProperties": false,
+          "description": "Bounded, informational advice requested only for ordinary analysis.",
+          "properties": {
+            "max_suggestions": {
+              "maximum": 16,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "type": "object"
         },
         "primitive_costs": {
           "items": {

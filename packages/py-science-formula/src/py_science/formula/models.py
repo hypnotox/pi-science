@@ -657,6 +657,12 @@ type QueryResult = Annotated[
 ]
 
 
+class OptimizationConfig(StructuredModel):
+    """Bounded, informational advice requested only for ordinary analysis."""
+
+    max_suggestions: int = Field(default=3, ge=0, le=16)
+
+
 class AnalysisRequest(StructuredModel):
     syntax: FormulaSyntax
     expression: str | None = None
@@ -668,6 +674,7 @@ class AnalysisRequest(StructuredModel):
     definitions: tuple[DirectedDefinition, ...] = Field(default=(), max_length=MAX_DEFINITIONS)
     scenarios: tuple[Scenario, ...] = Field(default=(), max_length=MAX_SCENARIOS)
     queries: tuple[QueryRequest, ...] = Field(default=(), max_length=32)
+    optimization: OptimizationConfig = Field(default_factory=OptimizationConfig)
 
     @model_validator(mode="after")
     def validate_request(self) -> "AnalysisRequest":
@@ -1206,6 +1213,81 @@ class SystemReport(StructuredModel):
         return self
 
 
+class OptimizationTarget(StructuredModel):
+    kind: Literal["expression", "equation"]
+    name: str | None = None
+
+    @model_validator(mode="after")
+    def target_shape(self) -> "OptimizationTarget":
+        if (self.kind == "equation") != (self.name is not None):
+            raise ValueError("equation optimization targets require a name")
+        return self
+
+
+class OptimizationOccurrence(StructuredModel):
+    path: tuple[int, ...] = Field(max_length=128)
+    binders: tuple[str, ...] = Field(default=(), max_length=32)
+    output_indices: tuple[str, ...] = Field(default=(), max_length=32)
+
+    @field_validator("path")
+    @classmethod
+    def nonnegative_path(cls, value: tuple[int, ...]) -> tuple[int, ...]:
+        if any(part < 0 for part in value):
+            raise ValueError("optimization occurrence paths are nonnegative")
+        return value
+
+
+class OptimizationIntermediate(StructuredModel):
+    name: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
+    expression: Interpretation
+    scope_binders: tuple[str, ...] = Field(default=(), max_length=32)
+    scope_output_indices: tuple[str, ...] = Field(default=(), max_length=32)
+
+
+class OptimizationSuggestion(StructuredModel):
+    kind: Literal["repeated_subexpression", "repeated_call", "reciprocal_reuse", "factoring", "redundant_operation_removal", "iterator_invariant_hoisting"]
+    target: OptimizationTarget
+    occurrences: tuple[OptimizationOccurrence, ...] = Field(min_length=1, max_length=128)
+    original: Interpretation
+    proposed: Interpretation
+    intermediate: OptimizationIntermediate | None = None
+    conclusion: Literal["proved", "proved_under_assumptions"]
+    evidence: IdentityEvidence
+    conditions: tuple[BoundedQueryText, ...] = Field(default=(), max_length=128)
+    assumptions_used: tuple[RelationshipUse, ...] = Field(default=(), max_length=128)
+    work_before: BoundedQueryText
+    work_after: BoundedQueryText
+    savings: BoundedQueryText
+    finite_precision_qualification: Literal["exact_symbolic_only"] = "exact_symbolic_only"
+
+    @model_validator(mode="after")
+    def proved_positive_shape(self) -> "OptimizationSuggestion":
+        if not self.savings or self.work_before == self.work_after:
+            raise ValueError("optimization suggestions require positive savings")
+        if self.conclusion == "proved" and (self.conditions or self.assumptions_used):
+            raise ValueError("unconditional optimization proof cannot carry conditions")
+        return self
+
+
+class OptimizationReport(StructuredModel):
+    requested_limit: int = Field(ge=0, le=16)
+    status: Literal["disabled", "complete", "incomplete"]
+    suggestions: tuple[OptimizationSuggestion, ...] = Field(default=(), max_length=16)
+    qualifications: tuple[BoundedQueryText, ...] = Field(default=(), max_length=128)
+
+    @model_validator(mode="after")
+    def report_shape(self) -> "OptimizationReport":
+        if len(self.suggestions) > self.requested_limit:
+            raise ValueError("optimization suggestions exceed requested limit")
+        if self.status == "disabled" and (self.requested_limit != 0 or self.suggestions or self.qualifications):
+            raise ValueError("disabled optimization requires an empty zero-limit report")
+        if self.status == "incomplete" and not self.qualifications:
+            raise ValueError("incomplete optimization requires an exhaustion qualification")
+        if self.status == "complete" and any("exhaust" in item for item in self.qualifications):
+            raise ValueError("complete optimization cannot claim exhaustion")
+        return self
+
+
 class AnalysisSuccess(StructuredModel):
     status: Literal["success"] = "success"
     interpretation: Interpretation
@@ -1216,6 +1298,7 @@ class AnalysisSuccess(StructuredModel):
     system: SystemReport | None = None
     scenarios: tuple[ScenarioResult, ...] = ()
     queries: tuple[QueryResult, ...] = ()
+    optimization: OptimizationReport | None = Field(default_factory=lambda: OptimizationReport(requested_limit=3, status="complete"))
 
     @model_validator(mode="after")
     def validate_direct_work(self) -> "AnalysisSuccess":

@@ -64,7 +64,8 @@ def test_shadowed_binders_keep_lexical_identity_and_capture_context() -> None:
     expression = _expression("Sum(Sum(x[i] + 1, (i, 0, M)), (i, 0, N))")
 
     body = next(
-        item for item in _detect_occurrences("out", expression, {}, output_indices=("i",))
+        item
+        for item in _detect_occurrences("out", expression, {}, output_indices=("i",))
         if item.path == (2, 2)
     )
 
@@ -113,3 +114,28 @@ def test_extraction_renderer_preserves_legacy_text_and_exhaustion_is_quiet() -> 
     assert _extraction_opportunities("a", _expression("x + 1"), {}) == ()
     with pytest.raises(_TraversalExhausted):
         _detect_occurrences("a", expression, {}, max_nodes=1)
+
+
+def test_optimization_config_is_strict_and_bounded() -> None:
+    from py_science.formula import AnalysisRequest, FormulaSyntax
+    from pydantic import ValidationError
+
+    default = AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x")
+    disabled = AnalysisRequest.model_validate(
+        {
+            "syntax": FormulaSyntax.SYMPY,
+            "expression": "x",
+            "optimization": {"max_suggestions": 0},
+        }
+    )
+    assert default.optimization.max_suggestions == 3
+    assert disabled.optimization.max_suggestions == 0
+    with pytest.raises(ValidationError) as error:
+        AnalysisRequest.model_validate(
+            {
+                "syntax": FormulaSyntax.SYMPY,
+                "expression": "x",
+                "optimization": {"max_suggestions": 17},
+            }
+        )
+    assert error.value.errors()[0]["loc"] == ("optimization", "max_suggestions")

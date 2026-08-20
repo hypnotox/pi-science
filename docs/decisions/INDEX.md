@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-- [ADR-adopt-bounded-formula-optimization-advice: Adopt bounded formula optimization advice](adopt-bounded-formula-optimization-advice.md) (Accepted)
+- [ADR-adopt-bounded-formula-optimization-advice: Adopt bounded formula optimization advice](adopt-bounded-formula-optimization-advice.md) (Implementing)
 
 ## History
 

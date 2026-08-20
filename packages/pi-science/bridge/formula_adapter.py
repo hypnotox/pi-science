@@ -17,7 +17,7 @@ from py_science.formula import (
 )
 from pydantic import TypeAdapter, ValidationError
 
-PROTOCOL_VERSION = 10
+PROTOCOL_VERSION = 11
 REQUEST_ADAPTER: TypeAdapter[
     AnalysisRequest | CandidateComparisonRequest | DominanceAnalysisRequest
 ] = TypeAdapter(AnalysisRequest | CandidateComparisonRequest | DominanceAnalysisRequest)
@@ -25,7 +25,7 @@ REQUEST_ADAPTER: TypeAdapter[
 # limit also covers JSON escaping and every bounded collection/name field.
 MAX_ENVELOPE_BYTES = 2_097_152
 # The Python result policy is 262,144 bytes; this adds bounded protocol framing.
-MAX_RESPONSE_BYTES = 262_400
+MAX_RESPONSE_BYTES = 327_936
 MAX_DIAGNOSTIC_BYTES = 4_096
 
 

@@ -32,3 +32,8 @@ Revised-by: ADR-0005, ADR-0011, ADR-0012, ADR-0013, ADR-0014
 ### `rule: qualified-dominance-regions`
 Dominance reports canonical terms, active-domain cells, poles, ties, provenance, and bounded unresolved blockers. They state relevance only within the active domain and never imply speed, ranking, or optimality.
 Origin: ADR-0016
+
+
+### `rule: qualified-optimization-advice`
+Ordinary successful analysis reports bounded optimization advice separately from submitted interpretation, work, scenarios, and queries. Published local suggestions carry exact-symbolic proof evidence, conditions, structural targets and occurrences, and positive whole-computation abstract-work savings; incomplete search is explicit and does not imply no improvement exists.
+Origin: ADR-adopt-bounded-formula-optimization-advice

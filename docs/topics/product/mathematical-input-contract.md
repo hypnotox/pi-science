@@ -32,3 +32,8 @@ Revised-by: ADR-0011, ADR-0014
 ### `rule: bounded-dominance-analysis-requests`
 Python and Pi accept one bounded dominance request for one expression or equation system, one declared numeric axis, exact non-axis fixed values, and an optional exact range. Scenarios, queries, candidates, multiple axes, and mathematical-value summands are excluded.
 Origin: ADR-0016
+
+
+### `rule: bounded-optimization-advice-requests`
+Ordinary expression and equation-system requests may carry only `optimization.max_suggestions`, which defaults to 3 and accepts integers from 0 through 16; zero disables advice. Candidate comparison and dominance requests do not carry optimization configuration.
+Origin: ADR-adopt-bounded-formula-optimization-advice

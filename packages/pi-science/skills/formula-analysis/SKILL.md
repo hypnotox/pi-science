@@ -109,3 +109,5 @@ When a request fails, retain the Python-owned message and use any returned field
 The tool analyzes formulas and directly attached mathematical schema only. It does not accept LaTeX input, infer formulas from source, evaluate represented values numerically, validate physics, profile an implementation, predict runtime or hardware behavior, prove arbitrary theorems, or generate code.
 
 For persistent or one-off direct Python use, depend on `py-science-formula` independently of Pi's isolated backend and import `py_science.formula`. The [`py-science-formula` README](../../../py-science-formula/README.md) contains the matching typed request and PEP 723 guidance.
+
+Optimization advice is informational: ordinary analysis defaults to at most three exact-symbolically proved positive abstract aggregate-work suggestions. Set `optimization.max_suggestions` to `0` to disable it; Pi transports the Python qualification and does not recompute it.

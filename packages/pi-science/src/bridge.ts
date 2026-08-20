@@ -1,10 +1,10 @@
 import { TextDecoder } from "node:util";
 import { spawnIsolated, terminateTree } from "./process.js";
 
-export const PROTOCOL_VERSION = 10;
+export const PROTOCOL_VERSION = 11;
 export const MAX_FORMULA_BYTES = 65_536;
 export const MAX_ENVELOPE_BYTES = 2_097_152;
-export const MAX_RESPONSE_BYTES = 262_400;
+export const MAX_RESPONSE_BYTES = 327_936;
 const MAX_DIAGNOSTIC_BYTES = 4_096;
 
 export type MathematicalDomain =
@@ -39,6 +39,7 @@ export type PrimitiveCost = {
 };
 export type Assumption = { name: string; relationship: string };
 export type DirectedDefinition = { variable: string; expression: string };
+export type OptimizationConfig = { max_suggestions?: number };
 export type ExactScenarioScalar = string | number;
 export type IntervalBound = {
   lower: ExactScenarioScalar;
@@ -165,6 +166,7 @@ type RequestMetadata<Query extends QueryRequest> = {
   definitions?: DirectedDefinition[];
   scenarios?: Scenario[];
   queries?: Query[];
+  optimization?: OptimizationConfig;
 };
 export type ExpressionAnalysisRequest =
   RequestMetadata<ExpressionQueryRequest> & {
@@ -316,6 +318,39 @@ export type SystemReport = {
   relationships_used: RelationshipUse[];
   unused_assumptions: string[];
 };
+export type OptimizationSuggestion = {
+  kind:
+    | "repeated_subexpression"
+    | "repeated_call"
+    | "reciprocal_reuse"
+    | "factoring"
+    | "redundant_operation_removal"
+    | "iterator_invariant_hoisting";
+  target: { kind: "expression" | "equation"; name: string | null };
+  occurrences: Array<{
+    path: number[];
+    binders: string[];
+    output_indices: string[];
+  }>;
+  original: Interpretation;
+  proposed: Interpretation;
+  intermediate: unknown | null;
+  conclusion: "proved" | "proved_under_assumptions";
+  evidence: { kind: "identity"; statement: string };
+  conditions: string[];
+  assumptions_used: RelationshipUse[];
+  work_before: string;
+  work_after: string;
+  savings: string;
+  finite_precision_qualification: "exact_symbolic_only";
+};
+export type OptimizationReport = {
+  requested_limit: number;
+  status: "disabled" | "complete" | "incomplete";
+  suggestions: OptimizationSuggestion[];
+  qualifications: string[];
+};
+
 export type AnalysisSuccess = {
   status: "success";
   interpretation: Interpretation;
@@ -326,6 +361,7 @@ export type AnalysisSuccess = {
   system?: SystemReport;
   scenarios: ScenarioResult[];
   queries: QueryResult[];
+  optimization?: OptimizationReport;
 };
 export type ResolvedTarget =
   { kind: "expression" } | { kind: "equation"; name: string } | DerivedTarget;
@@ -2596,6 +2632,45 @@ function validDominanceResult(
     : value.shared_denominator !== null;
 }
 
+function validOptimization(value: unknown, requested: unknown): boolean {
+  if (
+    !isRecord(value) ||
+    !exactKeys(value, [
+      "requested_limit",
+      "status",
+      "suggestions",
+      "qualifications",
+    ])
+  )
+    return false;
+  const limit = value.requested_limit;
+  if (
+    typeof limit !== "number" ||
+    !Number.isSafeInteger(limit) ||
+    limit < 0 ||
+    limit > 16 ||
+    !["disabled", "complete", "incomplete"].includes(String(value.status)) ||
+    !Array.isArray(value.suggestions) ||
+    value.suggestions.length > limit ||
+    !validStringArray(value.qualifications)
+  )
+    return false;
+  if (value.status === "disabled")
+    return (
+      limit === 0 &&
+      value.suggestions.length === 0 &&
+      value.qualifications.length === 0
+    );
+  if (value.status === "incomplete" && value.qualifications.length === 0)
+    return false;
+  return (
+    limit ===
+    (isRecord(requested) && requested.max_suggestions !== undefined
+      ? requested.max_suggestions
+      : 3)
+  );
+}
+
 function validResult(
   value: unknown,
   request?: AnalysisRequest,
@@ -2614,6 +2689,7 @@ function validResult(
       "queries",
     ];
     if ("system" in value) keys.push("system");
+    if ("optimization" in value) keys.push("optimization");
     return (
       exactKeys(value, keys) &&
       (isExpressionRequest(request) || "system" in value) &&
@@ -2637,7 +2713,9 @@ function validResult(
       validScenarioCorrelation(request, value.scenarios) &&
       Array.isArray(value.queries) &&
       value.queries.every(validQueryResult) &&
-      validQueryCorrelation(request, value.queries as QueryResult[])
+      validQueryCorrelation(request, value.queries as QueryResult[]) &&
+      (!("optimization" in value) ||
+        validOptimization(value.optimization, request.optimization))
     );
   }
   if (value.status === "failure") {

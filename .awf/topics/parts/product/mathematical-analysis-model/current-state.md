@@ -28,3 +28,8 @@ Origin: ADR-0004
 ### `rule: canonical-aggregate-work-term-dominance`
 Direct Python decomposes only retained original aggregate abstract work into bounded reduced-rational signed power terms and uses exact absolute-magnitude regions on one active axis. Unsupported exponentials, opaque aggregates, rewrites, runtime/resources/scheduling/optimality, and global relevance remain excluded.
 Origin: ADR-0016
+
+
+### `rule: bounded-optimization-transformation`
+Python uses bounded local repeated-structure, reuse, factoring, redundant-operation-removal, and iterator-invariant-hoisting candidates only after retained ordinary analysis. It publishes only independently exact-symbolically proved positive aggregate-work reductions under declared domains; Pi transports shape and population without recomputing mathematics. Cross-equation sharing and Horner reformulation remain pending.
+Origin: ADR-adopt-bounded-formula-optimization-advice
