@@ -89,6 +89,9 @@ def _detect_occurrences(
             isinstance(node, (Symbol, IndexedValue)) and node.name in producers
         )
         if is_named_reference:
+            if isinstance(node, IndexedValue):
+                for index, child in enumerate(node.indices):
+                    visit(child, (*path, index), bound)
             return
         binder_names = tuple(item.name for item in bound)
         if isinstance(node, (BinaryExpression, Call, Sum)):

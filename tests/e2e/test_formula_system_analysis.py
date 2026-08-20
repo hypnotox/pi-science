@@ -475,6 +475,32 @@ def test_named_indexed_equations_reuse_producer_and_sum_work() -> None:
     assert outcome.system.extraction_opportunities == ()
 
 
+def test_named_producer_indices_preserve_legacy_extraction_diagnostics() -> None:
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=(
+                EquationRequest(
+                    name="m",
+                    expression="Eq(M[b], x[b])",
+                    domains={"b": IndexDomain(lower="0", upper="B - 1")},
+                ),
+                EquationRequest(
+                    name="l",
+                    expression="Eq(L[b], M[b + 1] + M[b + 1])",
+                    domains={"b": IndexDomain(lower="0", upper="B - 2")},
+                ),
+            ),
+            variables=variables("B", "x"),
+        )
+    )
+    assert outcome.status == "success"
+    assert outcome.system is not None
+    assert outcome.system.extraction_opportunities == (
+        "equation l: extract repeated `b + 1` (2 occurrences)",
+    )
+
+
 def assert_iterators_are_lexically_bound(rendered: str) -> None:
     parsed = cast(Any, sympify(rendered))
     assert {symbol.name for symbol in parsed.free_symbols}.isdisjoint({"j", "k"})

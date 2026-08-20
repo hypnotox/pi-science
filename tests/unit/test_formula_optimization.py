@@ -74,7 +74,7 @@ def test_shadowed_binders_keep_lexical_identity_and_capture_context() -> None:
     assert body.free_symbols == frozenset({"x"})
 
 
-def test_call_paths_and_named_producer_subtrees_are_observable() -> None:
+def test_call_paths_and_named_producer_index_paths_are_observable() -> None:
     call = _detect_occurrences("out", _expression("f(x + 1)"), {})
     assert [(item.path, type(item.expression).__name__) for item in call] == [
         ((), "Call"),
@@ -88,7 +88,7 @@ def test_call_paths_and_named_producer_subtrees_are_observable() -> None:
         (0, 0),
         (1, 0),
     ]
-    assert [item.path for item in with_producer] == [()]
+    assert [item.path for item in with_producer] == [(), (0, 0), (1, 0)]
 
 
 def test_sum_bounds_remain_outside_the_new_binder_and_named_producers_are_skipped() -> None:
