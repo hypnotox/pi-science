@@ -1513,6 +1513,10 @@ def _analyze_system(
                 equation.formula.right,
                 producers,
                 output_indices=equation.domain_order,
+                output_domains={
+                    domain.index: (domain.lower, domain.upper)
+                    for domain in equation.output_domains
+                },
             )
         )
 

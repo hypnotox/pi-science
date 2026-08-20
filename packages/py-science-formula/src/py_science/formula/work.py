@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Literal
 
-from py_science.formula.exact_values import parse_exact_scalar
+import py_science.formula.properties as properties
+from py_science.formula.equivalence import equivalence_answer
 from py_science.formula.expressions import (
     BinaryExpression,
     BinaryOperator,
@@ -21,8 +23,17 @@ from py_science.formula.expressions import (
     expression_node_count,
     substitute,
 )
-from py_science.formula.models import MathematicalDomain, SymbolicOperationCounts
-from py_science.formula.sympy_backend import render
+from py_science.formula.models import (
+    IdentityEvidence,
+    MathematicalDomain,
+    PropertyEvidence,
+    RelationshipUse,
+    SignPropertyCheck,
+    SymbolicOperationCounts,
+)
+from py_science.formula.properties import property_answer
+from py_science.formula.reasoning import ReasoningContext
+from py_science.formula.sympy_backend import bounded_rational_difference, render
 
 _ZERO = IntegerLiteral(0)
 _ONE = IntegerLiteral(1)
@@ -407,21 +418,140 @@ def is_integer_expression(expression: Expression, context: WorkContext) -> bool:
     return False
 
 
+@dataclass(frozen=True, slots=True)
+class AggregateWorkRelation:
+    """One bounded, typed relation between retained aggregate-work expressions."""
+
+    delta: Expression
+    status: Literal["equal", "first_lower", "second_lower", "crossover", "unresolved"]
+    conditions: tuple[str, ...] = ()
+    assumptions_used: tuple[RelationshipUse, ...] = ()
+    relevant_unsupported_assumptions: tuple[str, ...] = ()
+    blockers: tuple[str, ...] = ()
+    evidence: IdentityEvidence | PropertyEvidence | None = None
+
+
+def compare_aggregate_work(
+    first: Expression,
+    second: Expression,
+    reasoning: ReasoningContext | None,
+) -> AggregateWorkRelation:
+    """Classify second-minus-first work without using rendered text as policy."""
+    delta = simplify_constants(BinaryExpression(BinaryOperator.SUBTRACT, second, first))
+    zero_answer = equivalence_answer(delta, IntegerLiteral(0), reasoning)
+    if zero_answer.conclusion in {"proved", "proved_under_assumptions"}:
+        evidence = zero_answer.evidence
+        if not isinstance(evidence, IdentityEvidence):
+            evidence = IdentityEvidence(statement="aggregate work difference is zero")
+        return AggregateWorkRelation(
+            delta=delta,
+            status="equal",
+            conditions=zero_answer.conditions,
+            assumptions_used=zero_answer.assumptions_used,
+            relevant_unsupported_assumptions=zero_answer.relevant_unsupported_assumptions,
+            evidence=evidence,
+        )
+
+    constant_sign = exact_work_sign(delta)
+    if constant_sign is not None:
+        if constant_sign == 0:
+            return AggregateWorkRelation(
+                delta=delta,
+                status="equal",
+                evidence=IdentityEvidence(statement="aggregate work difference is zero"),
+            )
+        label = "positive" if constant_sign > 0 else "negative"
+        return AggregateWorkRelation(
+            delta=delta,
+            status="first_lower" if constant_sign > 0 else "second_lower",
+            evidence=PropertyEvidence(
+                value="exact constant aggregate-work sign",
+                intervals=(f"all values: {label}",),
+            ),
+        )
+
+    sign_answer = property_answer(delta, SignPropertyCheck(), reasoning)
+    if (
+        sign_answer.conclusion not in {"proved", "proved_under_assumptions"}
+        or not isinstance(sign_answer.evidence, PropertyEvidence)
+    ):
+        return AggregateWorkRelation(
+            delta=delta,
+            status="unresolved",
+            conditions=sign_answer.conditions,
+            assumptions_used=sign_answer.assumptions_used,
+            relevant_unsupported_assumptions=sign_answer.relevant_unsupported_assumptions,
+            blockers=sign_answer.blockers or ("exact aggregate-work sign is unsupported",),
+        )
+    if reasoning is None:
+        return AggregateWorkRelation(
+            delta=delta,
+            status="unresolved",
+            blockers=("exact aggregate-work sign reasoning is unavailable",),
+        )
+    shape = properties._shape(  # pyright: ignore[reportPrivateUsage]
+        delta, None, reasoning, subject="aggregate-work sign"
+    )
+    if isinstance(shape, properties.QueryDiagnostic):  # pyright: ignore[reportPrivateUsage]
+        return AggregateWorkRelation(
+            delta=delta,
+            status="unresolved",
+            conditions=sign_answer.conditions,
+            assumptions_used=sign_answer.assumptions_used,
+            relevant_unsupported_assumptions=sign_answer.relevant_unsupported_assumptions,
+            blockers=("exact aggregate-work sign chart has no decisive intervals",),
+        )
+    chart = properties.structural_sign_chart(delta, str(shape.variable), reasoning)
+    signs: set[str] = (
+        {"positive" if item.sign > 0 else "negative" for item in chart.intervals}
+        if chart and chart.refusal is None
+        else set()
+    )
+    status: Literal["first_lower", "second_lower", "crossover", "unresolved"] = (
+        "crossover"
+        if signs == {"positive", "negative"}
+        else "first_lower"
+        if signs == {"positive"}
+        else "second_lower"
+        if signs == {"negative"}
+        else "unresolved"
+    )
+    return AggregateWorkRelation(
+        delta=delta,
+        status=status,
+        conditions=sign_answer.conditions,
+        assumptions_used=sign_answer.assumptions_used,
+        relevant_unsupported_assumptions=sign_answer.relevant_unsupported_assumptions,
+        blockers=("exact aggregate-work sign chart has no decisive intervals",)
+        if status == "unresolved"
+        else (),
+        evidence=None if status == "unresolved" else sign_answer.evidence,
+    )
+
+
 def aggregate_work_difference(first: Expression, second: Expression) -> Expression:
     """Return the bounded-comparison convention: second aggregate work minus first."""
     return simplify_constants(BinaryExpression(BinaryOperator.SUBTRACT, second, first))
 
 
-def exact_work_sign(expression: Expression, rendered: str) -> int | None:
-    """Determine a finite exact aggregate-work sign without rendering as policy."""
+def exact_work_sign(expression: Expression) -> int | None:
+    """Determine a finite exact aggregate-work sign from typed IR only."""
     if isinstance(expression, IntegerLiteral):
         return (expression.value > 0) - (expression.value < 0)
     if isinstance(expression, RationalLiteral):
         return (expression.numerator > 0) - (expression.numerator < 0)
-    exact = parse_exact_scalar(rendered)
-    if exact is None:
+    normalized = bounded_rational_difference(expression, IntegerLiteral(0))
+    if (
+        normalized is None
+        or normalized.numerator.free_symbols
+        or not normalized.numerator.is_Rational
+        or not normalized.denominator.is_Rational
+    ):
         return None
-    return (exact.numerator > 0) - (exact.numerator < 0)
+    numerator = int(normalized.numerator.p)
+    denominator = int(normalized.denominator.p)
+    sign = numerator * denominator
+    return (sign > 0) - (sign < 0)
 
 
 def render_work(expression: Expression, budget: WorkRenderBudget) -> str:

@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Literal
 
-import py_science.formula.properties as properties
 from py_science.formula.domains import OutputDomain
-from py_science.formula.equivalence import equivalence_answer, mapped_output_equivalence
+from py_science.formula.equivalence import equivalence_answer
 from py_science.formula.expressions import (
     BinaryExpression,
     Call,
@@ -16,7 +15,6 @@ from py_science.formula.expressions import (
     Expression,
     ExpressionTooComplex,
     IndexedValue,
-    IntegerLiteral,
     Relationship,
     RelationshipOperator,
     Sum,
@@ -33,16 +31,13 @@ from py_science.formula.models import (
     CandidateOutputComparison,
     CandidateTargetReference,
     CandidateWorkComparison,
+    EquationTarget,
     ExpressionTarget,
-    IdentityEvidence,
     Interpretation,
-    PropertyEvidence,
     QueryAnswer,
-    SignPropertyCheck,
     SourceReference,
 )
 from py_science.formula.parser import ParseFailure, parse_expression
-from py_science.formula.properties import property_answer
 from py_science.formula.reasoning import ReasoningContext, build_bounded_reasoning
 from py_science.formula.service import (
     MAX_REQUEST_BYTES,
@@ -57,7 +52,7 @@ from py_science.formula.sympy_backend import NormalizationError, render
 from py_science.formula.work import (
     WorkRenderBudget,
     aggregate_work_difference,
-    exact_work_sign,
+    compare_aggregate_work,
     render_work,
 )
 
@@ -81,6 +76,13 @@ class _Operand:
     value: Expression
     binders: tuple[str, ...] | None
     domains: tuple[OutputDomain, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _MappedOutputResult:
+    interface_status: Literal["compatible", "incompatible", "unresolved"]
+    expanded_interpretations: tuple[Interpretation, Interpretation] | None
+    answer: QueryAnswer
 
 
 class _Expander:
@@ -274,13 +276,41 @@ def _compare_output(
         by_candidate[request.candidates[0].name],
         by_candidate[request.candidates[1].name],
     )
+    result = _compare_mapped_outputs(
+        name,
+        targets[0].target,
+        targets[1].target,
+        left,
+        right,
+        budget,
+        reserved_names,
+        lambda facts: _comparison_reasoning(request, left, facts),
+    )
+    return _output(
+        name,
+        targets,
+        result.interface_status,
+        result.expanded_interpretations,
+        result.answer,
+    )
+
+
+def _compare_mapped_outputs(
+    name: str,
+    left_target: ExpressionTarget | EquationTarget,
+    right_target: ExpressionTarget | EquationTarget,
+    left: _AnalyzedComputation,
+    right: _AnalyzedComputation,
+    budget: _ExpansionBudget,
+    reserved_names: set[str],
+    reasoning_for: Callable[[tuple[NamedRelationship, ...]], ReasoningContext | None],
+) -> _MappedOutputResult:
+    """Expand, align, and prove two mapped outputs behind neutral typed targets."""
     operands: list[_Operand] = []
-    for target, analyzed in zip(targets, (left, right), strict=True):
+    for target, analyzed in ((left_target, left), (right_target, right)):
         operand, blocker = _target_operand(target, analyzed)
         if operand is None:
-            return _output(
-                name,
-                targets,
+            return _mapped_output(
                 "incompatible",
                 None,
                 QueryAnswer(conclusion="inapplicable", blockers=(blocker,)),
@@ -288,51 +318,39 @@ def _compare_output(
         operands.append(operand)
     left_operand, right_operand = operands
     if (left_operand.binders is None) != (right_operand.binders is None):
-        return _incompatible(
-            name,
-            targets,
-            "mapped outputs have incompatible scalar and indexed interfaces",
+        return _mapped_incompatible(
+            "mapped outputs have incompatible scalar and indexed interfaces"
         )
     if (
         left_operand.binders is not None
         and right_operand.binders is not None
         and len(left_operand.binders) != len(right_operand.binders)
     ):
-        return _incompatible(
-            name,
-            targets,
-            "mapped indexed outputs have different arity",
-        )
+        return _mapped_incompatible("mapped indexed outputs have different arity")
 
-    canonical = _canonical_indices(
-        len(left_operand.binders or ()), reserved_names
-    )
+    canonical = _canonical_indices(len(left_operand.binders or ()), reserved_names)
     left_expander = _Expander(left, budget, reserved_names)
     right_expander = _Expander(right, budget, reserved_names)
     domain_facts: tuple[NamedRelationship, ...] = ()
     interface_answers: tuple[QueryAnswer, ...] = ()
     if left_operand.binders is not None and right_operand.binders is not None:
         try:
-            interface = _compare_domains(
+            interface = _compare_mapped_domains(
                 name,
-                targets,
                 left_operand,
                 right_operand,
                 canonical,
                 left_expander,
                 right_expander,
-                request,
-                left,
+                reasoning_for,
             )
         except ExpressionTooComplex as error:
-            return _output(
-                name,
-                targets,
+            return _mapped_output(
                 "unresolved",
                 None,
                 QueryAnswer(conclusion="unresolved", blockers=(str(error),)),
             )
-        if isinstance(interface, CandidateOutputComparison):
+        if isinstance(interface, _MappedOutputResult):
             return interface
         domain_facts, interface_answers = interface
 
@@ -357,23 +375,18 @@ def _compare_output(
                 )
             ),
         )
-        reasoning = _comparison_reasoning(request, left, domain_facts)
-        answer = mapped_output_equivalence(left_value, right_value, reasoning)
+        answer = equivalence_answer(left_value, right_value, reasoning_for(domain_facts))
         answer = _merge_interface_qualification(answer, interface_answers)
         left_rendered = render(left_value)
         right_rendered = render(right_value)
     except ExpressionTooComplex as error:
-        return _output(
-            name,
-            targets,
+        return _mapped_output(
             "compatible",
             None,
             QueryAnswer(conclusion="unresolved", blockers=(str(error),)),
         )
     except NormalizationError:
-        return _output(
-            name,
-            targets,
+        return _mapped_output(
             "compatible",
             None,
             QueryAnswer(
@@ -391,23 +404,18 @@ def _compare_output(
             normalized_latex=right_rendered.latex,
         ),
     )
-    return _output(name, targets, "compatible", interpretations, answer)
+    return _mapped_output("compatible", interpretations, answer)
 
 
-def _compare_domains(
+def _compare_mapped_domains(
     name: str,
-    targets: tuple[CandidateTargetReference, CandidateTargetReference],
     left: _Operand,
     right: _Operand,
     canonical: tuple[str, ...],
     left_expander: _Expander,
     right_expander: _Expander,
-    request: CandidateComparisonRequest,
-    analyzed: _AnalyzedComputation,
-) -> (
-    tuple[tuple[NamedRelationship, ...], tuple[QueryAnswer, ...]]
-    | CandidateOutputComparison
-):
+    reasoning_for: Callable[[tuple[NamedRelationship, ...]], ReasoningContext | None],
+) -> tuple[tuple[NamedRelationship, ...], tuple[QueryAnswer, ...]] | _MappedOutputResult:
     assert left.binders is not None and right.binders is not None
     left_by_name = {domain.index: domain for domain in left.domains}
     right_by_name = {domain.index: domain for domain in right.domains}
@@ -419,7 +427,7 @@ def _compare_domains(
     )
     facts: list[NamedRelationship] = []
     answers: list[QueryAnswer] = []
-    reasoning = _comparison_reasoning(request, analyzed, ())
+    reasoning = reasoning_for(())
     for position, (left_name, right_name, canonical_name) in enumerate(
         zip(left.binders, right.binders, canonical, strict=True)
     ):
@@ -436,20 +444,16 @@ def _compare_domains(
         for endpoint, left_bound, right_bound in zip(
             ("lower", "upper"), aligned_left, aligned_right, strict=True
         ):
-            answer = mapped_output_equivalence(left_bound, right_bound, reasoning)
+            answer = equivalence_answer(left_bound, right_bound, reasoning)
             if answer.conclusion == "disproved":
-                return _incompatible(
-                    name,
-                    targets,
-                    f"mapped output {endpoint} domains differ at position {position}",
+                return _mapped_incompatible(
+                    f"mapped output {endpoint} domains differ at position {position}"
                 )
             if answer.conclusion not in {"proved", "proved_under_assumptions"}:
                 blockers = answer.blockers or (
                     f"mapped output {endpoint} domain equality is unproved",
                 )
-                return _output(
-                    name,
-                    targets,
+                return _mapped_output(
                     "unresolved",
                     None,
                     QueryAnswer(conclusion="unresolved", blockers=blockers),
@@ -534,10 +538,9 @@ def _merge_interface_qualification(
 
 
 def _target_operand(
-    reference: CandidateTargetReference,
+    target: ExpressionTarget | EquationTarget,
     analyzed: _AnalyzedComputation,
 ) -> tuple[_Operand | None, str]:
-    target = reference.target
     if isinstance(target, ExpressionTarget):
         if analyzed.expression is None:
             return None, "expression target requires an expression candidate"
@@ -563,17 +566,25 @@ def _target_operand(
     return _Operand(equation.formula.right, None, ()), ""
 
 
-def _incompatible(
-    name: str,
-    targets: tuple[CandidateTargetReference, CandidateTargetReference],
-    blocker: str,
-) -> CandidateOutputComparison:
-    return _output(
-        name,
-        targets,
+def _mapped_incompatible(blocker: str) -> _MappedOutputResult:
+    return _mapped_output(
         "incompatible",
         None,
         QueryAnswer(conclusion="inapplicable", blockers=(blocker,)),
+    )
+
+
+def _mapped_output(
+    interface: Literal["compatible", "incompatible", "unresolved"],
+    expanded: tuple[Interpretation, Interpretation] | None,
+    answer: QueryAnswer,
+) -> _MappedOutputResult:
+    return _MappedOutputResult(
+        interface_status=interface,
+        expanded_interpretations=expanded,
+        answer=answer.model_copy(
+            update={"check": None, "derived_candidates": (), "constraint_uses": ()}
+        ),
     )
 
 
@@ -656,110 +667,21 @@ def _work(
             blockers=("unknown primitive costs: " + ", ".join(unknown_costs),),
         )
 
-    reasoning = _comparison_reasoning(request, analyzed[0], ())
-    zero_answer = equivalence_answer(delta_expression, IntegerLiteral(0), reasoning)
-    if zero_answer.conclusion in {"proved", "proved_under_assumptions"}:
-        evidence = zero_answer.evidence
-        if not isinstance(evidence, IdentityEvidence):
-            evidence = IdentityEvidence(statement="aggregate work difference is zero")
-        return CandidateWorkComparison(
-            candidate_names=candidate_names,
-            candidate_works=works,
-            delta=delta,
-            status="equal",
-            conditions=zero_answer.conditions,
-            assumptions_used=zero_answer.assumptions_used,
-            relevant_unsupported_assumptions=zero_answer.relevant_unsupported_assumptions,
-            evidence=evidence,
-        )
-
-    constant_sign = exact_work_sign(delta_expression, delta)
-    if constant_sign is not None:
-        constant_status: Literal["first_lower", "second_lower"] = (
-            "first_lower" if constant_sign > 0 else "second_lower"
-        )
-        label = "positive" if constant_sign > 0 else "negative"
-        return CandidateWorkComparison(
-            candidate_names=candidate_names,
-            candidate_works=works,
-            delta=delta,
-            status=constant_status,
-            evidence=PropertyEvidence(
-                value="exact constant aggregate-work sign",
-                intervals=(f"all values: {label}",),
-            ),
-        )
-
-    sign_answer = property_answer(delta_expression, SignPropertyCheck(), reasoning)
-    if (
-        sign_answer.conclusion not in {"proved", "proved_under_assumptions"}
-        or not isinstance(sign_answer.evidence, PropertyEvidence)
-    ):
-        return CandidateWorkComparison(
-            candidate_names=candidate_names,
-            candidate_works=works,
-            delta=delta,
-            status="unresolved",
-            conditions=sign_answer.conditions,
-            assumptions_used=sign_answer.assumptions_used,
-            relevant_unsupported_assumptions=sign_answer.relevant_unsupported_assumptions,
-            blockers=sign_answer.blockers
-            or ("exact aggregate-work sign is unsupported",),
-        )
-    # Candidate policy consumes structural chart signs directly.  Evidence is
-    # still the legacy property rendering, never an input to mathematical policy.
-    assert reasoning is not None
-    shape = properties._shape(  # pyright: ignore[reportPrivateUsage]
-        delta_expression, None, reasoning, subject="candidate aggregate-work sign"
+    relation = compare_aggregate_work(
+        analyzed[0].aggregate_analysis.total_work,
+        analyzed[1].aggregate_analysis.total_work,
+        _comparison_reasoning(request, analyzed[0], ()),
     )
-    if isinstance(shape, properties.QueryDiagnostic):  # pyright: ignore[reportPrivateUsage]
-        return CandidateWorkComparison(
-            candidate_names=candidate_names,
-            candidate_works=works,
-            delta=delta,
-            status="unresolved",
-            conditions=sign_answer.conditions,
-            assumptions_used=sign_answer.assumptions_used,
-            relevant_unsupported_assumptions=sign_answer.relevant_unsupported_assumptions,
-            blockers=("exact aggregate-work sign chart has no decisive intervals",),
-        )
-    chart = properties.structural_sign_chart(delta_expression, str(shape.variable), reasoning)
-    signs: set[str] = (
-        {"positive" if item.sign > 0 else "negative" for item in chart.intervals}
-        if chart and chart.refusal is None
-        else set()
-    )
-    chart_status: Literal[
-        "first_lower", "second_lower", "crossover", "unresolved"
-    ] = (
-        "crossover"
-        if signs == {"positive", "negative"}
-        else "first_lower"
-        if signs == {"positive"}
-        else "second_lower"
-        if signs == {"negative"}
-        else "unresolved"
-    )
-    if chart_status == "unresolved":
-        return CandidateWorkComparison(
-            candidate_names=candidate_names,
-            candidate_works=works,
-            delta=delta,
-            status=chart_status,
-            conditions=sign_answer.conditions,
-            assumptions_used=sign_answer.assumptions_used,
-            relevant_unsupported_assumptions=sign_answer.relevant_unsupported_assumptions,
-            blockers=("exact aggregate-work sign chart has no decisive intervals",),
-        )
     return CandidateWorkComparison(
         candidate_names=candidate_names,
         candidate_works=works,
-        delta=delta,
-        status=chart_status,
-        conditions=sign_answer.conditions,
-        assumptions_used=sign_answer.assumptions_used,
-        relevant_unsupported_assumptions=sign_answer.relevant_unsupported_assumptions,
-        evidence=sign_answer.evidence,
+        delta=render_work(relation.delta, WorkRenderBudget()),
+        status=relation.status,
+        conditions=relation.conditions,
+        assumptions_used=relation.assumptions_used,
+        relevant_unsupported_assumptions=relation.relevant_unsupported_assumptions,
+        blockers=relation.blockers,
+        evidence=relation.evidence,
     )
 
 
