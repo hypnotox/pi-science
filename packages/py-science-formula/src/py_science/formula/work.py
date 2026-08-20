@@ -419,11 +419,23 @@ def is_integer_expression(expression: Expression, context: WorkContext) -> bool:
 
 
 @dataclass(frozen=True, slots=True)
+class AggregateWorkComparisonInput:
+    """Typed availability and qualification state for one aggregate-work operand."""
+
+    work: Expression | None = None
+    available: bool = True
+    unknown_costs: frozenset[str] = frozenset()
+    direct_work_blockers: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True, slots=True)
 class AggregateWorkRelation:
     """One bounded, typed relation between retained aggregate-work expressions."""
 
-    delta: Expression
-    status: Literal["equal", "first_lower", "second_lower", "crossover", "unresolved"]
+    delta: Expression | None
+    status: Literal[
+        "equal", "first_lower", "second_lower", "crossover", "unresolved", "not_comparable"
+    ]
     conditions: tuple[str, ...] = ()
     assumptions_used: tuple[RelationshipUse, ...] = ()
     relevant_unsupported_assumptions: tuple[str, ...] = ()
@@ -432,12 +444,46 @@ class AggregateWorkRelation:
 
 
 def compare_aggregate_work(
-    first: Expression,
-    second: Expression,
+    first: AggregateWorkComparisonInput,
+    second: AggregateWorkComparisonInput,
     reasoning: ReasoningContext | None,
+    *,
+    semantic_established: bool,
 ) -> AggregateWorkRelation:
-    """Classify second-minus-first work without using rendered text as policy."""
-    delta = simplify_constants(BinaryExpression(BinaryOperator.SUBTRACT, second, first))
+    """Classify aggregate work after owning all availability qualifications."""
+    available = (
+        first.available
+        and second.available
+        and first.work is not None
+        and second.work is not None
+        and not first.direct_work_blockers
+        and not second.direct_work_blockers
+    )
+    if available:
+        assert first.work is not None and second.work is not None
+        delta = aggregate_work_difference(first.work, second.work)
+    else:
+        delta = None
+    if not semantic_established:
+        return AggregateWorkRelation(
+            delta=delta,
+            status="not_comparable",
+            blockers=("mapped output semantics are not established",),
+        )
+    if not available:
+        return AggregateWorkRelation(
+            delta=None,
+            status="unresolved",
+            blockers=("candidate aggregate direct work is unavailable",),
+        )
+    unknown_costs = sorted(first.unknown_costs | second.unknown_costs)
+    if unknown_costs:
+        return AggregateWorkRelation(
+            delta=delta,
+            status="unresolved",
+            blockers=("unknown primitive costs: " + ", ".join(unknown_costs),),
+        )
+    assert delta is not None
     zero_answer = equivalence_answer(delta, IntegerLiteral(0), reasoning)
     if zero_answer.conclusion in {"proved", "proved_under_assumptions"}:
         evidence = zero_answer.evidence

@@ -1,6 +1,7 @@
 from typing import Literal
 
 import py_science.formula.comparison as comparison_service
+import py_science.formula.mapped_outputs as mapped_outputs
 import pytest
 from py_science.formula import (
     AnalysisFailure,
@@ -245,7 +246,7 @@ def test_sum_binders_are_alpha_renamed_during_producer_expansion() -> None:
 def test_domain_expansion_overflow_is_a_correlated_unresolved_output(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    expander = comparison_service._Expander  # pyright: ignore[reportPrivateUsage]
+    expander = mapped_outputs.MappedOutputExpander  # pyright: ignore[reportPrivateUsage]
 
     def overflow(*_args: object, **_kwargs: object) -> None:
         raise ExpressionTooComplex("comparison domain expansion exceeds its bound")
@@ -698,7 +699,7 @@ def test_unexpected_comparison_backend_errors_propagate(
     def unexpected(*_args: object, **_kwargs: object) -> None:
         raise RuntimeError("unexpected comparison defect")
 
-    monkeypatch.setattr(comparison_service, "equivalence_answer", unexpected)
+    monkeypatch.setattr(mapped_outputs, "equivalence_answer", unexpected)
 
     with pytest.raises(RuntimeError, match="unexpected comparison defect"):
         compare_candidates(_expression_request("x", "x + 0"))

@@ -1615,3 +1615,38 @@ def test_query_result_models_reject_invalid_derived_target_nullability():
         EquivalenceResult(name="wrong_source", target={"kind": "derived", "query": "closed"}, normalized_target=None, summary="bad", answers=(QueryAnswer(conclusion="inapplicable", blockers=("derived target source other concluded unresolved",)),))
     with pytest.raises(ValidationError):
         EquivalenceResult(name="missing_conclusion", target={"kind": "derived", "query": "closed"}, normalized_target=None, summary="bad", answers=(QueryAnswer(conclusion="inapplicable", blockers=("derived target source closed",)),))
+
+
+def test_aggregate_work_comparison_owns_unavailable_cost_and_blocker_policy() -> None:
+    from py_science.formula.work import (  # pyright: ignore[reportPrivateUsage]
+        AggregateWorkComparisonInput,
+        compare_aggregate_work,
+    )
+
+    available = AggregateWorkComparisonInput(work=IntegerLiteral(1))
+    unavailable = AggregateWorkComparisonInput(available=False)
+    unknown = AggregateWorkComparisonInput(
+        work=IntegerLiteral(1), unknown_costs=frozenset({"opaque"})
+    )
+    blocked = AggregateWorkComparisonInput(
+        work=IntegerLiteral(1), direct_work_blockers=frozenset({"not finite"})
+    )
+
+    for operand, blocker in (
+        (unavailable, "candidate aggregate direct work is unavailable"),
+        (unknown, "unknown primitive costs: opaque"),
+        (blocked, "candidate aggregate direct work is unavailable"),
+    ):
+        relation = compare_aggregate_work(
+            available, operand, None, semantic_established=True
+        )
+        assert relation.status == "unresolved"
+        assert relation.delta == (IntegerLiteral(0) if operand is unknown else None)
+        assert relation.blockers == (blocker,)
+
+    semantic = compare_aggregate_work(
+        available, unknown, None, semantic_established=False
+    )
+    assert semantic.status == "not_comparable"
+    assert semantic.delta == IntegerLiteral(0)
+    assert semantic.blockers == ("mapped output semantics are not established",)

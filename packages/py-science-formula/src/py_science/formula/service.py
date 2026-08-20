@@ -2,14 +2,21 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Mapping
-from dataclasses import dataclass
 from fractions import Fraction
 from itertools import product
 from math import ceil, floor
 from types import MappingProxyType
 
 from py_science.formula.analyzer import OperationTally, count_operations
+from py_science.formula.computation import (
+    Knowledge,
+    NamedDefinition,
+    NamedRelationship,
+    ParsedEquation,
+    Producer,
+    RetainedComputation,
+    RetainedWorkAnalysis,
+)
 from py_science.formula.domains import OutputDomain, build_output_domains
 from py_science.formula.domains import extent as domain_extent
 from py_science.formula.domains import free_symbols as domain_free_symbols
@@ -97,7 +104,6 @@ from py_science.formula.work import (
     MAX_WORK_NODES,
     FunctionRule,
     PrimitiveRule,
-    SymbolicTally,
     WorkAnalysis,
     WorkContext,
     WorkRenderBudget,
@@ -122,80 +128,10 @@ MAX_RESULT_BYTES = 262_144
 MAX_RENDERED_BYTES = 196_608
 
 
-@dataclass(frozen=True, slots=True)
-class ParsedEquation:
-    name: str
-    submitted_constraints: tuple[DomainConstraint, ...]
-    formula: Equation
-    domains: Mapping[str, tuple[Expression, Expression]]
-    constraints: tuple[tuple[str, str, Relationship], ...]
-    output_domains: tuple[OutputDomain, ...]
-    domain_order: tuple[str, ...]
 
 
-@dataclass(frozen=True, slots=True)
-class Producer:
-    equation_name: str
-    value_name: str
-    arity: int
-
-
-@dataclass(frozen=True, slots=True)
-class NamedRelationship:
-    name: str
-    source: str
-    value: Relationship
-
-
-@dataclass(frozen=True, slots=True)
-class NamedDefinition:
-    name: str
-    source: str
-    expression: Expression
-    domain_qualification: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class Knowledge:
-    assumptions: tuple[NamedRelationship, ...] = ()
-    definitions: tuple[NamedDefinition, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class _RetainedWorkAnalysis:
-    """Immutable snapshot of original submitted-graph work."""
-
-    operations: SymbolicTally
-    opaque_work: Expression
-    invocations: Mapping[str, Expression]
-    unknown_costs: frozenset[str]
-    unresolved: frozenset[str]
-    direct_work_blockers: frozenset[str]
-
-    @property
-    def total_work(self) -> Expression:
-        return WorkAnalysis(
-            operations=self.operations,
-            opaque_work=self.opaque_work,
-        ).total_work
-
-
-@dataclass(frozen=True, slots=True)
-class _AnalyzedComputation:
-    """Private immutable state retained from one validated ordinary analysis."""
-
-    success: AnalysisSuccess
-    expression: Expression | None
-    equations: tuple[ParsedEquation, ...]
-    producers: Mapping[str, Producer]
-    dependency_order: tuple[str, ...]
-    equation_analyses: Mapping[str, _RetainedWorkAnalysis]
-    aggregate_analysis: _RetainedWorkAnalysis
-    knowledge: Knowledge
-
-
-def _retain_work_analysis(analysis: WorkAnalysis) -> _RetainedWorkAnalysis:
-    return _RetainedWorkAnalysis(
+def _retain_work_analysis(analysis: WorkAnalysis) -> RetainedWorkAnalysis:
+    return RetainedWorkAnalysis(
         operations=analysis.operations,
         opaque_work=analysis.opaque_work,
         invocations=MappingProxyType(dict(analysis.invocations)),
@@ -203,7 +139,6 @@ def _retain_work_analysis(analysis: WorkAnalysis) -> _RetainedWorkAnalysis:
         unresolved=frozenset(analysis.unresolved),
         direct_work_blockers=frozenset(analysis.direct_work_blockers),
     )
-
 
 class FormulaLoader:
     def __init__(self) -> None:
@@ -269,7 +204,7 @@ def analyze_dominance(request: DominanceAnalysisRequest) -> DominanceAnalysisOut
 
 
 def _dominance_fixed_assumption_failure(
-    request: DominanceAnalysisRequest, computed: _AnalyzedComputation
+    request: DominanceAnalysisRequest, computed: RetainedComputation
 ) -> AnalysisFailure | None:
     """Reject exact fixed values that contradict checked global reasoning facts."""
     try:
@@ -351,7 +286,7 @@ def _fixed_relationship_holds(
     return left >= right
 
 
-def _analyze_computation(request: AnalysisRequest) -> _AnalyzedComputation | AnalysisFailure:
+def _analyze_computation(request: AnalysisRequest) -> RetainedComputation | AnalysisFailure:
     request_failure = _request_size_failure(request)
     if request_failure is not None:
         return request_failure
@@ -409,7 +344,7 @@ def _analyze_computation(request: AnalysisRequest) -> _AnalyzedComputation | Ana
     return analyzed
 
 
-def _attach_queries(request: AnalysisRequest, analyzed: _AnalyzedComputation) -> AnalysisOutcome:
+def _attach_queries(request: AnalysisRequest, analyzed: RetainedComputation) -> AnalysisOutcome:
     """Evaluate queries in request order, retaining only earlier result provenance."""
     outcome = analyzed.success
     knowledge = analyzed.knowledge
@@ -1259,7 +1194,7 @@ def _analyze_single(
     context: WorkContext,
     request_unknown_arities: dict[str, int],
     knowledge: Knowledge,
-) -> _AnalyzedComputation | AnalysisFailure:
+) -> RetainedComputation | AnalysisFailure:
     parsed = loader.parse(source, "expression")
     if isinstance(parsed, AnalysisFailure):
         return parsed
@@ -1300,7 +1235,7 @@ def _analyze_single(
             abstract_work=tally.total,
         )
         analysis = _retain_work_analysis(analyze_work(parsed, context))
-        return _AnalyzedComputation(
+        return RetainedComputation(
             success=success,
             expression=parsed,
             equations=(),
@@ -1362,7 +1297,7 @@ def _analyze_single(
         ),
     )
     retained_analysis = _retain_work_analysis(analysis)
-    return _AnalyzedComputation(
+    return RetainedComputation(
         success=success,
         expression=parsed,
         equations=(),
@@ -1380,7 +1315,7 @@ def _analyze_system(
     context: WorkContext,
     request_unknown_arities: dict[str, int],
     knowledge: Knowledge,
-) -> _AnalyzedComputation | AnalysisFailure:
+) -> RetainedComputation | AnalysisFailure:
     parsed_or_failure = _parse_equations(request, loader)
     if isinstance(parsed_or_failure, AnalysisFailure):
         return parsed_or_failure
@@ -1597,7 +1532,7 @@ def _analyze_system(
     retained_analyses = {
         name: _retain_work_analysis(analysis) for name, analysis in analyses.items()
     }
-    return _AnalyzedComputation(
+    return RetainedComputation(
         success=success,
         expression=None,
         equations=equations,

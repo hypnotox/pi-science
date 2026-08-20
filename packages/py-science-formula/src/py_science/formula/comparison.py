@@ -2,25 +2,24 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass
 from typing import Literal
 
-from py_science.formula.domains import OutputDomain
-from py_science.formula.equivalence import equivalence_answer
+from py_science.formula.computation import NamedRelationship, RetainedComputation
 from py_science.formula.expressions import (
-    BinaryExpression,
     Call,
     Equation,
     Expression,
     ExpressionTooComplex,
     IndexedValue,
     Relationship,
-    RelationshipOperator,
     Sum,
     Symbol,
     expression_children,
     expression_node_count,
+)
+from py_science.formula.mapped_outputs import (
+    ExpansionBudget,
+    compare_mapped_outputs,
 )
 from py_science.formula.models import (
     AnalysisFailure,
@@ -31,173 +30,26 @@ from py_science.formula.models import (
     CandidateOutputComparison,
     CandidateTargetReference,
     CandidateWorkComparison,
-    EquationTarget,
     ExpressionTarget,
     Interpretation,
     QueryAnswer,
     SourceReference,
 )
 from py_science.formula.parser import ParseFailure, parse_expression
-from py_science.formula.reasoning import ReasoningContext, build_bounded_reasoning
+from py_science.formula.reasoning import ReasoningContext
 from py_science.formula.service import (
     MAX_REQUEST_BYTES,
     MAX_REQUEST_NODES,
     MAX_RESULT_BYTES,
-    NamedRelationship,
     _analyze_computation,  # pyright: ignore[reportPrivateUsage]
-    _AnalyzedComputation,  # pyright: ignore[reportPrivateUsage]
     _complexity_failure,  # pyright: ignore[reportPrivateUsage]
 )
-from py_science.formula.sympy_backend import NormalizationError, render
 from py_science.formula.work import (
+    AggregateWorkComparisonInput,
     WorkRenderBudget,
-    aggregate_work_difference,
     compare_aggregate_work,
     render_work,
 )
-
-MAX_COMPARISON_EXPANSION_NODES = 16_384
-
-
-@dataclass(slots=True)
-class _ExpansionBudget:
-    remaining: int = MAX_COMPARISON_EXPANSION_NODES
-
-    def consume(self, nodes: int = 1) -> None:
-        self.remaining -= nodes
-        if self.remaining < 0:
-            raise ExpressionTooComplex(
-                "comparison expansion exceeds its aggregate node bound"
-            )
-
-
-@dataclass(frozen=True, slots=True)
-class _Operand:
-    value: Expression
-    binders: tuple[str, ...] | None
-    domains: tuple[OutputDomain, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class _MappedOutputResult:
-    interface_status: Literal["compatible", "incompatible", "unresolved"]
-    expanded_interpretations: tuple[Interpretation, Interpretation] | None
-    answer: QueryAnswer
-
-
-class _Expander:
-    def __init__(
-        self,
-        analyzed: _AnalyzedComputation,
-        budget: _ExpansionBudget,
-        reserved_names: set[str],
-    ) -> None:
-        self.analyzed = analyzed
-        self.budget = budget
-        self.reserved_names = set(reserved_names)
-        self.fresh_position = 0
-
-    def expand(
-        self,
-        value: Expression,
-        replacements: Mapping[str, Expression] | None = None,
-    ) -> Expression:
-        return self._visit(value, replacements or {}, frozenset(), ())
-
-    def _visit(
-        self,
-        value: Expression,
-        replacements: Mapping[str, Expression],
-        bound: frozenset[str],
-        producer_stack: tuple[str, ...],
-    ) -> Expression:
-        self.budget.consume()
-        if isinstance(value, Symbol):
-            if value.name in replacements and value.name not in bound:
-                return self._visit(replacements[value.name], {}, bound, producer_stack)
-            producer = self.analyzed.producers.get(value.name)
-            if producer is not None and producer.arity == 0 and value.name not in bound:
-                if producer.equation_name in producer_stack:
-                    raise ExpressionTooComplex("comparison producer expansion is recursive")
-                equation = self._producer_equation(producer.equation_name)
-                return self._visit(
-                    equation.formula.right,
-                    {},
-                    bound,
-                    (*producer_stack, producer.equation_name),
-                )
-            return value
-        if isinstance(value, IndexedValue):
-            indices = tuple(
-                self._visit(index, replacements, bound, producer_stack)
-                for index in value.indices
-            )
-            producer = self.analyzed.producers.get(value.name)
-            if producer is None:
-                return IndexedValue(value.name, indices)
-            if producer.arity != len(indices):
-                raise ExpressionTooComplex("comparison producer arity changed after validation")
-            if producer.equation_name in producer_stack:
-                raise ExpressionTooComplex("comparison producer expansion is recursive")
-            equation = self._producer_equation(producer.equation_name)
-            lhs = equation.formula.left
-            if not isinstance(lhs, IndexedValue):
-                raise ExpressionTooComplex("comparison producer interface is inconsistent")
-            formal_symbols = tuple(
-                index for index in lhs.indices if isinstance(index, Symbol)
-            )
-            if len(formal_symbols) != len(lhs.indices):
-                raise ExpressionTooComplex("comparison producer binders are inconsistent")
-            formal = tuple(index.name for index in formal_symbols)
-            return self._visit(
-                equation.formula.right,
-                dict(zip(formal, indices, strict=True)),
-                bound,
-                (*producer_stack, producer.equation_name),
-            )
-        if isinstance(value, Call):
-            return Call(
-                value.name,
-                tuple(
-                    self._visit(argument, replacements, bound, producer_stack)
-                    for argument in value.arguments
-                ),
-            )
-        if isinstance(value, BinaryExpression):
-            return BinaryExpression(
-                value.operator,
-                self._visit(value.left, replacements, bound, producer_stack),
-                self._visit(value.right, replacements, bound, producer_stack),
-            )
-        if isinstance(value, Sum):
-            lower = self._visit(value.lower, replacements, bound, producer_stack)
-            upper = self._visit(value.upper, replacements, bound, producer_stack)
-            fresh = self._fresh_sum_name()
-            renamed_body = _rename_bound(value.body, value.index, fresh)
-            inner_replacements = {
-                name: replacement
-                for name, replacement in replacements.items()
-                if name != value.index
-            }
-            body = self._visit(
-                renamed_body,
-                inner_replacements,
-                bound | {fresh},
-                producer_stack,
-            )
-            return Sum(body, fresh, lower, upper)
-        return value
-
-    def _producer_equation(self, name: str):
-        return next(equation for equation in self.analyzed.equations if equation.name == name)
-
-    def _fresh_sum_name(self) -> str:
-        while True:
-            name = f"comparison_sum_{self.fresh_position}"
-            self.fresh_position += 1
-            if name not in self.reserved_names:
-                self.reserved_names.add(name)
-                return name
 
 
 def compare_candidates(request: CandidateComparisonRequest) -> CandidateComparisonOutcome:
@@ -206,7 +58,7 @@ def compare_candidates(request: CandidateComparisonRequest) -> CandidateComparis
     if request_failure is not None:
         return request_failure
 
-    analyzed_items: list[_AnalyzedComputation] = []
+    analyzed_items: list[RetainedComputation] = []
     for position, candidate in enumerate(request.candidates):
         analyzed = _analyze_computation(request.analysis_request(candidate))
         if isinstance(analyzed, AnalysisFailure):
@@ -219,7 +71,7 @@ def compare_candidates(request: CandidateComparisonRequest) -> CandidateComparis
             _report(request.candidates[0].name, analyzed_items[0]),
             _report(request.candidates[1].name, analyzed_items[1]),
         )
-        budget = _ExpansionBudget()
+        budget = ExpansionBudget()
         reserved_names = _reserved_names(request, analyzed_items)
         outputs = tuple(
             _compare_output(
@@ -248,7 +100,7 @@ def compare_candidates(request: CandidateComparisonRequest) -> CandidateComparis
     return result
 
 
-def _report(name: str, analyzed: _AnalyzedComputation) -> CandidateAnalysisReport:
+def _report(name: str, analyzed: RetainedComputation) -> CandidateAnalysisReport:
     blockers = analyzed.success.direct_work_blockers
     work = (
         None
@@ -265,10 +117,10 @@ def _report(name: str, analyzed: _AnalyzedComputation) -> CandidateAnalysisRepor
 def _compare_output(
     name: str,
     submitted_targets: tuple[CandidateTargetReference, ...],
-    left: _AnalyzedComputation,
-    right: _AnalyzedComputation,
+    left: RetainedComputation,
+    right: RetainedComputation,
     request: CandidateComparisonRequest,
-    budget: _ExpansionBudget,
+    budget: ExpansionBudget,
     reserved_names: set[str],
 ) -> CandidateOutputComparison:
     by_candidate = {target.candidate: target for target in submitted_targets}
@@ -276,7 +128,7 @@ def _compare_output(
         by_candidate[request.candidates[0].name],
         by_candidate[request.candidates[1].name],
     )
-    result = _compare_mapped_outputs(
+    result = compare_mapped_outputs(
         name,
         targets[0].target,
         targets[1].target,
@@ -295,297 +147,19 @@ def _compare_output(
     )
 
 
-def _compare_mapped_outputs(
-    name: str,
-    left_target: ExpressionTarget | EquationTarget,
-    right_target: ExpressionTarget | EquationTarget,
-    left: _AnalyzedComputation,
-    right: _AnalyzedComputation,
-    budget: _ExpansionBudget,
-    reserved_names: set[str],
-    reasoning_for: Callable[[tuple[NamedRelationship, ...]], ReasoningContext | None],
-) -> _MappedOutputResult:
-    """Expand, align, and prove two mapped outputs behind neutral typed targets."""
-    operands: list[_Operand] = []
-    for target, analyzed in ((left_target, left), (right_target, right)):
-        operand, blocker = _target_operand(target, analyzed)
-        if operand is None:
-            return _mapped_output(
-                "incompatible",
-                None,
-                QueryAnswer(conclusion="inapplicable", blockers=(blocker,)),
-            )
-        operands.append(operand)
-    left_operand, right_operand = operands
-    if (left_operand.binders is None) != (right_operand.binders is None):
-        return _mapped_incompatible(
-            "mapped outputs have incompatible scalar and indexed interfaces"
-        )
-    if (
-        left_operand.binders is not None
-        and right_operand.binders is not None
-        and len(left_operand.binders) != len(right_operand.binders)
-    ):
-        return _mapped_incompatible("mapped indexed outputs have different arity")
-
-    canonical = _canonical_indices(len(left_operand.binders or ()), reserved_names)
-    left_expander = _Expander(left, budget, reserved_names)
-    right_expander = _Expander(right, budget, reserved_names)
-    domain_facts: tuple[NamedRelationship, ...] = ()
-    interface_answers: tuple[QueryAnswer, ...] = ()
-    if left_operand.binders is not None and right_operand.binders is not None:
-        try:
-            interface = _compare_mapped_domains(
-                name,
-                left_operand,
-                right_operand,
-                canonical,
-                left_expander,
-                right_expander,
-                reasoning_for,
-            )
-        except ExpressionTooComplex as error:
-            return _mapped_output(
-                "unresolved",
-                None,
-                QueryAnswer(conclusion="unresolved", blockers=(str(error),)),
-            )
-        if isinstance(interface, _MappedOutputResult):
-            return interface
-        domain_facts, interface_answers = interface
-
-    try:
-        left_value = left_expander.expand(
-            left_operand.value,
-            dict(
-                zip(
-                    left_operand.binders or (),
-                    (Symbol(index) for index in canonical),
-                    strict=True,
-                )
-            ),
-        )
-        right_value = right_expander.expand(
-            right_operand.value,
-            dict(
-                zip(
-                    right_operand.binders or (),
-                    (Symbol(index) for index in canonical),
-                    strict=True,
-                )
-            ),
-        )
-        answer = equivalence_answer(left_value, right_value, reasoning_for(domain_facts))
-        answer = _merge_interface_qualification(answer, interface_answers)
-        left_rendered = render(left_value)
-        right_rendered = render(right_value)
-    except ExpressionTooComplex as error:
-        return _mapped_output(
-            "compatible",
-            None,
-            QueryAnswer(conclusion="unresolved", blockers=(str(error),)),
-        )
-    except NormalizationError:
-        return _mapped_output(
-            "compatible",
-            None,
-            QueryAnswer(
-                conclusion="unresolved",
-                blockers=("expanded mapped output cannot be normalized",),
-            ),
-        )
-    interpretations = (
-        Interpretation(
-            normalized_sympy=left_rendered.sympy,
-            normalized_latex=left_rendered.latex,
-        ),
-        Interpretation(
-            normalized_sympy=right_rendered.sympy,
-            normalized_latex=right_rendered.latex,
-        ),
-    )
-    return _mapped_output("compatible", interpretations, answer)
-
-
-def _compare_mapped_domains(
-    name: str,
-    left: _Operand,
-    right: _Operand,
-    canonical: tuple[str, ...],
-    left_expander: _Expander,
-    right_expander: _Expander,
-    reasoning_for: Callable[[tuple[NamedRelationship, ...]], ReasoningContext | None],
-) -> tuple[tuple[NamedRelationship, ...], tuple[QueryAnswer, ...]] | _MappedOutputResult:
-    assert left.binders is not None and right.binders is not None
-    left_by_name = {domain.index: domain for domain in left.domains}
-    right_by_name = {domain.index: domain for domain in right.domains}
-    left_replacements = dict(
-        zip(left.binders, (Symbol(index) for index in canonical), strict=True)
-    )
-    right_replacements = dict(
-        zip(right.binders, (Symbol(index) for index in canonical), strict=True)
-    )
-    facts: list[NamedRelationship] = []
-    answers: list[QueryAnswer] = []
-    reasoning = reasoning_for(())
-    for position, (left_name, right_name, canonical_name) in enumerate(
-        zip(left.binders, right.binders, canonical, strict=True)
-    ):
-        left_domain = left_by_name[left_name]
-        right_domain = right_by_name[right_name]
-        aligned_left = (
-            left_expander.expand(left_domain.lower, left_replacements),
-            left_expander.expand(left_domain.upper, left_replacements),
-        )
-        aligned_right = (
-            right_expander.expand(right_domain.lower, right_replacements),
-            right_expander.expand(right_domain.upper, right_replacements),
-        )
-        for endpoint, left_bound, right_bound in zip(
-            ("lower", "upper"), aligned_left, aligned_right, strict=True
-        ):
-            answer = equivalence_answer(left_bound, right_bound, reasoning)
-            if answer.conclusion == "disproved":
-                return _mapped_incompatible(
-                    f"mapped output {endpoint} domains differ at position {position}"
-                )
-            if answer.conclusion not in {"proved", "proved_under_assumptions"}:
-                blockers = answer.blockers or (
-                    f"mapped output {endpoint} domain equality is unproved",
-                )
-                return _mapped_output(
-                    "unresolved",
-                    None,
-                    QueryAnswer(conclusion="unresolved", blockers=blockers),
-                )
-            answers.append(answer)
-        lower, upper = aligned_left
-        facts.extend(
-            (
-                NamedRelationship(
-                    name=f"comparison:{name}:{position}:lower",
-                    source=f"{canonical_name} >= {render(lower).sympy}",
-                    value=Relationship(
-                        RelationshipOperator.GREATER_EQUAL,
-                        Symbol(canonical_name),
-                        lower,
-                    ),
-                ),
-                NamedRelationship(
-                    name=f"comparison:{name}:{position}:upper",
-                    source=f"{canonical_name} <= {render(upper).sympy}",
-                    value=Relationship(
-                        RelationshipOperator.LESS_EQUAL,
-                        Symbol(canonical_name),
-                        upper,
-                    ),
-                ),
-            )
-        )
-    return tuple(facts), tuple(answers)
-
-
 def _comparison_reasoning(
     request: CandidateComparisonRequest,
-    analyzed: _AnalyzedComputation,
+    analyzed: RetainedComputation,
     domain_facts: tuple[NamedRelationship, ...],
 ) -> ReasoningContext | None:
-    return build_bounded_reasoning(
-        {name: declaration.domain for name, declaration in request.variables.items()},
-        analyzed.knowledge.definitions,
-        (*analyzed.knowledge.assumptions, *domain_facts),
-    )
-
-
-def _merge_interface_qualification(
-    answer: QueryAnswer, interface_answers: tuple[QueryAnswer, ...]
-) -> QueryAnswer:
-    conditions = tuple(
-        dict.fromkeys(
-            condition
-            for item in (*interface_answers, answer)
-            for condition in item.conditions
+    try:
+        return ReasoningContext.build(
+            {name: declaration.domain for name, declaration in request.variables.items()},
+            analyzed.knowledge.definitions,
+            (*analyzed.knowledge.assumptions, *domain_facts),
         )
-    )
-    uses = tuple(
-        {
-            (use.name, use.relationship): use
-            for item in (*interface_answers, answer)
-            for use in item.assumptions_used
-        }.values()
-    )
-    unsupported = tuple(
-        dict.fromkeys(
-            value
-            for item in (*interface_answers, answer)
-            for value in item.relevant_unsupported_assumptions
-        )
-    )
-    conclusion = answer.conclusion
-    if conclusion == "proved" and (conditions or uses):
-        conclusion = "proved_under_assumptions"
-    return answer.model_copy(
-        update={
-            "check": None,
-            "conclusion": conclusion,
-            "conditions": conditions,
-            "assumptions_used": uses,
-            "relevant_unsupported_assumptions": unsupported,
-            "derived_candidates": (),
-            "constraint_uses": (),
-        }
-    )
-
-
-def _target_operand(
-    target: ExpressionTarget | EquationTarget,
-    analyzed: _AnalyzedComputation,
-) -> tuple[_Operand | None, str]:
-    if isinstance(target, ExpressionTarget):
-        if analyzed.expression is None:
-            return None, "expression target requires an expression candidate"
-        return _Operand(analyzed.expression, None, ()), ""
-    equation = next(
-        (item for item in analyzed.equations if item.name == target.name), None
-    )
-    if equation is None:
-        return None, "mapped equation target is unknown"
-    lhs = equation.formula.left
-    if isinstance(lhs, IndexedValue):
-        binder_symbols = tuple(
-            index for index in lhs.indices if isinstance(index, Symbol)
-        )
-        if len(binder_symbols) != len(lhs.indices):
-            return None, "mapped equation binders are inconsistent"
-        binders = tuple(index.name for index in binder_symbols)
-        domains = tuple(
-            next(domain for domain in equation.output_domains if domain.index == binder)
-            for binder in binders
-        )
-        return _Operand(equation.formula.right, binders, domains), ""
-    return _Operand(equation.formula.right, None, ()), ""
-
-
-def _mapped_incompatible(blocker: str) -> _MappedOutputResult:
-    return _mapped_output(
-        "incompatible",
-        None,
-        QueryAnswer(conclusion="inapplicable", blockers=(blocker,)),
-    )
-
-
-def _mapped_output(
-    interface: Literal["compatible", "incompatible", "unresolved"],
-    expanded: tuple[Interpretation, Interpretation] | None,
-    answer: QueryAnswer,
-) -> _MappedOutputResult:
-    return _MappedOutputResult(
-        interface_status=interface,
-        expanded_interpretations=expanded,
-        answer=answer.model_copy(
-            update={"check": None, "derived_candidates": (), "constraint_uses": ()}
-        ),
-    )
+    except ExpressionTooComplex:
+        return None
 
 
 def _output(
@@ -624,58 +198,36 @@ def _semantic_status(
 def _work(
     request: CandidateComparisonRequest,
     reports: tuple[CandidateAnalysisReport, CandidateAnalysisReport],
-    analyzed: list[_AnalyzedComputation],
+    analyzed: list[RetainedComputation],
     semantic: Literal[
         "proved_equal", "proved_equal_under_assumptions", "disproved", "unresolved"
     ],
 ) -> CandidateWorkComparison:
     candidate_names = (reports[0].name, reports[1].name)
     works = (reports[0].aggregate_work, reports[1].aggregate_work)
-    delta_expression: Expression | None = None
-    delta: str | None = None
-    if works[0] is not None and works[1] is not None:
-        delta_expression = aggregate_work_difference(
-            analyzed[0].aggregate_analysis.total_work,
-            analyzed[1].aggregate_analysis.total_work,
+    operands = tuple(
+        AggregateWorkComparisonInput(
+            work=item.aggregate_analysis.total_work,
+            available=report.aggregate_work is not None,
+            unknown_costs=item.aggregate_analysis.unknown_costs,
+            direct_work_blockers=item.aggregate_analysis.direct_work_blockers,
         )
-        delta = render_work(delta_expression, WorkRenderBudget())
-    if semantic in {"disproved", "unresolved"}:
-        return CandidateWorkComparison(
-            candidate_names=candidate_names,
-            candidate_works=works,
-            delta=delta,
-            status="not_comparable",
-            blockers=("mapped output semantics are not established",),
-        )
-    if delta_expression is None or delta is None:
-        return CandidateWorkComparison(
-            candidate_names=candidate_names,
-            candidate_works=works,
-            status="unresolved",
-            blockers=("candidate aggregate direct work is unavailable",),
-        )
-    unknown_costs = sorted(
-        set(analyzed[0].aggregate_analysis.unknown_costs)
-        | set(analyzed[1].aggregate_analysis.unknown_costs)
+        for report, item in zip(reports, analyzed, strict=True)
     )
-    if unknown_costs:
-        return CandidateWorkComparison(
-            candidate_names=candidate_names,
-            candidate_works=works,
-            delta=delta,
-            status="unresolved",
-            blockers=("unknown primitive costs: " + ", ".join(unknown_costs),),
-        )
-
     relation = compare_aggregate_work(
-        analyzed[0].aggregate_analysis.total_work,
-        analyzed[1].aggregate_analysis.total_work,
+        operands[0],
+        operands[1],
         _comparison_reasoning(request, analyzed[0], ()),
+        semantic_established=semantic not in {"disproved", "unresolved"},
     )
     return CandidateWorkComparison(
         candidate_names=candidate_names,
         candidate_works=works,
-        delta=render_work(relation.delta, WorkRenderBudget()),
+        delta=(
+            render_work(relation.delta, WorkRenderBudget())
+            if relation.delta is not None
+            else None
+        ),
         status=relation.status,
         conditions=relation.conditions,
         assumptions_used=relation.assumptions_used,
@@ -772,7 +324,7 @@ def _prefix_failure(failure: AnalysisFailure, prefix: str) -> AnalysisFailure:
 
 def _reserved_names(
     request: CandidateComparisonRequest,
-    analyzed: list[_AnalyzedComputation],
+    analyzed: list[RetainedComputation],
 ) -> set[str]:
     names = set(request.variables)
     for item in analyzed:
@@ -794,42 +346,3 @@ def _expression_names(value: Expression) -> set[str]:
     for child in expression_children(value):
         names.update(_expression_names(child))
     return names
-
-
-def _canonical_indices(arity: int, reserved_names: set[str]) -> tuple[str, ...]:
-    result: list[str] = []
-    position = 0
-    while len(result) < arity:
-        name = f"comparison_index_{position}"
-        position += 1
-        if name not in reserved_names:
-            reserved_names.add(name)
-            result.append(name)
-    return tuple(result)
-
-
-def _rename_bound(value: Expression, old: str, new: str) -> Expression:
-    if isinstance(value, Symbol):
-        return Symbol(new) if value.name == old else value
-    if isinstance(value, IndexedValue):
-        return IndexedValue(
-            value.name,
-            tuple(_rename_bound(index, old, new) for index in value.indices),
-        )
-    if isinstance(value, Call):
-        return Call(
-            value.name,
-            tuple(_rename_bound(argument, old, new) for argument in value.arguments),
-        )
-    if isinstance(value, BinaryExpression):
-        return BinaryExpression(
-            value.operator,
-            _rename_bound(value.left, old, new),
-            _rename_bound(value.right, old, new),
-        )
-    if isinstance(value, Sum):
-        lower = _rename_bound(value.lower, old, new)
-        upper = _rename_bound(value.upper, old, new)
-        body = value.body if value.index == old else _rename_bound(value.body, old, new)
-        return Sum(body, value.index, lower, upper)
-    return value
