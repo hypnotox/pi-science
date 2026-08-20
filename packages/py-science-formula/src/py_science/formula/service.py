@@ -2857,7 +2857,10 @@ def _bound_result(outcome: AnalysisOutcome) -> AnalysisOutcome:
         )
         if base_bytes > MAX_RESULT_BYTES:
             return _complexity_failure("analysis result exceeds its base size bound")
-        if len(advice.model_dump_json().encode("utf-8")) > MAX_OPTIMIZATION_BYTES:
+        advice_contribution = (
+            len(outcome.model_dump_json().encode("utf-8")) - base_bytes
+        )
+        if advice_contribution > MAX_OPTIMIZATION_BYTES:
             outcome = outcome.model_copy(
                 update={
                     "optimization": advice.model_copy(

@@ -335,6 +335,15 @@ describe("private formula bridge", () => {
         optimization: { max_suggestions: 0 },
       }),
     ).resolves.toMatchObject({ optimization: disabled.optimization });
+    await expect(
+      invokeAdapter(node, responder(disabled), request()),
+    ).rejects.toMatchObject({ kind: "protocol" });
+    await expect(
+      invokeAdapter(node, responder(disabled), {
+        ...request(),
+        optimization: { max_suggestions: 2 },
+      }),
+    ).rejects.toMatchObject({ kind: "protocol" });
 
     const incomplete = {
       ...success,

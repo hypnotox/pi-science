@@ -683,7 +683,7 @@ def _reasoning(request: AnalysisRequest, computed: RetainedComputation) -> Reaso
             computed.knowledge.definitions,
             computed.knowledge.assumptions,
         )
-    except Exception:
+    except ExpressionTooComplex:
         return None
 
 
@@ -905,10 +905,6 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
         qualifications.append(str(error))
     except (ExpressionTooComplex, NormalizationError):
         qualifications.append("optimization search budget exhausted")
-    except Exception:
-        # Advice is informational and independently bounded. A failure here must
-        # never replace the retained successful analysis.
-        qualifications.append("optimization search failed safely")
 
     accepted.sort(key=cmp_to_key(_suggestion_order))
     return OptimizationReport(

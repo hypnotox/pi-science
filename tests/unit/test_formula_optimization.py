@@ -600,3 +600,96 @@ def test_oversized_advice_truncates_without_replacing_base_success() -> None:
     assert bounded.optimization.status == "incomplete"
     assert bounded.optimization.suggestions == ()
     assert bounded.optimization.qualifications == ("optimization advice exceeds its byte bound",)
+
+
+def test_exact_base_and_maximum_field_contribution_preserve_success() -> None:
+    from py_science.formula import AnalysisSuccess
+    from py_science.formula import service as formula_service
+    from py_science.formula.models import Interpretation, OperationCounts, ScenarioResult
+
+    empty = AnalysisSuccess(
+        interpretation=Interpretation(normalized_sympy="x", normalized_latex="x"),
+        operation_counts=OperationCounts(),
+        abstract_work=0,
+        scenarios=(
+            ScenarioResult(name="padding", substituted_work="0", qualifications=("",)),
+        ),
+    )
+    base_overhead = len(empty.model_dump_json(exclude={"optimization"}).encode("utf-8"))
+    exact_base = empty.model_copy(
+        update={
+            "scenarios": (
+                empty.scenarios[0].model_copy(
+                    update={
+                        "qualifications": (
+                            "x" * (formula_service.MAX_RESULT_BYTES - base_overhead),
+                        )
+                    }
+                ),
+            )
+        }
+    )
+    assert (
+        len(exact_base.model_dump_json(exclude={"optimization"}).encode("utf-8"))
+        == formula_service.MAX_RESULT_BYTES
+    )
+
+    seed = exact_base.optimization.model_copy(
+        update={"status": "incomplete", "qualifications": ("",)}
+    )
+    seed_bytes = len(seed.model_dump_json().encode("utf-8"))
+    maximum_report = seed.model_copy(
+        update={
+            "qualifications": (
+                "y" * (formula_service.MAX_OPTIMIZATION_BYTES - seed_bytes),
+            )
+        }
+    )
+    assert (
+        len(maximum_report.model_dump_json().encode("utf-8"))
+        == formula_service.MAX_OPTIMIZATION_BYTES
+    )
+    combined = exact_base.model_copy(update={"optimization": maximum_report})
+    field_contribution = len(combined.model_dump_json().encode("utf-8")) - len(
+        combined.model_dump_json(exclude={"optimization"}).encode("utf-8")
+    )
+    assert field_contribution > formula_service.MAX_OPTIMIZATION_BYTES
+
+    bounded = formula_service._bound_result(combined)  # pyright: ignore[reportPrivateUsage]
+    assert bounded.status == "success"
+    assert bounded.optimization.status == "incomplete"
+    assert bounded.optimization.qualifications == (
+        "optimization advice exceeds its byte bound",
+    )
+
+
+def test_unexpected_reasoning_and_verifier_defects_propagate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+    from py_science.formula import optimization as optimization_service
+
+    def defect(*_args: object, **_kwargs: object) -> object:
+        raise RuntimeError("unexpected optimization defect")
+
+    monkeypatch.setattr(optimization_service.ReasoningContext, "build", defect)
+    with pytest.raises(RuntimeError, match="unexpected optimization defect"):
+        analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 0"))
+
+    monkeypatch.undo()
+    monkeypatch.setattr(optimization_service, "_verify_candidate", defect)
+    with pytest.raises(RuntimeError, match="unexpected optimization defect"):
+        analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 0"))
+
+
+def test_unexpected_factoring_backend_defects_propagate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from py_science.formula import sympy_backend
+
+    def defect(*_args: object, **_kwargs: object) -> object:
+        raise RuntimeError("unexpected factoring defect")
+
+    monkeypatch.setattr(sympy_backend.sympy, "factor", defect)
+    with pytest.raises(RuntimeError, match="unexpected factoring defect"):
+        sympy_backend.bounded_factor_candidate(_expression("x*y + x*z"))

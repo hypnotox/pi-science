@@ -2791,6 +2791,11 @@ function validOptimization(
     )
   )
     return false;
+  const effectiveLimit =
+    isRecord(requested) && requested.max_suggestions !== undefined
+      ? requested.max_suggestions
+      : 3;
+  if (limit !== effectiveLimit) return false;
   if (value.status === "disabled")
     return (
       limit === 0 &&
@@ -2802,12 +2807,7 @@ function validOptimization(
     return false;
   if (value.status === "complete" && value.qualifications.length > 0)
     return false;
-  return (
-    limit ===
-    (isRecord(requested) && requested.max_suggestions !== undefined
-      ? requested.max_suggestions
-      : 3)
-  );
+  return true;
 }
 
 function validResult(

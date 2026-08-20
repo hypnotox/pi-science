@@ -1383,16 +1383,13 @@ def bounded_factor_candidate(
     measurement = rational_ir_measure(expression, max_nodes=max_nodes)
     if isinstance(measurement, RationalMeasureFailure):
         return None
-    try:
-        factored = sympy.factor(_to_sympy(expression))
-        if sum(1 for _ in sympy.preorder_traversal(factored)) > max_nodes:
-            return None
-        rendered = str(factored)
-        if len(rendered.encode("utf-8")) > max_render_bytes:
-            return None
-        return rendered
-    except Exception:
+    factored = sympy.factor(_to_sympy(expression))
+    if sum(1 for _ in sympy.preorder_traversal(factored)) > max_nodes:
         return None
+    rendered = str(factored)
+    if len(rendered.encode("utf-8")) > max_render_bytes:
+        return None
+    return rendered
 
 
 def render(formula: Expression | Equation) -> NormalizedRendering:
