@@ -156,8 +156,8 @@ factored = analyze(AnalysisRequest(
 ))
 assert factored.status == "success"
 assert factored.optimization is not None
-assert factored.optimization.suggestions[0].proposed.normalized_sympy == "x*(y + z)"
+assert factored.optimization.suggestions[0].transformations[0].proposed.normalized_sympy == "x*(y + z)"
 assert factored.optimization.suggestions[0].savings == "1"
 ```
 
-Suggestions expose deterministic child-index occurrence paths, binders and output indices, normalized original and proposed forms, optional collision-free intermediates, exact identity evidence, conditions and assumptions, before/after work, positive savings, and the `exact_symbolic_only` finite-precision qualification. Advice is informational and never changes the retained interpretation, counts, work, scenarios, queries, dependencies, reuse, or extraction diagnostics. Exact-symbolic equivalence is not a runtime, numerical-stability, or identical floating-point evaluation claim.
+Every suggestion has a nonempty tuple of unique target-local transformations. Each transformation owns its target, deterministic child-index occurrence paths, binders and output indices, and normalized original and proposed forms. Atomic cross-equation sharing includes one transformation for every affected equation, including renamed compatible indices. Optional collision-free intermediates, exact identity evidence, conditions and assumptions, before/after work, positive savings, and the `exact_symbolic_only` finite-precision qualification remain suggestion-level. Advice is informational and never changes the retained interpretation, counts, work, scenarios, queries, dependencies, reuse, or extraction diagnostics. Exact-symbolic equivalence is not a runtime, numerical-stability, or identical floating-point evaluation claim.

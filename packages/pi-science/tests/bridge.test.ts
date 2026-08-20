@@ -436,6 +436,73 @@ describe("private formula bridge", () => {
     }
   });
 
+  it("correlates indexed sharing transformations against one coherent intermediate interface", async () => {
+    const adapter = fileURLToPath(
+      new URL("../bridge/formula_adapter.py", import.meta.url),
+    );
+    const args = ["run", "--locked", "python", adapter];
+    const indexedRequest: AnalysisRequest = {
+      syntax: "sympy",
+      equations: [
+        {
+          name: "left",
+          expression: "Eq(left[i], x[i]*x[i] + 1)",
+          domains: { i: { lower: "0", upper: "3" } },
+        },
+        {
+          name: "right",
+          expression: "Eq(right[j], x[j]*x[j] - 1)",
+          domains: { j: { lower: "0", upper: "3" } },
+        },
+      ],
+      variables: { x: { domain: "real" } },
+      optimization: { max_suggestions: 16 },
+    };
+    type IndexedOptimization = {
+      optimization: {
+        suggestions: Array<{
+          kind: string;
+          transformations: Array<{
+            target: { name: string };
+            occurrences: Array<{ output_indices: string[] }>;
+          }>;
+          intermediate: null | { scope_output_indices: string[] };
+        }>;
+      };
+    };
+    const indexed = (await invokeAdapter(
+      "uv",
+      args,
+      indexedRequest,
+    )) as IndexedOptimization;
+    const sharing = indexed.optimization.suggestions.find(
+      (suggestion) => suggestion.kind === "cross_equation_sharing",
+    );
+    expect(sharing).toBeDefined();
+    expect(
+      sharing?.transformations.map((transformation) => [
+        transformation.target.name,
+        transformation.occurrences[0].output_indices,
+      ]),
+    ).toEqual([
+      ["left", ["i"]],
+      ["right", ["j"]],
+    ]);
+    expect(sharing?.intermediate?.scope_output_indices).toEqual(["i"]);
+
+    const malformed = structuredClone(indexed);
+    const malformedSharing = malformed.optimization.suggestions.find(
+      (suggestion) => suggestion.kind === "cross_equation_sharing",
+    );
+    if (malformedSharing?.intermediate === null || !malformedSharing) {
+      throw new Error("indexed sharing fixture requires an intermediate");
+    }
+    malformedSharing.intermediate.scope_output_indices = ["i", "j"];
+    await expect(
+      invokeAdapter(node, responder(malformed), indexedRequest),
+    ).rejects.toMatchObject({ kind: "protocol" });
+  });
+
   it("round trips the actual adapter for success and analysis failure", async () => {
     const adapter = fileURLToPath(
       new URL("../bridge/formula_adapter.py", import.meta.url),

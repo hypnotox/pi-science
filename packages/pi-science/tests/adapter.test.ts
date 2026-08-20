@@ -136,8 +136,16 @@ describe("formula adapter protocol boundary", () => {
       {
         syntax: "sympy",
         equations: [
-          { name: "left", expression: "Eq(left, x*x + 1)" },
-          { name: "right", expression: "Eq(right, x*x - 1)" },
+          {
+            name: "left",
+            expression: "Eq(left[i], x[i]*x[i] + 1)",
+            domains: { i: { lower: "0", upper: "3" } },
+          },
+          {
+            name: "right",
+            expression: "Eq(right[j], x[j]*x[j] - 1)",
+            domains: { j: { lower: "0", upper: "3" } },
+          },
         ],
         variables: { x: { domain: "real" } },
         optimization: { max_suggestions: 16 },
@@ -204,9 +212,18 @@ describe("formula adapter protocol boundary", () => {
     expect(reports[5].suggestions[0].kind).toBe("cross_equation_sharing");
     expect(
       reports[5].suggestions[0].transformations.map(
-        (item: { target: { name: string } }) => item.target.name,
+        (item: {
+          target: { name: string };
+          occurrences: Array<{ output_indices: string[] }>;
+        }) => [item.target.name, item.occurrences[0].output_indices],
       ),
-    ).toEqual(["left", "right"]);
+    ).toEqual([
+      ["left", ["i"]],
+      ["right", ["j"]],
+    ]);
+    expect(reports[5].suggestions[0].intermediate.scope_output_indices).toEqual(
+      ["i"],
+    );
     expect(reports[6]).toMatchObject({
       requested_limit: 3,
       status: "incomplete",
@@ -219,7 +236,17 @@ describe("formula adapter protocol boundary", () => {
 
   it.each([
     ["malformed request", "not json"],
-    ["incompatible protocol", JSON.stringify({ version: 10, request: {} })],
+    [
+      "incompatible protocol",
+      JSON.stringify({
+        version: 11,
+        request: {
+          syntax: "sympy",
+          expression: "x*y + x*z",
+          optimization: { max_suggestions: 3 },
+        },
+      }),
+    ],
     [
       "extra request key",
       JSON.stringify({

@@ -2680,6 +2680,7 @@ function validOptimizationSuggestion(
   )
     return false;
   const seen = new Set<string>();
+  const transformationOutputInterfaces: Array<Set<string>> = [];
   const validTransformation = (transformation: unknown): boolean => {
     if (
       !isRecord(transformation) ||
@@ -2713,6 +2714,7 @@ function validOptimizationSuggestion(
       validStringArray(indices) &&
       indices.length <= 32 &&
       indices.every((index) => allowedOutputIndices.has(index));
+    transformationOutputInterfaces.push(allowedOutputIndices);
     return (
       Array.isArray(transformation.occurrences) &&
       transformation.occurrences.length >= 1 &&
@@ -2745,35 +2747,30 @@ function validOptimizationSuggestion(
     "iterator_invariant_hoisting",
     "cross_equation_sharing",
   ].includes(String(value.kind));
-  const allOutputIndices = new Set(
-    (value.transformations as Array<Record<string, unknown>>).flatMap(
-      (transformation) =>
-        (
-          (transformation.occurrences as Array<Record<string, unknown>>) ?? []
-        ).flatMap((occurrence) => occurrence.output_indices as string[]),
-    ),
-  );
+  const intermediate = value.intermediate;
   const validIntermediate =
-    value.intermediate === null
+    intermediate === null
       ? !requiresIntermediate
       : requiresIntermediate &&
-        isRecord(value.intermediate) &&
-        exactKeys(value.intermediate, [
+        isRecord(intermediate) &&
+        exactKeys(intermediate, [
           "name",
           "expression",
           "scope_binders",
           "scope_output_indices",
         ]) &&
-        typeof value.intermediate.name === "string" &&
-        /^[A-Za-z][A-Za-z0-9_]*$/.test(value.intermediate.name) &&
-        value.intermediate.name.length <= 128 &&
-        validInterpretation(value.intermediate.expression) &&
-        validStringArray(value.intermediate.scope_binders) &&
-        value.intermediate.scope_binders.length <= 32 &&
-        validStringArray(value.intermediate.scope_output_indices) &&
-        value.intermediate.scope_output_indices.length <= 32 &&
-        (value.intermediate.scope_output_indices as string[]).every((index) =>
-          allOutputIndices.has(index),
+        typeof intermediate.name === "string" &&
+        /^[A-Za-z][A-Za-z0-9_]*$/.test(intermediate.name) &&
+        intermediate.name.length <= 128 &&
+        validInterpretation(intermediate.expression) &&
+        validStringArray(intermediate.scope_binders) &&
+        intermediate.scope_binders.length <= 32 &&
+        validStringArray(intermediate.scope_output_indices) &&
+        intermediate.scope_output_indices.length <= 32 &&
+        transformationOutputInterfaces.some((outputInterface) =>
+          (intermediate.scope_output_indices as string[]).every((index) =>
+            outputInterface.has(index),
+          ),
         );
   return (
     validIntermediate &&

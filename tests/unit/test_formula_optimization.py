@@ -264,10 +264,30 @@ def test_report_and_suggestion_cross_field_truth_table() -> None:
     ):
         with pytest.raises(ValidationError):
             OptimizationReport.model_validate(invalid)
+    suggestion_data = suggestion.model_dump()
+    transformation = suggestion.transformations[0]
+    for invalid in (
+        {**suggestion_data, "transformations": ()},
+        {**suggestion_data, "transformations": (transformation, transformation)},
+        {**suggestion_data, "kind": "cross_equation_sharing"},
+        {
+            **suggestion_data,
+            "target": transformation.target,
+            "occurrences": transformation.occurrences,
+            "original": transformation.original,
+            "proposed": transformation.proposed,
+        },
+    ):
+        with pytest.raises(ValidationError):
+            type(suggestion).model_validate(invalid)
+    schema = type(suggestion).model_json_schema()
+    assert schema["properties"]["transformations"]["minItems"] == 1
+    assert not ({"target", "occurrences", "original", "proposed"} & schema["properties"].keys())
+    assert type(suggestion).model_validate_json(suggestion.model_dump_json()) == suggestion
     with pytest.raises(ValidationError):
-        type(suggestion).model_validate({**suggestion.model_dump(), "savings": "-1"})
+        type(suggestion).model_validate({**suggestion_data, "savings": "-1"})
     with pytest.raises(ValidationError):
-        type(suggestion).model_validate({**suggestion.model_dump(), "intermediate": None})
+        type(suggestion).model_validate({**suggestion_data, "intermediate": None})
     with pytest.raises(ValidationError):
         type(populated).model_validate({**populated.model_dump(), "optimization": None})
 
@@ -1058,6 +1078,31 @@ def test_horner_coefficients_bounds_refusals_and_higher_work_filtering(
     assert backend_refused.status == "success" and backend_refused.optimization is not None
     assert backend_refused.optimization.status == "incomplete"
     assert "backend refusal" in backend_refused.optimization.qualifications[0]
+
+
+def test_recursive_horner_inspection_is_charged_before_backend_descent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+    from py_science.formula import optimization as optimization_service
+    from py_science.formula.expressions import expression_node_count
+
+    expression = "2*x**3 + 3*x**2 + 4*x + 5"
+    initial_nodes = expression_node_count(_expression(expression))
+    monkeypatch.setattr(optimization_service, "MAX_OPTIMIZATION_INSPECTIONS", initial_nodes)
+
+    outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression))
+
+    assert outcome.status == "success" and outcome.optimization is not None
+    assert outcome.interpretation.normalized_sympy == "4*x + 5 + 3*x**2 + 2*x**3"
+    assert outcome.optimization.status == "incomplete"
+    assert any(
+        item == (
+            "optimization inspected nodes budget exhausted "
+            f"(measured {initial_nodes * 2}, configured {initial_nodes})"
+        )
+        for item in outcome.optimization.qualifications
+    )
 
 
 @pytest.mark.parametrize(
