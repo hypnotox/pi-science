@@ -20,6 +20,7 @@ from py_science.formula import (
     Interpretation,
     MathematicalDomain,
     OperationCounts,
+    OptimizationConfig,
     SourceLocation,
     SymbolicOperationCounts,
     SystemReport,
@@ -614,3 +615,26 @@ def test_decimal_literals_are_rendered_as_canonical_exact_rationals() -> None:
     assert outcome.interpretation.normalized_sympy == "x + 3/2"
     assert outcome.direct_work_applicability == "finite"
     assert outcome.direct_work_blockers == ()
+
+
+def test_dense_polynomial_horner_advice_is_independently_proved_and_lower_work() -> None:
+    request = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="a*x**3 + b*x**2 + c*x + d",
+        optimization=OptimizationConfig(max_suggestions=16),
+    )
+    enabled = analyze(request)
+    disabled = analyze(
+        request.model_copy(update={"optimization": OptimizationConfig(max_suggestions=0)})
+    )
+
+    assert isinstance(enabled, AnalysisSuccess)
+    assert isinstance(disabled, AnalysisSuccess)
+    assert enabled.model_copy(update={"optimization": None}) == disabled.model_copy(
+        update={"optimization": None}
+    )
+    suggestion = next(item for item in enabled.optimization.suggestions if item.kind == "horner")
+    assert suggestion.conclusion == "proved"
+    assert int(suggestion.work_before) > int(suggestion.work_after) > 0
+    assert int(suggestion.savings) == int(suggestion.work_before) - int(suggestion.work_after)
+    assert suggestion.finite_precision_qualification == "exact_symbolic_only"

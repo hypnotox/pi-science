@@ -31,5 +31,5 @@ Origin: ADR-0016
 
 
 ### `rule: bounded-optimization-transformation`
-Python uses bounded local repeated-structure, reuse, factoring, redundant-operation-removal, and iterator-invariant-hoisting candidates only after retained ordinary analysis. It publishes only independently exact-symbolically proved positive aggregate-work reductions under declared domains; Pi transports shape and population without recomputing mathematics. Cross-equation sharing and Horner reformulation remain pending.
+Python uses bounded repeated-structure, reuse, factoring, redundant-operation-removal, iterator-invariant-hoisting, compatible cross-equation-sharing, and Horner candidates only after retained ordinary analysis. It publishes only independently exact-symbolically proved positive aggregate-work reductions under declared domains; shared producers require compatible positional free-index interfaces and acyclic placement, and Horner stays behind explicit variable, degree, term, and node ceilings. Pi transports shape and population without recomputing mathematics.
 Origin: ADR-adopt-bounded-formula-optimization-advice

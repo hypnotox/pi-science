@@ -325,7 +325,9 @@ export type OptimizationSuggestion = {
     | "reciprocal_reuse"
     | "factoring"
     | "redundant_operation_removal"
-    | "iterator_invariant_hoisting";
+    | "iterator_invariant_hoisting"
+    | "cross_equation_sharing"
+    | "horner";
   target: { kind: "expression" | "equation"; name: string | null };
   occurrences: Array<{
     path: number[];
@@ -2668,6 +2670,8 @@ function validOptimizationSuggestion(
     "factoring",
     "redundant_operation_removal",
     "iterator_invariant_hoisting",
+    "cross_equation_sharing",
+    "horner",
   ];
   if (!kinds.includes(String(value.kind))) return false;
   if (!isRecord(value.target) || !exactKeys(value.target, ["kind", "name"]))
@@ -2711,6 +2715,7 @@ function validOptimizationSuggestion(
     "repeated_call",
     "reciprocal_reuse",
     "iterator_invariant_hoisting",
+    "cross_equation_sharing",
   ].includes(String(value.kind));
   const validIntermediate =
     value.intermediate === null

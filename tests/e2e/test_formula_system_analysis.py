@@ -20,6 +20,7 @@ from py_science.formula import (
     FunctionDefinition,
     IndexDomain,
     MathematicalDomain,
+    OptimizationConfig,
     PrimitiveCost,
     PropertiesQuery,
     Scenario,
@@ -1555,3 +1556,41 @@ def test_infinite_output_domain_is_rejected_as_a_finite_computational_bound() ->
     ))
     assert outcome.status == "failure"
     assert "infinite" in outcome.error.message
+
+
+def test_compatible_cross_equation_sharing_preserves_submitted_system_reports() -> None:
+    request = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(
+            EquationRequest(
+                name="left",
+                expression="Eq(left[i], x[i]*x[i] + 1)",
+                domains={"i": IndexDomain(lower="0", upper="3")},
+            ),
+            EquationRequest(
+                name="right",
+                expression="Eq(right[j], x[j]*x[j] - 1)",
+                domains={"j": IndexDomain(lower="0", upper="3")},
+            ),
+        ),
+        variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
+        optimization=OptimizationConfig(max_suggestions=16),
+    )
+    enabled = analyze(request)
+    disabled = analyze(
+        request.model_copy(update={"optimization": OptimizationConfig(max_suggestions=0)})
+    )
+
+    assert isinstance(enabled, AnalysisSuccess)
+    assert isinstance(disabled, AnalysisSuccess)
+    assert enabled.system == disabled.system
+    assert enabled.operation_counts == disabled.operation_counts
+    sharing = next(
+        item
+        for item in enabled.optimization.suggestions
+        if item.kind == "cross_equation_sharing"
+    )
+    assert sharing.intermediate is not None
+    assert sharing.intermediate.scope_output_indices == ("i",)
+    assert sharing.evidence.statement.endswith("every transformed retained output")
+    assert (sharing.work_before, sharing.work_after, sharing.savings) == ("16", "12", "4")

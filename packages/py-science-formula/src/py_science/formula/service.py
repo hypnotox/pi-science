@@ -19,7 +19,6 @@ from py_science.formula.computation import (
 )
 from py_science.formula.domains import OutputDomain, build_output_domains
 from py_science.formula.domains import extent as domain_extent
-from py_science.formula.domains import free_symbols as domain_free_symbols
 from py_science.formula.exact_values import parse_exact_scalar
 from py_science.formula.expressions import (
     BinaryExpression,
@@ -108,7 +107,7 @@ from py_science.formula.work import (
     WorkAnalysis,
     WorkContext,
     WorkRenderBudget,
-    aggregate_analysis,
+    aggregate_output_analysis,
     analyze_work,
     expand_function_values,
     is_integer_expression,
@@ -1381,43 +1380,14 @@ def _analyze_system(
         _bound_substitution_expansion(equation.formula.right, scoped_context.definitions)
         analysis = analyze_work(equation.formula.right, scoped_context)
         analysis.unresolved.update(index_unresolved.get(name, ()))
-        by_index = {domain.index: domain for domain in equation.output_domains}
-        domain_uses: list[RelationshipUse] = []
-        for index in reversed(equation.domain_order):
-            domain = by_index[index]
-            count, ordered, uses = domain_extent(domain, by_index, domain_reasoning)
-            domain_uses.extend(uses)
-            for dependency in sorted(domain.dependencies):
-                predecessor = by_index[dependency]
-                domain_uses.append(
-                    RelationshipUse(
-                        name=f"domain:{dependency}",
-                        relationship=(
-                            f"{render(predecessor.lower).sympy} <= {dependency} <= "
-                            f"{render(predecessor.upper).sympy}"
-                        ),
-                    )
-                )
-            external_bound_symbols = (
-                domain_free_symbols(domain.lower) | domain_free_symbols(domain.upper)
-            ) - set(by_index)
-            relational_domain = bool(domain.dependencies) or len(external_bound_symbols) > 1
-            analysis, unresolved = aggregate_analysis(
-                analysis,
-                index,
-                domain.lower,
-                domain.upper,
-                scoped_context,
-                f"equation {name} output index {index}",
-                proven_extent=count if ordered and relational_domain else None,
-                ordering_unresolved=(
-                    f"equation {name} output index {index} ordering or finiteness is unproved"
-                    if relational_domain and not ordered
-                    else None
-                ),
-            )
-            if unresolved is not None:
-                analysis.unresolved.add(unresolved)
+        analysis, domain_uses = aggregate_output_analysis(
+            analysis,
+            equation.output_domains,
+            equation.domain_order,
+            scoped_context,
+            domain_reasoning,
+            f"equation {name}",
+        )
         analysis, used = _apply_knowledge(
             analysis,
             knowledge,
@@ -2867,7 +2837,11 @@ def _bound_result(outcome: AnalysisOutcome) -> AnalysisOutcome:
                         update={
                             "suggestions": (),
                             "status": "incomplete",
-                            "qualifications": ("optimization advice exceeds its byte bound",),
+                            "qualifications": (
+                                "optimization advice bytes budget exhausted "
+                                f"(measured {advice_contribution}, "
+                                f"configured {MAX_OPTIMIZATION_BYTES})",
+                            ),
                         }
                     )
                 }

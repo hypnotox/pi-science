@@ -10,6 +10,7 @@ from functools import cmp_to_key
 from typing import Literal
 
 from py_science.formula.computation import RetainedComputation, RetainedWorkAnalysis
+from py_science.formula.domains import OutputDomain
 from py_science.formula.equivalence import equivalence_answer
 from py_science.formula.expressions import (
     BinaryExpression,
@@ -25,6 +26,7 @@ from py_science.formula.expressions import (
     Symbol,
     expression_children,
     expression_node_count,
+    substitute,
 )
 from py_science.formula.mapped_outputs import ExpansionBudget, MappedOutputExpander
 from py_science.formula.models import (
@@ -36,13 +38,17 @@ from py_science.formula.models import (
     OptimizationReport,
     OptimizationSuggestion,
     OptimizationTarget,
+    QueryAnswer,
     RelationshipUse,
 )
 from py_science.formula.parser import ParseFailure, parse_expression
 from py_science.formula.reasoning import ReasoningContext
 from py_science.formula.sympy_backend import (
+    BoundedHornerCandidate,
+    BoundedHornerRefusal,
     NormalizationError,
     bounded_factor_candidate,
+    bounded_horner_candidate,
     render,
 )
 from py_science.formula.work import (
@@ -51,6 +57,7 @@ from py_science.formula.work import (
     WorkContext,
     WorkRenderBudget,
     aggregate_analysis,
+    aggregate_output_analysis,
     analyze_work,
     compare_aggregate_work,
     exact_work_sign,
@@ -60,7 +67,15 @@ from py_science.formula.work import (
 MAX_OPTIMIZATION_INSPECTIONS = 16_384
 MAX_OPTIMIZATION_CANDIDATES = 256
 MAX_OPTIMIZATION_TRANSFORM_NODES = 8_192
+MAX_OPTIMIZATION_AGGREGATE_TRANSFORM_NODES = 32_768
 MAX_OPTIMIZATION_PROOFS = 256
+MAX_OPTIMIZATION_PROOF_NODES = 32_768
+MAX_OPTIMIZATION_WORK_NODES = 32_768
+MAX_HORNER_TARGET_NODES = 512
+MAX_HORNER_VARIABLES = 1
+MAX_HORNER_DEGREE = 8
+MAX_HORNER_TERMS = 64
+MAX_HORNER_GENERATED_NODES = 512
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,11 +120,14 @@ class _CandidateComputation:
         "factoring",
         "redundant_operation_removal",
         "iterator_invariant_hoisting",
+        "cross_equation_sharing",
+        "horner",
     ]
     target: str
     original: Expression
     proposed: Expression
     occurrences: tuple[_Occurrence, ...]
+    transformed_targets: tuple[tuple[str, Expression, Expression], ...] = ()
     intermediate_name: str | None = None
     intermediate_expression: Expression | None = None
     intermediate_scope: _EvaluationScope | None = None
@@ -118,6 +136,7 @@ class _CandidateComputation:
 @dataclass(frozen=True, slots=True)
 class _Accepted:
     suggestion: OptimizationSuggestion
+    savings_expression: Expression
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,23 +156,52 @@ type _CandidateOutcome = _Accepted | _Rejected | _Exhausted
 class _OptimizationBudget:
     inspections: int = 0
     candidates: int = 0
+    aggregate_transform_nodes: int = 0
     proofs: int = 0
+    proof_nodes: int = 0
+    work_nodes: int = 0
+
+    def _accept(self, resource: str, measured: int, configured: int) -> None:
+        if measured > configured:
+            raise _BudgetExhausted(resource, measured, configured)
 
     def inspect(self, amount: int = 1) -> None:
         self.inspections += amount
-        if self.inspections > MAX_OPTIMIZATION_INSPECTIONS:
-            raise _TraversalExhausted("optimization inspection budget exhausted")
+        self._accept("inspected nodes", self.inspections, MAX_OPTIMIZATION_INSPECTIONS)
 
-    def candidate(self) -> bool:
-        if self.candidates >= MAX_OPTIMIZATION_CANDIDATES:
-            return False
+    def candidate(self) -> None:
         self.candidates += 1
-        return True
+        self._accept("generated candidates", self.candidates, MAX_OPTIMIZATION_CANDIDATES)
 
-    def proof(self) -> None:
+    def transformation(self, nodes: int) -> None:
+        self._accept("per-candidate transformation nodes", nodes, MAX_OPTIMIZATION_TRANSFORM_NODES)
+        self.aggregate_transform_nodes += nodes
+        self._accept(
+            "aggregate transformation nodes",
+            self.aggregate_transform_nodes,
+            MAX_OPTIMIZATION_AGGREGATE_TRANSFORM_NODES,
+        )
+
+    def proof(self, nodes: int) -> None:
         self.proofs += 1
-        if self.proofs > MAX_OPTIMIZATION_PROOFS:
-            raise _TraversalExhausted("optimization proof budget exhausted")
+        self._accept("proof steps", self.proofs, MAX_OPTIMIZATION_PROOFS)
+        self.proof_nodes += nodes
+        self._accept("proof nodes", self.proof_nodes, MAX_OPTIMIZATION_PROOF_NODES)
+
+    def work(self, nodes: int) -> None:
+        self.work_nodes += nodes
+        self._accept("work-comparison nodes", self.work_nodes, MAX_OPTIMIZATION_WORK_NODES)
+
+
+class _BudgetExhausted(RuntimeError):
+    def __init__(self, resource: str, measured: int, configured: int) -> None:
+        self.resource = resource
+        self.measured = measured
+        self.configured = configured
+        super().__init__(
+            f"optimization {resource} budget exhausted "
+            f"(measured {measured}, configured {configured})"
+        )
 
 
 class _TraversalExhausted(RuntimeError):
@@ -328,7 +376,28 @@ def _replace_paths(
 def _smallest_scope(expression: Expression, scope: _EvaluationScope) -> _EvaluationScope:
     raw = _free_symbols(expression)
     binders = tuple(binding for binding in scope.binders if binding.name in raw)
-    outputs = tuple(binding for binding in scope.output_bindings if binding.name in raw)
+    selected_outputs = {binding.name for binding in scope.output_bindings if binding.name in raw}
+    # A predecessor used by a selected output bound is part of the evaluation
+    # interface even when it does not occur in the intermediate expression.
+    changed = True
+    while changed:
+        changed = False
+        for binding in scope.output_bindings:
+            if binding.name not in selected_outputs:
+                continue
+            dependencies: set[str] = set()
+            if binding.lower is not None:
+                dependencies.update(_free_symbols(binding.lower))
+            if binding.upper is not None:
+                dependencies.update(_free_symbols(binding.upper))
+            before = len(selected_outputs)
+            selected_outputs.update(
+                item.name for item in scope.output_bindings if item.name in dependencies
+            )
+            changed = changed or len(selected_outputs) != before
+    outputs = tuple(
+        binding for binding in scope.output_bindings if binding.name in selected_outputs
+    )
     return _EvaluationScope(tuple(binding.name for binding in outputs), outputs, binders)
 
 
@@ -370,125 +439,328 @@ def _target_inputs(
     )
 
 
+def _canonical_output_expression(
+    expression: Expression, output_indices: tuple[str, ...]
+) -> Expression:
+    """Normalize positional output and lexical binder names without algebra."""
+
+    def visit(
+        value: Expression,
+        names: Mapping[str, str],
+        path: tuple[int, ...],
+    ) -> Expression:
+        if isinstance(value, Symbol):
+            return Symbol(names.get(value.name, value.name))
+        if isinstance(value, IndexedValue):
+            return IndexedValue(
+                names.get(value.name, value.name),
+                tuple(
+                    visit(item, names, (*path, position))
+                    for position, item in enumerate(value.indices)
+                ),
+            )
+        if isinstance(value, Call):
+            return Call(
+                value.name,
+                tuple(
+                    visit(item, names, (*path, position))
+                    for position, item in enumerate(value.arguments)
+                ),
+            )
+        if isinstance(value, BinaryExpression):
+            return BinaryExpression(
+                value.operator,
+                visit(value.left, names, (*path, 0)),
+                visit(value.right, names, (*path, 1)),
+            )
+        if isinstance(value, Sum):
+            canonical = "optimization_sum_" + "_".join(str(item) for item in path or (0,))
+            inner = dict(names)
+            inner[value.index] = canonical
+            return Sum(
+                visit(value.body, inner, (*path, 2)),
+                canonical,
+                visit(value.lower, names, (*path, 0)),
+                visit(value.upper, names, (*path, 1)),
+            )
+        return value
+
+    names = {
+        name: f"optimization_index_{position}"
+        for position, name in enumerate(output_indices)
+    }
+    return visit(expression, names, ())
+
+
+def _cross_equation_candidates(
+    computed: RetainedComputation,
+    occurrences_by_target: Mapping[str, tuple[_Occurrence, ...]],
+    generated_name: str,
+) -> tuple[_CandidateComputation, ...]:
+    if computed.expression is not None or len(computed.equations) < 2:
+        return ()
+    equations = {item.name: item for item in computed.equations}
+    grouped: dict[
+        tuple[int, Expression, tuple[tuple[Expression, Expression], ...]],
+        list[_Occurrence],
+    ] = defaultdict(list)
+    for target, occurrences in occurrences_by_target.items():
+        equation = equations[target]
+        # Equation-local constraints cannot be attached to one shared producer.
+        if equation.submitted_constraints:
+            continue
+        replacements: dict[str, Expression] = {
+            name: Symbol(f"optimization_index_{position}")
+            for position, name in enumerate(equation.domain_order)
+        }
+        domain_signature = tuple(
+            (
+                substitute(domain.lower, replacements, max_nodes=MAX_OPTIMIZATION_TRANSFORM_NODES),
+                substitute(domain.upper, replacements, max_nodes=MAX_OPTIMIZATION_TRANSFORM_NODES),
+            )
+            for domain in equation.output_domains
+        )
+        for occurrence in occurrences:
+            if occurrence.scope.binders or expression_node_count(occurrence.expression) < 2:
+                continue
+            grouped[
+                (
+                    len(equation.domain_order),
+                    _canonical_output_expression(occurrence.expression, equation.domain_order),
+                    domain_signature,
+                )
+            ].append(occurrence)
+
+    result: list[_CandidateComputation] = []
+    for (_arity, _canonical, _domains), grouped_occurrences in grouped.items():
+        by_target: dict[str, _Occurrence] = {}
+        for occurrence in grouped_occurrences:
+            by_target.setdefault(occurrence.target, occurrence)
+        if len(by_target) < 2:
+            continue
+        selected = tuple(by_target[name] for name in sorted(by_target))
+        target_names = frozenset(by_target)
+        # A producer depending on one of its consumers would introduce a cycle.
+        producer_dependencies = {
+            computed.producers[name].equation_name
+            for name in _all_symbol_names(selected[0].expression)
+            if name in computed.producers
+        }
+        if producer_dependencies & target_names:
+            continue
+        first = selected[0]
+        first_equation = equations[first.target]
+        raw = _free_symbols(first.expression)
+        interface_positions = tuple(
+            position
+            for position, name in enumerate(first_equation.domain_order)
+            if name in raw
+        )
+        transformed: list[tuple[str, Expression, Expression]] = []
+        compatible = True
+        for occurrence in selected:
+            equation = equations[occurrence.target]
+            used_positions = tuple(
+                position
+                for position, name in enumerate(equation.domain_order)
+                if name in _free_symbols(occurrence.expression)
+            )
+            if used_positions != interface_positions:
+                compatible = False
+                break
+            arguments = tuple(
+                Symbol(equation.domain_order[position]) for position in interface_positions
+            )
+            reference: Expression = (
+                IndexedValue(generated_name, arguments)
+                if arguments
+                else Symbol(generated_name)
+            )
+            transformed.append(
+                (
+                    occurrence.target,
+                    equation.formula.right,
+                    _replace_paths(equation.formula.right, (occurrence.path,), reference),
+                )
+            )
+        if not compatible:
+            continue
+        result.append(
+            _CandidateComputation(
+                kind="cross_equation_sharing",
+                target=first.target,
+                original=transformed[0][1],
+                proposed=transformed[0][2],
+                occurrences=selected,
+                transformed_targets=tuple(transformed),
+                intermediate_name=generated_name,
+                intermediate_expression=first.expression,
+                intermediate_scope=_smallest_scope(first.expression, first.scope),
+            )
+        )
+    return tuple(result)
+
+
 def _generate_candidates(
     computed: RetainedComputation, budget: _OptimizationBudget
-) -> tuple[tuple[_CandidateComputation, ...], str | None]:
+) -> tuple[tuple[_CandidateComputation, ...], tuple[str, ...]]:
     candidates: list[_CandidateComputation] = []
+    qualifications: list[str] = []
     generated_name = _generated_name(computed)
-    for target, expression, output_indices, output_domains in _target_inputs(computed):
-        try:
-            occurrences = _detect_occurrences(
-                target,
-                expression,
-                computed.producers,
-                output_indices=output_indices,
-                output_domains=output_domains,
-                max_nodes=max(1, MAX_OPTIMIZATION_INSPECTIONS - budget.inspections),
-            )
+    occurrences_by_target: dict[str, tuple[_Occurrence, ...]] = {}
+
+    def append(candidate: _CandidateComputation) -> None:
+        budget.candidate()
+        candidates.append(candidate)
+
+    try:
+        for target, expression, output_indices, output_domains in _target_inputs(computed):
+            try:
+                occurrences = _detect_occurrences(
+                    target,
+                    expression,
+                    computed.producers,
+                    output_indices=output_indices,
+                    output_domains=output_domains,
+                    max_nodes=max(1, MAX_OPTIMIZATION_INSPECTIONS - budget.inspections),
+                )
+            except _TraversalExhausted:
+                measured = budget.inspections + expression_node_count(expression)
+                raise _BudgetExhausted(
+                    "inspected nodes", measured, MAX_OPTIMIZATION_INSPECTIONS
+                ) from None
             budget.inspect(max(1, expression_node_count(expression)))
-        except _TraversalExhausted as error:
-            return tuple(candidates), str(error)
+            occurrences_by_target[target] = occurrences
 
-        grouped: dict[tuple[Expression, _EvaluationScope], list[_Occurrence]] = defaultdict(list)
-        for occurrence in occurrences:
-            if not isinstance(occurrence.expression, Sum):
-                grouped[(occurrence.expression, occurrence.scope)].append(occurrence)
-        for (repeated, scope), items in grouped.items():
-            if len(items) < 2 or expression_node_count(repeated) < 2:
-                continue
-            if not budget.candidate():
-                return tuple(candidates), "optimization candidate budget exhausted"
-            kind: Literal["repeated_subexpression", "repeated_call", "reciprocal_reuse"]
-            if (
-                isinstance(repeated, BinaryExpression)
-                and repeated.operator is BinaryOperator.DIVIDE
-                and isinstance(repeated.left, IntegerLiteral)
-                and repeated.left.value == 1
-            ):
-                kind = "reciprocal_reuse"
-            elif isinstance(repeated, Call):
-                kind = "repeated_call"
-            else:
-                kind = "repeated_subexpression"
-            proposed = _replace_paths(
-                expression, (item.path for item in items), Symbol(generated_name)
-            )
-            candidates.append(
-                _CandidateComputation(
-                    kind=kind,
-                    target=target,
-                    original=expression,
-                    proposed=proposed,
-                    occurrences=tuple(items),
-                    intermediate_name=generated_name,
-                    intermediate_expression=repeated,
-                    intermediate_scope=_smallest_scope(repeated, scope),
-                )
-            )
-
-        for occurrence in occurrences:
-            node = occurrence.expression
-            replacement = _neutral_replacement(node)
-            if replacement is not None:
-                if not budget.candidate():
-                    return tuple(candidates), "optimization candidate budget exhausted"
-                candidates.append(
-                    _CandidateComputation(
-                        kind="redundant_operation_removal",
-                        target=target,
-                        original=expression,
-                        proposed=_replace_paths(expression, (occurrence.path,), replacement),
-                        occurrences=(occurrence,),
-                    )
-                )
-            factored = _factored(node)
-            if factored is not None:
-                if not budget.candidate():
-                    return tuple(candidates), "optimization candidate budget exhausted"
-                candidates.append(
-                    _CandidateComputation(
-                        kind="factoring",
-                        target=target,
-                        original=expression,
-                        proposed=_replace_paths(expression, (occurrence.path,), factored),
-                        occurrences=(occurrence,),
-                    )
-                )
-            # A body subtree independent of the innermost active iterator can be
-            # evaluated immediately outside that iterator. Bounds stay outside it.
-            if occurrence.scope.binders:
-                binding = occurrence.scope.binders[-1]
-                raw_symbols = _free_symbols(node)
-                useful = (
-                    isinstance(node, (BinaryExpression, Call)) and expression_node_count(node) > 1
-                )
+            grouped: dict[
+                tuple[Expression, _EvaluationScope], list[_Occurrence]
+            ] = defaultdict(list)
+            for occurrence in occurrences:
+                if not isinstance(occurrence.expression, Sum):
+                    grouped[(occurrence.expression, occurrence.scope)].append(occurrence)
+            for (repeated, scope), items in grouped.items():
+                if len(items) < 2 or expression_node_count(repeated) < 2:
+                    continue
+                kind: Literal["repeated_subexpression", "repeated_call", "reciprocal_reuse"]
                 if (
-                    useful
-                    and binding.name not in raw_symbols
-                    and occurrence.path[: len(binding.path) + 1] == (*binding.path, 2)
+                    isinstance(repeated, BinaryExpression)
+                    and repeated.operator is BinaryOperator.DIVIDE
+                    and isinstance(repeated.left, IntegerLiteral)
+                    and repeated.left.value == 1
                 ):
-                    if not budget.candidate():
-                        return tuple(candidates), "optimization candidate budget exhausted"
-                    outer_scope = _EvaluationScope(
-                        occurrence.scope.output_indices,
-                        occurrence.scope.output_bindings,
-                        occurrence.scope.binders[:-1],
+                    kind = "reciprocal_reuse"
+                elif isinstance(repeated, Call):
+                    kind = "repeated_call"
+                else:
+                    kind = "repeated_subexpression"
+                append(
+                    _CandidateComputation(
+                        kind=kind,
+                        target=target,
+                        original=expression,
+                        proposed=_replace_paths(
+                            expression, (item.path for item in items), Symbol(generated_name)
+                        ),
+                        occurrences=tuple(items),
+                        intermediate_name=generated_name,
+                        intermediate_expression=repeated,
+                        intermediate_scope=_smallest_scope(repeated, scope),
                     )
-                    candidates.append(
+                )
+
+            for occurrence in occurrences:
+                node = occurrence.expression
+                replacement = _neutral_replacement(node)
+                if replacement is not None:
+                    append(
                         _CandidateComputation(
-                            kind="iterator_invariant_hoisting",
+                            kind="redundant_operation_removal",
                             target=target,
                             original=expression,
-                            proposed=_replace_paths(
-                                expression, (occurrence.path,), Symbol(generated_name)
-                            ),
+                            proposed=_replace_paths(expression, (occurrence.path,), replacement),
                             occurrences=(occurrence,),
-                            intermediate_name=generated_name,
-                            intermediate_expression=node,
-                            intermediate_scope=_smallest_scope(node, outer_scope),
                         )
                     )
-    return tuple(candidates), None
+                factored = _factored(node)
+                if factored is not None:
+                    append(
+                        _CandidateComputation(
+                            kind="factoring",
+                            target=target,
+                            original=expression,
+                            proposed=_replace_paths(expression, (occurrence.path,), factored),
+                            occurrences=(occurrence,),
+                        )
+                    )
+                horner = bounded_horner_candidate(
+                    node,
+                    max_target_nodes=MAX_HORNER_TARGET_NODES,
+                    max_polynomial_variables=MAX_HORNER_VARIABLES,
+                    max_degree=MAX_HORNER_DEGREE,
+                    max_terms=MAX_HORNER_TERMS,
+                    max_generated_nodes=MAX_HORNER_GENERATED_NODES,
+                )
+                if isinstance(horner, BoundedHornerRefusal):
+                    detail = f"optimization Horner {horner.resource}"
+                    if not horner.resource.endswith("refusal"):
+                        detail += " refused"
+                    if horner.observed is not None and horner.configured is not None:
+                        detail += (
+                            f" (measured {horner.observed}, configured {horner.configured})"
+                        )
+                    qualifications.append(detail)
+                elif isinstance(horner, BoundedHornerCandidate):
+                    parsed = parse_expression(horner.rendered)
+                    if not isinstance(parsed, (ParseFailure, Equation, Relationship)):
+                        append(
+                            _CandidateComputation(
+                                kind="horner",
+                                target=target,
+                                original=expression,
+                                proposed=_replace_paths(expression, (occurrence.path,), parsed),
+                                occurrences=(occurrence,),
+                            )
+                        )
+                # A body subtree independent of the innermost active iterator can be
+                # evaluated immediately outside that iterator. Bounds stay outside it.
+                if occurrence.scope.binders:
+                    binding = occurrence.scope.binders[-1]
+                    raw_symbols = _free_symbols(node)
+                    useful = (
+                        isinstance(node, (BinaryExpression, Call))
+                        and expression_node_count(node) > 1
+                    )
+                    if (
+                        useful
+                        and binding.name not in raw_symbols
+                        and occurrence.path[: len(binding.path) + 1] == (*binding.path, 2)
+                    ):
+                        outer_scope = _EvaluationScope(
+                            occurrence.scope.output_indices,
+                            occurrence.scope.output_bindings,
+                            occurrence.scope.binders[:-1],
+                        )
+                        append(
+                            _CandidateComputation(
+                                kind="iterator_invariant_hoisting",
+                                target=target,
+                                original=expression,
+                                proposed=_replace_paths(
+                                    expression, (occurrence.path,), Symbol(generated_name)
+                                ),
+                                occurrences=(occurrence,),
+                                intermediate_name=generated_name,
+                                intermediate_expression=node,
+                                intermediate_scope=_smallest_scope(node, outer_scope),
+                            )
+                        )
+        for candidate in _cross_equation_candidates(
+            computed, occurrences_by_target, generated_name
+        ):
+            append(candidate)
+    except _BudgetExhausted as error:
+        qualifications.append(str(error))
+    return tuple(candidates), tuple(dict.fromkeys(qualifications))
 
 
 def _neutral_replacement(expression: Expression) -> Expression | None:
@@ -569,7 +841,12 @@ def _as_work(analysis: RetainedWorkAnalysis) -> WorkAnalysis:
 
 
 def _aggregate_scope(
-    analysis: WorkAnalysis, scope: _EvaluationScope, context: WorkContext
+    analysis: WorkAnalysis,
+    scope: _EvaluationScope,
+    context: WorkContext,
+    *,
+    output_domains: tuple[OutputDomain, ...] = (),
+    reasoning: ReasoningContext | None = None,
 ) -> WorkAnalysis | None:
     scoped = WorkContext(
         definitions=context.definitions,
@@ -599,6 +876,21 @@ def _aggregate_scope(
         )
         if unresolved is not None:
             result.unresolved.add(unresolved)
+    if scope.output_bindings and output_domains and reasoning is not None:
+        selected = tuple(
+            domain for domain in output_domains if domain.index in scope.output_indices
+        )
+        if len(selected) != len(scope.output_indices):
+            return None
+        result, _uses = aggregate_output_analysis(
+            result,
+            selected,
+            scope.output_indices,
+            scoped,
+            reasoning,
+            "optimization intermediate",
+        )
+        return result
     for binding in reversed(scope.output_bindings):
         if binding.lower is None or binding.upper is None:
             return None
@@ -616,11 +908,13 @@ def _aggregate_scope(
 
 
 def _candidate_target_work(
-    candidate: _CandidateComputation,
+    target: str,
+    proposed: Expression,
     computed: RetainedComputation,
     context: WorkContext,
-) -> WorkAnalysis | None:
-    equation = next((item for item in computed.equations if item.name == candidate.target), None)
+    reasoning: ReasoningContext,
+) -> WorkAnalysis:
+    equation = next((item for item in computed.equations if item.name == target), None)
     indices = equation.domain_order if equation is not None else ()
     scoped = WorkContext(
         definitions=context.definitions,
@@ -630,31 +924,16 @@ def _candidate_target_work(
         nonnegative_symbols=context.nonnegative_symbols,
         call_stack=context.call_stack,
     )
-    result = analyze_work(candidate.proposed, scoped)
+    result = analyze_work(proposed, scoped)
     if equation is not None:
-        by_index = {item.index: item for item in equation.output_domains}
-        for index in reversed(equation.domain_order):
-            domain = by_index[index]
-            result, unresolved = aggregate_analysis(
-                result,
-                index,
-                domain.lower,
-                domain.upper,
-                scoped,
-                f"optimization equation {candidate.target} output index {index}",
-            )
-            if unresolved is not None:
-                result.unresolved.add(unresolved)
-    if candidate.intermediate_expression is not None:
-        assert candidate.intermediate_scope is not None
-        intermediate = _aggregate_scope(
-            analyze_work(candidate.intermediate_expression, scoped),
-            candidate.intermediate_scope,
+        result, _uses = aggregate_output_analysis(
+            result,
+            equation.output_domains,
+            equation.domain_order,
             scoped,
+            reasoning,
+            f"optimization equation {target}",
         )
-        if intermediate is None:
-            return None
-        result = result.combine(intermediate)
     return result
 
 
@@ -662,17 +941,38 @@ def _whole_candidate_work(
     candidate: _CandidateComputation,
     computed: RetainedComputation,
     context: WorkContext,
+    reasoning: ReasoningContext,
 ) -> WorkAnalysis | None:
-    changed = _candidate_target_work(candidate, computed, context)
-    if changed is None:
-        return None
+    transformations = candidate.transformed_targets or (
+        (candidate.target, candidate.original, candidate.proposed),
+    )
+    changed = {
+        target: _candidate_target_work(target, proposed, computed, context, reasoning)
+        for target, _original, proposed in transformations
+    }
     if computed.expression is not None:
-        return changed
-    result = WorkAnalysis()
-    for name in computed.dependency_order:
-        result = result.combine(
-            changed if name == candidate.target else _as_work(computed.equation_analyses[name])
+        result = changed[candidate.target]
+    else:
+        result = WorkAnalysis()
+        for name in computed.dependency_order:
+            result = result.combine(
+                changed.get(name, _as_work(computed.equation_analyses[name]))
+            )
+    if candidate.intermediate_expression is not None:
+        assert candidate.intermediate_scope is not None
+        equation = next(
+            (item for item in computed.equations if item.name == candidate.target), None
         )
+        intermediate = _aggregate_scope(
+            analyze_work(candidate.intermediate_expression, context),
+            candidate.intermediate_scope,
+            context,
+            output_domains=equation.output_domains if equation is not None else (),
+            reasoning=reasoning,
+        )
+        if intermediate is None:
+            return None
+        result = result.combine(intermediate)
     return result
 
 
@@ -703,6 +1003,59 @@ def _interpretation(expression: Expression) -> Interpretation:
     return Interpretation(normalized_sympy=rendered.sympy, normalized_latex=rendered.latex)
 
 
+def _expand_generated_intermediate(
+    expression: Expression,
+    name: str,
+    intermediate: Expression,
+    formal_indices: tuple[str, ...],
+) -> Expression:
+    """Expand one generated scalar or indexed reference by checked substitution."""
+    if isinstance(expression, Symbol) and expression.name == name and not formal_indices:
+        return intermediate
+    if isinstance(expression, IndexedValue) and expression.name == name:
+        if len(expression.indices) != len(formal_indices):
+            raise ExpressionTooComplex("generated optimization interface changed arity")
+        return substitute(
+            intermediate,
+            dict(zip(formal_indices, expression.indices, strict=True)),
+            max_nodes=MAX_OPTIMIZATION_TRANSFORM_NODES,
+        )
+    if isinstance(expression, BinaryExpression):
+        return BinaryExpression(
+            expression.operator,
+            _expand_generated_intermediate(
+                expression.left, name, intermediate, formal_indices
+            ),
+            _expand_generated_intermediate(
+                expression.right, name, intermediate, formal_indices
+            ),
+        )
+    if isinstance(expression, Call):
+        return Call(
+            expression.name,
+            tuple(
+                _expand_generated_intermediate(item, name, intermediate, formal_indices)
+                for item in expression.arguments
+            ),
+        )
+    if isinstance(expression, IndexedValue):
+        return IndexedValue(
+            expression.name,
+            tuple(
+                _expand_generated_intermediate(item, name, intermediate, formal_indices)
+                for item in expression.indices
+            ),
+        )
+    if isinstance(expression, Sum):
+        return Sum(
+            _expand_generated_intermediate(expression.body, name, intermediate, formal_indices),
+            expression.index,
+            _expand_generated_intermediate(expression.lower, name, intermediate, formal_indices),
+            _expand_generated_intermediate(expression.upper, name, intermediate, formal_indices),
+        )
+    return expression
+
+
 def _verify_candidate(
     candidate: _CandidateComputation,
     request: AnalysisRequest,
@@ -711,45 +1064,73 @@ def _verify_candidate(
     reasoning: ReasoningContext | None,
     budget: _OptimizationBudget,
 ) -> _CandidateOutcome:
-    if expression_node_count(candidate.proposed) > MAX_OPTIMIZATION_TRANSFORM_NODES:
-        return _Exhausted("optimization transformation budget exhausted")
+    transformations = candidate.transformed_targets or (
+        (candidate.target, candidate.original, candidate.proposed),
+    )
+    transformation_nodes = sum(
+        expression_node_count(proposed) for _target, _original, proposed in transformations
+    )
+    try:
+        budget.transformation(transformation_nodes)
+    except _BudgetExhausted as error:
+        return _Exhausted(str(error))
     expansion_budget = ExpansionBudget(remaining=MAX_OPTIMIZATION_TRANSFORM_NODES)
     reserved: set[str] = set()
     for _target, expression, _indices, _domains in _target_inputs(computed):
         reserved.update(_all_symbol_names(expression))
+    answers: list[QueryAnswer] = []
     try:
-        original_expanded = MappedOutputExpander(computed, expansion_budget, set(reserved)).expand(
-            candidate.original
-        )
-        expanded = MappedOutputExpander(computed, expansion_budget, set(reserved)).expand(
-            candidate.proposed,
-            {candidate.intermediate_name: candidate.intermediate_expression}
-            if candidate.intermediate_name is not None
-            and candidate.intermediate_expression is not None
-            else None,
-        )
+        for _target, original, proposed in transformations:
+            original_expanded = MappedOutputExpander(
+                computed, expansion_budget, set(reserved)
+            ).expand(original)
+            if (
+                candidate.intermediate_name is not None
+                and candidate.intermediate_expression is not None
+                and candidate.intermediate_scope is not None
+            ):
+                proposed = _expand_generated_intermediate(
+                    proposed,
+                    candidate.intermediate_name,
+                    candidate.intermediate_expression,
+                    candidate.intermediate_scope.output_indices,
+                )
+            expanded = MappedOutputExpander(
+                computed, expansion_budget, set(reserved)
+            ).expand(proposed)
+            try:
+                budget.proof(
+                    expression_node_count(original_expanded) + expression_node_count(expanded)
+                )
+            except _BudgetExhausted as error:
+                return _Exhausted(str(error))
+            answer = equivalence_answer(original_expanded, expanded, reasoning)
+            if (
+                answer.conclusion not in {"proved", "proved_under_assumptions"}
+                and original_expanded == expanded
+            ):
+                answer = QueryAnswer(
+                    conclusion="proved",
+                    evidence=IdentityEvidence(
+                        statement=(
+                            "checked intermediate substitution reconstructs every retained output"
+                        )
+                    ),
+                )
+            if answer.conclusion not in {"proved", "proved_under_assumptions"}:
+                return _Rejected("candidate output equivalence is not proved")
+            if not isinstance(answer.evidence, IdentityEvidence):
+                return _Rejected("candidate proof has no exact identity evidence")
+            answers.append(answer)
     except ExpressionTooComplex:
-        return _Exhausted("optimization substitution budget exhausted")
-    budget.proof()
-    answer = equivalence_answer(original_expanded, expanded, reasoning)
-    if (
-        answer.conclusion not in {"proved", "proved_under_assumptions"}
-        and original_expanded == expanded
-    ):
-        from py_science.formula.models import QueryAnswer
-
-        answer = QueryAnswer(
-            conclusion="proved",
-            evidence=IdentityEvidence(
-                statement="checked intermediate substitution reconstructs the retained output"
-            ),
+        return _Exhausted(
+            "optimization substitution nodes budget exhausted "
+            f"(measured >{MAX_OPTIMIZATION_TRANSFORM_NODES}, "
+            f"configured {MAX_OPTIMIZATION_TRANSFORM_NODES})"
         )
-    if answer.conclusion not in {"proved", "proved_under_assumptions"}:
-        return _Rejected("candidate output equivalence is not proved")
-    if not isinstance(answer.evidence, IdentityEvidence):
-        return _Rejected("candidate proof has no exact identity evidence")
 
-    after = _whole_candidate_work(candidate, computed, context)
+    assert reasoning is not None
+    after = _whole_candidate_work(candidate, computed, context, reasoning)
     before = _as_work(computed.aggregate_analysis)
     if after is None:
         return _Rejected("candidate scope multiplicity is unavailable")
@@ -757,6 +1138,12 @@ def _verify_candidate(
         return _Rejected("candidate aggregate work is unavailable")
     if before.unknown_costs or before.unresolved or before.direct_work_blockers:
         return _Rejected("retained aggregate work is unavailable")
+    try:
+        budget.work(
+            expression_node_count(before.total_work) + expression_node_count(after.total_work)
+        )
+    except _BudgetExhausted as error:
+        return _Exhausted(str(error))
     relation = compare_aggregate_work(
         AggregateWorkComparisonInput(
             work=after.total_work,
@@ -799,10 +1186,24 @@ def _verify_candidate(
             else None
         )
     except (ExpressionTooComplex, NormalizationError):
-        return _Exhausted("optimization rendering budget exhausted")
+        return _Exhausted(
+            "optimization rendering budget exhausted "
+            f"(measured >{MAX_OPTIMIZATION_TRANSFORM_NODES}, "
+            f"configured {MAX_OPTIMIZATION_TRANSFORM_NODES})"
+        )
 
-    conditions = tuple(dict.fromkeys((*answer.conditions, *relation.conditions)))
-    assumptions = _unique_uses((*answer.assumptions_used, *relation.assumptions_used))
+    conditions = tuple(
+        dict.fromkeys(
+            item
+            for answer in answers
+            for item in answer.conditions
+        )
+    )
+    assumptions = _unique_uses(
+        item for answer in answers for item in answer.assumptions_used
+    )
+    conditions = tuple(dict.fromkeys((*conditions, *relation.conditions)))
+    assumptions = _unique_uses((*assumptions, *relation.assumptions_used))
     conclusion: Literal["proved", "proved_under_assumptions"] = (
         "proved_under_assumptions" if conditions or assumptions else "proved"
     )
@@ -810,6 +1211,9 @@ def _verify_candidate(
         OptimizationTarget(kind="expression")
         if candidate.target == "expression" and computed.expression is not None
         else OptimizationTarget(kind="equation", name=candidate.target)
+    )
+    evidence = IdentityEvidence(
+        statement="checked exact symbolic equivalence for every transformed retained output"
     )
     suggestion = OptimizationSuggestion(
         kind=candidate.kind,
@@ -826,14 +1230,14 @@ def _verify_candidate(
         proposed=proposed,
         intermediate=intermediate,
         conclusion=conclusion,
-        evidence=answer.evidence,
+        evidence=evidence,
         conditions=conditions,
         assumptions_used=assumptions,
         work_before=work_before,
         work_after=work_after,
         savings=savings,
     )
-    return _Accepted(suggestion)
+    return _Accepted(suggestion, relation.delta)
 
 
 def _suggestion_order(left: OptimizationSuggestion, right: OptimizationSuggestion) -> int:
@@ -861,6 +1265,78 @@ def _suggestion_order(left: OptimizationSuggestion, right: OptimizationSuggestio
     return (left_key > right_key) - (left_key < right_key)
 
 
+def _accepted_order(
+    left: _Accepted,
+    right: _Accepted,
+    reasoning: ReasoningContext,
+    budget: _OptimizationBudget,
+) -> int:
+    base = _suggestion_order(left.suggestion, right.suggestion)
+    if (left.suggestion.conclusion == "proved") != (
+        right.suggestion.conclusion == "proved"
+    ):
+        return base
+    try:
+        left_exact = Fraction(left.suggestion.savings)
+        right_exact = Fraction(right.suggestion.savings)
+    except (ValueError, ZeroDivisionError):
+        left_exact = right_exact = None
+    if left_exact is not None and right_exact is not None:
+        return base
+    if (
+        left.suggestion.conditions != right.suggestion.conditions
+        or left.suggestion.assumptions_used != right.suggestion.assumptions_used
+    ):
+        return base
+    budget.work(
+        expression_node_count(left.savings_expression)
+        + expression_node_count(right.savings_expression)
+    )
+    relation = compare_aggregate_work(
+        AggregateWorkComparisonInput(work=left.savings_expression),
+        AggregateWorkComparisonInput(work=right.savings_expression),
+        reasoning,
+        semantic_established=True,
+    )
+    if relation.conditions or relation.assumptions_used:
+        return base
+    if relation.status == "first_lower":
+        return 1
+    if relation.status == "second_lower":
+        return -1
+    return base
+
+
+def _candidate_semantic_key(candidate: _CandidateComputation) -> tuple[object, ...]:
+    transformations = candidate.transformed_targets or (
+        (candidate.target, candidate.original, candidate.proposed),
+    )
+    return (
+        tuple((target, proposed) for target, _original, proposed in transformations),
+        tuple(
+            (item.target, item.path, item.scope)
+            for item in candidate.occurrences
+        ),
+        candidate.intermediate_expression,
+        candidate.intermediate_scope,
+    )
+
+
+def _unique_qualifications(values: Iterable[str]) -> tuple[str, ...]:
+    """Keep the deterministic first measurement for each bounded resource."""
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        key = value.split(" (measured", 1)[0]
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(value)
+        if len(result) == 128:
+            break
+    return tuple(result)
+
+
 def _optimization_report(  # pyright: ignore[reportUnusedFunction]
     request: AnalysisRequest, computed: RetainedComputation, context: WorkContext
 ) -> OptimizationReport:
@@ -869,47 +1345,52 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
     if limit == 0:
         return OptimizationReport(requested_limit=0, status="disabled")
     budget = _OptimizationBudget()
-    accepted: list[OptimizationSuggestion] = []
+    accepted: list[_Accepted] = []
     qualifications: list[str] = []
-    try:
-        candidates, generation_exhaustion = _generate_candidates(computed, budget)
-        if generation_exhaustion is not None:
-            qualifications.append(generation_exhaustion)
-        reasoning = _reasoning(request, computed)
-        if reasoning is None:
-            return OptimizationReport(
-                requested_limit=limit,
-                status="incomplete",
-                qualifications=("optimization proof budget exhausted",),
-            )
-        seen: set[tuple[str, str, str]] = set()
-        for candidate in candidates:
-            outcome = _verify_candidate(candidate, request, computed, context, reasoning, budget)
-            if isinstance(outcome, _Exhausted):
-                qualifications.append(outcome.reason)
-                continue
-            if isinstance(outcome, _Rejected):
-                continue
-            suggestion = outcome.suggestion
-            key = (
-                suggestion.target.name or "expression",
-                suggestion.proposed.normalized_sympy,
-                suggestion.intermediate.expression.normalized_sympy
-                if suggestion.intermediate is not None
-                else "",
-            )
-            if key not in seen:
-                seen.add(key)
-                accepted.append(suggestion)
-    except _TraversalExhausted as error:
-        qualifications.append(str(error))
-    except (ExpressionTooComplex, NormalizationError):
-        qualifications.append("optimization search budget exhausted")
+    candidates, generation_qualifications = _generate_candidates(computed, budget)
+    qualifications.extend(generation_qualifications)
+    reasoning = _reasoning(request, computed)
+    if reasoning is None:
+        return OptimizationReport(
+            requested_limit=limit,
+            status="incomplete",
+            qualifications=(
+                "optimization proof context nodes budget exhausted "
+                f"(measured >{MAX_OPTIMIZATION_PROOF_NODES}, "
+                f"configured {MAX_OPTIMIZATION_PROOF_NODES})",
+            ),
+        )
+    seen: set[tuple[object, ...]] = set()
+    for candidate in candidates:
+        outcome = _verify_candidate(candidate, request, computed, context, reasoning, budget)
+        if isinstance(outcome, _Exhausted):
+            qualifications.append(outcome.reason)
+            continue
+        if isinstance(outcome, _Rejected):
+            continue
+        key = _candidate_semantic_key(candidate)
+        if key not in seen:
+            seen.add(key)
+            accepted.append(outcome)
 
-    accepted.sort(key=cmp_to_key(_suggestion_order))
+    try:
+        accepted.sort(
+            key=cmp_to_key(
+                lambda left, right: _accepted_order(left, right, reasoning, budget)
+            )
+        )
+    except _BudgetExhausted as error:
+        qualifications.append(str(error))
+        accepted.sort(
+            key=cmp_to_key(
+                lambda left, right: _suggestion_order(
+                    left.suggestion, right.suggestion
+                )
+            )
+        )
     return OptimizationReport(
         requested_limit=limit,
         status="incomplete" if qualifications else "complete",
-        suggestions=tuple(accepted[:limit]),
-        qualifications=tuple(dict.fromkeys(qualifications)),
+        suggestions=tuple(item.suggestion for item in accepted[:limit]),
+        qualifications=_unique_qualifications(qualifications),
     )

@@ -431,8 +431,8 @@
     "AGENTS.md": {
       "templateId": "agents-doc/AGENTS.md.tmpl",
       "templateHash": "sha256:70408b662372da03dd91013d9a7e541e7f127889c14e6f5b95e4b29b97cbb92a",
-      "configHash": "sha256:461841505a598c20c35dd675f6f29f84efdc5e57fc0fce1d2b88b82ce3a3ebed",
-      "outputHash": "sha256:fde41132eb48aed28b6625a4a90a68ce93e258c7924b8bb3d525a36dde3bcf7f"
+      "configHash": "sha256:d39f4887789ce702b80e8a019ee4fae26b358e363c5ff40391b3d159c27c0aec",
+      "outputHash": "sha256:7f50a2f6d4f5faf18d366cfdec72afa52c747256f792a3698a0582dec40704f0"
     },
     "CLAUDE.md": {
       "templateId": "claude/CLAUDE.md.tmpl",
@@ -456,14 +456,14 @@
       "templateId": "docs/local.md.tmpl",
       "templateHash": "sha256:f09ab3b6e84fa2d6a10c6f2ac2a6e1552ad8cada8855c9e378f432a96b7c733d",
       "configHash": "sha256:576779d655d5fdd2c1b6d77a84fc15a9ea9000c1fb229501b15a6401c1d5d3e9",
-      "outputHash": "sha256:239a29a5b7dbef3563f78777a568f0fbf00dda6c751a93133c609a71a6a8052e",
+      "outputHash": "sha256:022f1d6d4db70208235301a4605fb9a8e83c4e25716e95192a6e819e456c6316",
       "regenChecked": true
     },
     "docs/architecture.md": {
       "templateId": "docs/architecture.md.tmpl",
       "templateHash": "sha256:a1d5d26b03573cc86862912fdc8f46ecf0d4b27455d18cc558b3621a76d0e1c9",
-      "configHash": "sha256:eb8ba86df3647e2276f9b945c607fe7a06fc1657804990a64baf4a1695d8c9f6",
-      "outputHash": "sha256:2621917af96161b652dd439b6e4dc095845253562d9163c2253e2dd76eda5461"
+      "configHash": "sha256:452431a45622af4f7e206c6895b7045f9bcc1d5f6c0d9462d38f8742ef1241e8",
+      "outputHash": "sha256:103f23099b73c2cd77c18183a2a3de1c3ba784878c9790e867d536cb71fce881"
     },
     "docs/config-reference.md": {
       "templateId": "",
@@ -567,8 +567,8 @@
     "docs/testing.md": {
       "templateId": "docs/testing.md.tmpl",
       "templateHash": "sha256:a57a68e1550ff6762ec8021fb14948cf40b221bc228459e70af8e8be4ea16c51",
-      "configHash": "sha256:46f8bb7ad23569dc80b5cd78acdd3e3b1b6055d408b8970cb7dcc4fb222be335",
-      "outputHash": "sha256:fdc368e67ee8504b499dd49c9e05c81b3de86aa474bb69dd9282ca4547958718"
+      "configHash": "sha256:cfba92d264d1dd8c85b5766d02bcaecc0e867a31f824765f023df119bcd6d9b2",
+      "outputHash": "sha256:314815938dff132dd09e4640d025aa43c9a54712b155f807a297a890b82cad4e"
     },
     "docs/topics/product/analysis-report-contract.md": {
       "templateId": "topics/topic.md.tmpl",
@@ -591,8 +591,8 @@
     "docs/topics/product/mathematical-analysis-model.md": {
       "templateId": "topics/topic.md.tmpl",
       "templateHash": "sha256:25b4ec23c7a22667f9d78b1e5883af8702d82f67896c3a42ac0ad19032d7c7bb",
-      "configHash": "sha256:aa72292dbcb6e3d85e7c3fdc2f24008842f956f9a4c9c954c795a617e1776dad",
-      "outputHash": "sha256:9a7dc8845fe9364eab39aa9afabfb4597db7c4e142708556bf477602923e7861"
+      "configHash": "sha256:312cd4598c452412a7b5833465530979a0e53222ae8cd45c5b931ce88e31449e",
+      "outputHash": "sha256:4d1d5b135ba48bf0fab6aad8f14734a0eb6e55de5bb7feac641542b860fddc7c"
     },
     "docs/topics/product/mathematical-input-contract.md": {
       "templateId": "topics/topic.md.tmpl",
@@ -603,14 +603,14 @@
     "docs/topics/product/product-boundary.md": {
       "templateId": "topics/topic.md.tmpl",
       "templateHash": "sha256:25b4ec23c7a22667f9d78b1e5883af8702d82f67896c3a42ac0ad19032d7c7bb",
-      "configHash": "sha256:e0c3cd3bf4fde1bee25bc50673f22554e75801020075d91fb5bc4f4f4f37c05b",
-      "outputHash": "sha256:93aed4b27cf2af7d159202f8cb9fd3e696b1ec4ad61e60ed9e6b161a07b195af"
+      "configHash": "sha256:30bb9ce522f5550a81a5c836e8cd4f294151bb84c4314fd6b2a687d471eba7f5",
+      "outputHash": "sha256:ed90f024db536106c1afed991ced82f7f158fa275727635af5d70a298d013374"
     },
     "docs/vision.md": {
       "templateId": "docs/local.md.tmpl",
       "templateHash": "sha256:f09ab3b6e84fa2d6a10c6f2ac2a6e1552ad8cada8855c9e378f432a96b7c733d",
       "configHash": "sha256:66ff8f3f1d7630b01d8c19b8e22984cb5531fa71b124cf560912ab6ff4279069",
-      "outputHash": "sha256:54d41a8ca1760b56033f25964baede44efd1de427e11b762a3a277051f3ad63a",
+      "outputHash": "sha256:822a2e0390a58b87e74741da0b34b6852473eadf27351cc774a68e6cb2f3fefc",
       "regenChecked": true
     },
     "docs/workflow.md": {

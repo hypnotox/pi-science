@@ -320,6 +320,37 @@ describe("private formula bridge", () => {
       invokeAdapter(node, responder(populated), request("1/x + 1/x")),
     ).resolves.toMatchObject({ optimization: populated.optimization });
 
+    const horner = {
+      ...suggestion,
+      kind: "horner",
+      occurrences: [{ path: [], binders: [], output_indices: [] }],
+      original: {
+        normalized_sympy: "2*x**3 + 3*x**2 + 4*x + 5",
+        normalized_latex: "p",
+      },
+      proposed: {
+        normalized_sympy: "x*(x*(2*x + 3) + 4) + 5",
+        normalized_latex: "h",
+      },
+      intermediate: null,
+      conclusion: "proved",
+      conditions: [],
+      work_before: "8",
+      work_after: "6",
+      savings: "2",
+    };
+    const hornerReport = {
+      ...populated,
+      optimization: { ...populated.optimization, suggestions: [horner] },
+    };
+    await expect(
+      invokeAdapter(
+        node,
+        responder(hornerReport),
+        request("2*x**3 + 3*x**2 + 4*x + 5"),
+      ),
+    ).resolves.toMatchObject({ optimization: hornerReport.optimization });
+
     const disabled = {
       ...success,
       optimization: {

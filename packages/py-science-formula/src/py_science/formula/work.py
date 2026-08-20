@@ -5,6 +5,9 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 import py_science.formula.properties as properties
+from py_science.formula.domains import OutputDomain
+from py_science.formula.domains import extent as output_domain_extent
+from py_science.formula.domains import free_symbols as domain_free_symbols
 from py_science.formula.equivalence import equivalence_answer
 from py_science.formula.expressions import (
     BinaryExpression,
@@ -222,6 +225,56 @@ def analyze_work(expression: Expression, context: WorkContext) -> WorkAnalysis:
         }
         return WorkAnalysis(direct_work_blockers=blockers)
     return WorkAnalysis()
+
+
+def aggregate_output_analysis(
+    analysis: WorkAnalysis,
+    output_domains: tuple[OutputDomain, ...],
+    domain_order: tuple[str, ...],
+    context: WorkContext,
+    reasoning: ReasoningContext,
+    label: str,
+) -> tuple[WorkAnalysis, tuple[RelationshipUse, ...]]:
+    """Aggregate one equation-like body with the validated output-domain policy."""
+    by_index = {domain.index: domain for domain in output_domains}
+    uses: list[RelationshipUse] = []
+    result = analysis
+    for index in reversed(domain_order):
+        domain = by_index[index]
+        count, ordered, domain_uses = output_domain_extent(domain, by_index, reasoning)
+        uses.extend(domain_uses)
+        for dependency in sorted(domain.dependencies):
+            predecessor = by_index[dependency]
+            uses.append(
+                RelationshipUse(
+                    name=f"domain:{dependency}",
+                    relationship=(
+                        f"{render(predecessor.lower).sympy} <= {dependency} <= "
+                        f"{render(predecessor.upper).sympy}"
+                    ),
+                )
+            )
+        external_bound_symbols = (
+            domain_free_symbols(domain.lower) | domain_free_symbols(domain.upper)
+        ) - set(by_index)
+        relational_domain = bool(domain.dependencies) or len(external_bound_symbols) > 1
+        result, unresolved = aggregate_analysis(
+            result,
+            index,
+            domain.lower,
+            domain.upper,
+            context,
+            f"{label} output index {index}",
+            proven_extent=count if ordered and relational_domain else None,
+            ordering_unresolved=(
+                f"{label} output index {index} ordering or finiteness is unproved"
+                if relational_domain and not ordered
+                else None
+            ),
+        )
+        if unresolved is not None:
+            result.unresolved.add(unresolved)
+    return result, tuple(uses)
 
 
 def cardinality(

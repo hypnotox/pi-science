@@ -60,7 +60,7 @@ The MVP provides:
 4. scenario evaluation for fixed values, intervals, finite choices, definitions, and retained asymptotic variables;
 5. dependency, ideal-reuse, and repeated-expression extraction diagnostics for named equation systems;
 6. explicit bounded general-context mathematical queries with qualified evidence;
-7. default-on bounded local repeated-structure, reuse, factoring, redundant-operation-removal, and iterator-invariant-hoisting advice whose exact-symbolic proof and positive aggregate-work reduction are independently checked.
+7. default-on bounded repeated-structure, reuse, factoring, redundant-operation-removal, iterator-invariant-hoisting, compatible cross-equation-sharing, and Horner advice whose exact-symbolic proof and positive aggregate-work reduction are independently checked.
 
 The tooling includes a concise agent skill for formulating analyzable requests and inspecting the normalized result. [Analysis Model](analysis-model.md) defines the request and report contract.
 
@@ -95,7 +95,7 @@ The MVP succeeds when an agent can:
 
 ## Future direction
 
-Later work may add symbolic storage analysis, work-depth and parallelism models, richer stage semantics, recurrence solving, expected-cost models from declared parameter distributions, domain rule libraries, cross-equation optimization sharing, Horner reformulation, equality-saturation rewrite exploration, target-aware abstract cost models, formula-to-skeleton lowering, and separate profiler or benchmark integrations. The shipped local advice remains bounded, omits unknown-cost or unproved candidates, and never claims exhaustive search.
+Later work may add symbolic storage analysis, work-depth and parallelism models, richer stage semantics, recurrence solving, expected-cost models from declared parameter distributions, domain rule libraries, equality-saturation rewrite exploration, target-aware abstract cost models, formula-to-skeleton lowering, and separate profiler or benchmark integrations. The shipped advice remains bounded, omits unknown-cost or unproved candidates, and never claims exhaustive search.
 
 Every extension preserves the central boundary: agents express planned computation in familiar mathematics, provide explicit context, and receive deterministic structural analysis before they write the implementation.
 <!-- awf:edit-in-place body -->

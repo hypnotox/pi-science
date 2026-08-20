@@ -58,3 +58,4 @@ The decision does not add arbitrary rewrite search, approximation, numerical-sta
 - 2026-08-20: Accepted; content-sha256: 16e353a8fc2ec9b1ed92af5ce4c00fd4c0c46fa176db4fc633773d87a9a63c71
 - 2026-08-20: Implementing; content-sha256: 16e353a8fc2ec9b1ed92af5ce4c00fd4c0c46fa176db4fc633773d87a9a63c71
 - 2026-08-20: Applied; operations: update `product/product-boundary:symbolic-analysis-only`, add `product/mathematical-input-contract:bounded-optimization-advice-requests`, add `product/analysis-report-contract:qualified-optimization-advice`, add `product/mathematical-analysis-model:bounded-optimization-transformation`
+- 2026-08-20: Reapplied; operations: update `product/product-boundary:symbolic-analysis-only`, add `product/mathematical-analysis-model:bounded-optimization-transformation`

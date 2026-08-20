@@ -113,7 +113,7 @@ const systemRequest = {
 };
 
 describe("formula adapter protocol boundary", () => {
-  it("round trips default, disabled, populated, system, and incomplete optimization reports", () => {
+  it("round trips local, sharing, Horner, and incomplete optimization reports", () => {
     const requests = [
       { syntax: "sympy", expression: "x" },
       {
@@ -128,6 +128,19 @@ describe("formula adapter protocol boundary", () => {
           { name: "value", expression: "Eq(value, (x + 1) * (x + 1))" },
         ],
         variables: { x: { domain: "real" } },
+      },
+      {
+        syntax: "sympy",
+        expression: "2*x**3 + 3*x**2 + 4*x + 5",
+      },
+      {
+        syntax: "sympy",
+        equations: [
+          { name: "left", expression: "Eq(left, x*x + 1)" },
+          { name: "right", expression: "Eq(right, x*x - 1)" },
+        ],
+        variables: { x: { domain: "real" } },
+        optimization: { max_suggestions: 16 },
       },
       {
         syntax: "sympy",
@@ -170,12 +183,23 @@ describe("formula adapter protocol boundary", () => {
       kind: "repeated_subexpression",
       target: { kind: "equation", name: "value" },
     });
-    expect(reports[4]).toMatchObject({
+    expect(reports[4].suggestions[0]).toMatchObject({
+      kind: "horner",
+      target: { kind: "expression", name: null },
+      intermediate: null,
+    });
+    expect(reports[5].suggestions[0]).toMatchObject({
+      kind: "cross_equation_sharing",
+      target: { kind: "equation", name: "left" },
+    });
+    expect(reports[6]).toMatchObject({
       requested_limit: 3,
       status: "incomplete",
-      qualifications: ["optimization candidate budget exhausted"],
     });
-    expect(reports[4].suggestions.length).toBeGreaterThan(0);
+    expect(reports[6].qualifications[0]).toContain("generated candidates");
+    expect(reports[6].qualifications[0]).toContain("measured");
+    expect(reports[6].qualifications[0]).toContain("configured");
+    expect(reports[6].suggestions.length).toBeGreaterThan(0);
   });
 
   it.each([

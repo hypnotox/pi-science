@@ -1245,7 +1245,16 @@ class OptimizationIntermediate(StructuredModel):
 
 
 class OptimizationSuggestion(StructuredModel):
-    kind: Literal["repeated_subexpression", "repeated_call", "reciprocal_reuse", "factoring", "redundant_operation_removal", "iterator_invariant_hoisting"]
+    kind: Literal[
+        "repeated_subexpression",
+        "repeated_call",
+        "reciprocal_reuse",
+        "factoring",
+        "redundant_operation_removal",
+        "iterator_invariant_hoisting",
+        "cross_equation_sharing",
+        "horner",
+    ]
     target: OptimizationTarget
     occurrences: tuple[OptimizationOccurrence, ...] = Field(min_length=1, max_length=128)
     original: Interpretation
@@ -1287,6 +1296,7 @@ class OptimizationSuggestion(StructuredModel):
             "repeated_call",
             "reciprocal_reuse",
             "iterator_invariant_hoisting",
+            "cross_equation_sharing",
         }
         if requires_intermediate != (self.intermediate is not None):
             raise ValueError("optimization family and intermediate shape are inconsistent")

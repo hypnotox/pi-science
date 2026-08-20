@@ -4,4 +4,4 @@
 Bounded aggregate-work dominance is available in Python and Pi protocol v11. Python owns its canonical rational decomposition and exact one-axis regions; Pi validates and presents the report without recomputing mathematical policy. It excludes multiple axes, exponentials, opaque aggregates, rewrites, resource vectors, scheduling, and empirical performance.
 
 
-Ordinary analysis defaults to three bounded optimization suggestions; zero disables advice. Python proves and ranks only positive abstract aggregate-work reductions, while Pi strictly transports the qualified report. Phase 2 ships local repeated-structure, reuse, factoring, redundant-operation-removal, and iterator-invariant-hoisting advice; cross-equation sharing and Horner remain pending.
+Ordinary analysis defaults to three bounded optimization suggestions; zero disables advice. Python proves and ranks only positive abstract aggregate-work reductions, while Pi strictly transports the qualified report. The shipped families cover repeated structure, reuse, factoring, redundant-operation removal, iterator-invariant hoisting, compatible cross-equation sharing, and bounded Horner reformulation.

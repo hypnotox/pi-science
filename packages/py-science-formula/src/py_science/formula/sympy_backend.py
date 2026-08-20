@@ -69,6 +69,31 @@ class BoundedRationalDifference:
 
 
 @dataclass(frozen=True, slots=True)
+class BoundedHornerCandidate:
+    """One bounded backend result for restricted reparsing and independent proof."""
+
+    variable: str
+    rendered: str
+    degree: int
+    terms: int
+    generated_nodes: int
+
+
+@dataclass(frozen=True, slots=True)
+class BoundedHornerNoMatch:
+    """The target is not an eligible univariate polynomial."""
+
+
+@dataclass(frozen=True, slots=True)
+class BoundedHornerRefusal:
+    """A polynomial target exceeded a checked seam limit or backend capability."""
+
+    resource: str
+    observed: int | None = None
+    configured: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class RationalMeasureFailure:
     """A safe first failure from bounded rational IR inspection."""
 
@@ -1367,6 +1392,109 @@ def _asymptotic_render_terms(coefficients: list[Any], shift: int) -> str:
             else f"({rendered})*t**{exponent}"
         )
     return " + ".join(values) or "0"
+
+
+def bounded_horner_candidate(
+    expression: Expression,
+    *,
+    max_target_nodes: int = 512,
+    max_polynomial_variables: int = 1,
+    max_degree: int = 8,
+    max_terms: int = 64,
+    max_generated_nodes: int = 512,
+    max_render_bytes: int = 16_384,
+) -> BoundedHornerCandidate | BoundedHornerNoMatch | BoundedHornerRefusal:
+    """Return one deterministic, resource-checked Horner candidate.
+
+    Coefficient symbols are allowed.  A variable is eligible only when its
+    polynomial degree is at least two; more than one such variable is treated
+    as an ambiguous multivariate target rather than guessed by the backend.
+    """
+    target_nodes = expression_node_count(expression)
+    if target_nodes > max_target_nodes:
+        return BoundedHornerRefusal("target nodes", target_nodes, max_target_nodes)
+
+    def powered_variables(value: Expression) -> set[str]:
+        result: set[str] = set()
+        if (
+            isinstance(value, BinaryExpression)
+            and value.operator is BinaryOperator.POWER
+            and isinstance(value.left, Symbol)
+        ):
+            exponent = exact_integer_value(value.right)
+            if exponent is not None and exponent >= 2:
+                result.add(value.left.name)
+        for child in expression_children(value):
+            result.update(powered_variables(child))
+        return result
+
+    structural_variables = powered_variables(expression)
+    if not structural_variables or len(structural_variables) > max_polynomial_variables:
+        return BoundedHornerNoMatch()
+    preflight = rational_ir_measure(
+        expression,
+        max_nodes=max_target_nodes,
+        max_degree=max_degree,
+        max_exponent=max_degree,
+        max_terms=max_terms,
+    )
+    if isinstance(preflight, RationalMeasureFailure):
+        if preflight.kind == "unsupported_form":
+            return BoundedHornerNoMatch()
+        configured = preflight.configured
+        return BoundedHornerRefusal(
+            f"preflight {preflight.kind.replace('_', ' ')}",
+            preflight.observed,
+            configured,
+        )
+    try:
+        value = _to_query_sympy(expression)
+    except NormalizationError:
+        return BoundedHornerNoMatch()
+    symbols = tuple(sorted(value.free_symbols, key=str))
+    eligible: list[tuple[Any, Any]] = []
+    try:
+        for symbol in symbols:
+            polynomial = sympy.Poly(value, symbol)
+            degree = int(polynomial.degree())
+            if degree >= 2:
+                eligible.append((symbol, polynomial))
+    except sympy.polys.polyerrors.PolynomialError:
+        return BoundedHornerNoMatch()
+    if not eligible:
+        return BoundedHornerNoMatch()
+    if len(eligible) > max_polynomial_variables:
+        return BoundedHornerNoMatch()
+    variable, polynomial = eligible[0]
+    degree = int(polynomial.degree())
+    terms = len(polynomial.terms())
+    if degree > max_degree:
+        return BoundedHornerRefusal("polynomial degree", degree, max_degree)
+    if terms > max_terms:
+        return BoundedHornerRefusal("polynomial terms", terms, max_terms)
+    try:
+        candidate = sympy.horner(value, variable)
+    except sympy.polys.polyerrors.PolynomialError:
+        return BoundedHornerRefusal("backend refusal", 1, 1)
+    generated_nodes = sum(1 for _ in sympy.preorder_traversal(candidate))
+    if generated_nodes > max_generated_nodes:
+        return BoundedHornerRefusal(
+            "generated nodes", generated_nodes, max_generated_nodes
+        )
+    rendered = sympy.sstr(candidate)
+    if len(rendered.encode("utf-8")) > max_render_bytes:
+        return BoundedHornerRefusal(
+            "render bytes", len(rendered.encode("utf-8")), max_render_bytes
+        )
+    if candidate == value:
+        return BoundedHornerNoMatch()
+    return BoundedHornerCandidate(
+        variable=str(variable),
+        rendered=rendered,
+        degree=degree,
+        terms=terms,
+        generated_nodes=generated_nodes,
+    )
 
 
 def bounded_factor_candidate(
