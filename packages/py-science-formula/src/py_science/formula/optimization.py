@@ -38,6 +38,7 @@ from py_science.formula.models import (
     OptimizationReport,
     OptimizationSuggestion,
     OptimizationTarget,
+    OptimizationTransformation,
     QueryAnswer,
     RelationshipUse,
 )
@@ -485,10 +486,7 @@ def _canonical_output_expression(
             )
         return value
 
-    names = {
-        name: f"optimization_index_{position}"
-        for position, name in enumerate(output_indices)
-    }
+    names = {name: f"optimization_index_{position}" for position, name in enumerate(output_indices)}
     return visit(expression, names, ())
 
 
@@ -552,9 +550,7 @@ def _cross_equation_candidates(
         first_equation = equations[first.target]
         raw = _free_symbols(first.expression)
         interface_positions = tuple(
-            position
-            for position, name in enumerate(first_equation.domain_order)
-            if name in raw
+            position for position, name in enumerate(first_equation.domain_order) if name in raw
         )
         transformed: list[tuple[str, Expression, Expression]] = []
         compatible = True
@@ -572,9 +568,7 @@ def _cross_equation_candidates(
                 Symbol(equation.domain_order[position]) for position in interface_positions
             )
             reference: Expression = (
-                IndexedValue(generated_name, arguments)
-                if arguments
-                else Symbol(generated_name)
+                IndexedValue(generated_name, arguments) if arguments else Symbol(generated_name)
             )
             transformed.append(
                 (
@@ -632,9 +626,9 @@ def _generate_candidates(
             budget.inspect(max(1, expression_node_count(expression)))
             occurrences_by_target[target] = occurrences
 
-            grouped: dict[
-                tuple[Expression, _EvaluationScope], list[_Occurrence]
-            ] = defaultdict(list)
+            grouped: dict[tuple[Expression, _EvaluationScope], list[_Occurrence]] = defaultdict(
+                list
+            )
             for occurrence in occurrences:
                 if not isinstance(occurrence.expression, Sum):
                     grouped[(occurrence.expression, occurrence.scope)].append(occurrence)
@@ -692,6 +686,9 @@ def _generate_candidates(
                             occurrences=(occurrence,),
                         )
                     )
+                # Horner recursively inspects its target independently of occurrence
+                # traversal; charge it before descending into the backend seam.
+                budget.inspect(max(1, expression_node_count(node)))
                 horner = bounded_horner_candidate(
                     node,
                     max_target_nodes=MAX_HORNER_TARGET_NODES,
@@ -705,9 +702,7 @@ def _generate_candidates(
                     if not horner.resource.endswith("refusal"):
                         detail += " refused"
                     if horner.observed is not None and horner.configured is not None:
-                        detail += (
-                            f" (measured {horner.observed}, configured {horner.configured})"
-                        )
+                        detail += f" (measured {horner.observed}, configured {horner.configured})"
                     qualifications.append(detail)
                 elif isinstance(horner, BoundedHornerCandidate):
                     parsed = parse_expression(horner.rendered)
@@ -955,9 +950,7 @@ def _whole_candidate_work(
     else:
         result = WorkAnalysis()
         for name in computed.dependency_order:
-            result = result.combine(
-                changed.get(name, _as_work(computed.equation_analyses[name]))
-            )
+            result = result.combine(changed.get(name, _as_work(computed.equation_analyses[name])))
     if candidate.intermediate_expression is not None:
         assert candidate.intermediate_scope is not None
         equation = next(
@@ -1023,12 +1016,8 @@ def _expand_generated_intermediate(
     if isinstance(expression, BinaryExpression):
         return BinaryExpression(
             expression.operator,
-            _expand_generated_intermediate(
-                expression.left, name, intermediate, formal_indices
-            ),
-            _expand_generated_intermediate(
-                expression.right, name, intermediate, formal_indices
-            ),
+            _expand_generated_intermediate(expression.left, name, intermediate, formal_indices),
+            _expand_generated_intermediate(expression.right, name, intermediate, formal_indices),
         )
     if isinstance(expression, Call):
         return Call(
@@ -1095,9 +1084,9 @@ def _verify_candidate(
                     candidate.intermediate_expression,
                     candidate.intermediate_scope.output_indices,
                 )
-            expanded = MappedOutputExpander(
-                computed, expansion_budget, set(reserved)
-            ).expand(proposed)
+            expanded = MappedOutputExpander(computed, expansion_budget, set(reserved)).expand(
+                proposed
+            )
             try:
                 budget.proof(
                     expression_node_count(original_expanded) + expression_node_count(expanded)
@@ -1192,42 +1181,43 @@ def _verify_candidate(
             f"configured {MAX_OPTIMIZATION_TRANSFORM_NODES})"
         )
 
-    conditions = tuple(
-        dict.fromkeys(
-            item
-            for answer in answers
-            for item in answer.conditions
-        )
-    )
-    assumptions = _unique_uses(
-        item for answer in answers for item in answer.assumptions_used
-    )
+    conditions = tuple(dict.fromkeys(item for answer in answers for item in answer.conditions))
+    assumptions = _unique_uses(item for answer in answers for item in answer.assumptions_used)
     conditions = tuple(dict.fromkeys((*conditions, *relation.conditions)))
     assumptions = _unique_uses((*assumptions, *relation.assumptions_used))
     conclusion: Literal["proved", "proved_under_assumptions"] = (
         "proved_under_assumptions" if conditions or assumptions else "proved"
     )
-    target = (
-        OptimizationTarget(kind="expression")
-        if candidate.target == "expression" and computed.expression is not None
-        else OptimizationTarget(kind="equation", name=candidate.target)
+    raw_transformations = candidate.transformed_targets or (
+        (candidate.target, candidate.original, candidate.proposed),
+    )
+    transformations = tuple(
+        OptimizationTransformation(
+            target=(
+                OptimizationTarget(kind="expression")
+                if target_name == "expression" and computed.expression is not None
+                else OptimizationTarget(kind="equation", name=target_name)
+            ),
+            occurrences=tuple(
+                OptimizationOccurrence(
+                    path=item.path,
+                    binders=item.binders,
+                    output_indices=item.scope.output_indices,
+                )
+                for item in candidate.occurrences
+                if item.target == target_name
+            ),
+            original=_interpretation(original_expression),
+            proposed=_interpretation(proposed_expression),
+        )
+        for target_name, original_expression, proposed_expression in raw_transformations
     )
     evidence = IdentityEvidence(
         statement="checked exact symbolic equivalence for every transformed retained output"
     )
     suggestion = OptimizationSuggestion(
         kind=candidate.kind,
-        target=target,
-        occurrences=tuple(
-            OptimizationOccurrence(
-                path=item.path,
-                binders=item.binders,
-                output_indices=item.scope.output_indices,
-            )
-            for item in candidate.occurrences
-        ),
-        original=original,
-        proposed=proposed,
+        transformations=transformations,
         intermediate=intermediate,
         conclusion=conclusion,
         evidence=evidence,
@@ -1251,16 +1241,18 @@ def _suggestion_order(left: OptimizationSuggestion, right: OptimizationSuggestio
     if left_savings is not None and right_savings is not None and left_savings != right_savings:
         return -1 if left_savings > right_savings else 1
     left_key = (
-        left.target.name or "",
+        tuple(
+            (item.target.name or "", item.occurrences[0].path, item.proposed.normalized_sympy)
+            for item in left.transformations
+        ),
         left.kind,
-        left.occurrences[0].path,
-        left.proposed.normalized_sympy,
     )
     right_key = (
-        right.target.name or "",
+        tuple(
+            (item.target.name or "", item.occurrences[0].path, item.proposed.normalized_sympy)
+            for item in right.transformations
+        ),
         right.kind,
-        right.occurrences[0].path,
-        right.proposed.normalized_sympy,
     )
     return (left_key > right_key) - (left_key < right_key)
 
@@ -1272,9 +1264,7 @@ def _accepted_order(
     budget: _OptimizationBudget,
 ) -> int:
     base = _suggestion_order(left.suggestion, right.suggestion)
-    if (left.suggestion.conclusion == "proved") != (
-        right.suggestion.conclusion == "proved"
-    ):
+    if (left.suggestion.conclusion == "proved") != (right.suggestion.conclusion == "proved"):
         return base
     try:
         left_exact = Fraction(left.suggestion.savings)
@@ -1313,10 +1303,7 @@ def _candidate_semantic_key(candidate: _CandidateComputation) -> tuple[object, .
     )
     return (
         tuple((target, proposed) for target, _original, proposed in transformations),
-        tuple(
-            (item.target, item.path, item.scope)
-            for item in candidate.occurrences
-        ),
+        tuple((item.target, item.path, item.scope) for item in candidate.occurrences),
         candidate.intermediate_expression,
         candidate.intermediate_scope,
     )
@@ -1375,18 +1362,12 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
 
     try:
         accepted.sort(
-            key=cmp_to_key(
-                lambda left, right: _accepted_order(left, right, reasoning, budget)
-            )
+            key=cmp_to_key(lambda left, right: _accepted_order(left, right, reasoning, budget))
         )
     except _BudgetExhausted as error:
         qualifications.append(str(error))
         accepted.sort(
-            key=cmp_to_key(
-                lambda left, right: _suggestion_order(
-                    left.suggestion, right.suggestion
-                )
-            )
+            key=cmp_to_key(lambda left, right: _suggestion_order(left.suggestion, right.suggestion))
         )
     return OptimizationReport(
         requested_limit=limit,

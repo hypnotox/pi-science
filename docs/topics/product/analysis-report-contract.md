@@ -35,5 +35,5 @@ Origin: ADR-0016
 
 
 ### `rule: qualified-optimization-advice`
-Ordinary successful analysis reports bounded optimization advice separately from submitted interpretation, work, scenarios, and queries. Published local suggestions carry exact-symbolic proof evidence, conditions, structural targets and occurrences, and positive whole-computation abstract-work savings; incomplete search is explicit and does not imply no improvement exists.
+Ordinary successful analysis reports bounded optimization advice separately from submitted interpretation, work, scenarios, and queries. Every published suggestion carries a nonempty tuple of unique target-local transformations, each with its target, normalized original and proposed forms, and structural occurrences. Exact-symbolic proof evidence, conditions, generated intermediates, and positive whole-computation abstract-work savings qualify that transformation set atomically; incomplete search is explicit and does not imply no improvement exists.
 Origin: ADR-adopt-bounded-formula-optimization-advice

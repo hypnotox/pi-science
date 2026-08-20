@@ -279,16 +279,20 @@ describe("private formula bridge", () => {
   it("strictly transports correlated optimization reports without recomputing policy", async () => {
     const suggestion = {
       kind: "reciprocal_reuse",
-      target: { kind: "expression", name: null },
-      occurrences: [
-        { path: [0], binders: [], output_indices: [] },
-        { path: [1], binders: [], output_indices: [] },
+      transformations: [
+        {
+          target: { kind: "expression", name: null },
+          occurrences: [
+            { path: [0], binders: [], output_indices: [] },
+            { path: [1], binders: [], output_indices: [] },
+          ],
+          original: { normalized_sympy: "2/x", normalized_latex: "2/x" },
+          proposed: {
+            normalized_sympy: "2*optimization_tmp_1",
+            normalized_latex: "2t",
+          },
+        },
       ],
-      original: { normalized_sympy: "2/x", normalized_latex: "2/x" },
-      proposed: {
-        normalized_sympy: "2*optimization_tmp_1",
-        normalized_latex: "2t",
-      },
       intermediate: {
         name: "optimization_tmp_1",
         expression: { normalized_sympy: "1/x", normalized_latex: "1/x" },
@@ -323,15 +327,20 @@ describe("private formula bridge", () => {
     const horner = {
       ...suggestion,
       kind: "horner",
-      occurrences: [{ path: [], binders: [], output_indices: [] }],
-      original: {
-        normalized_sympy: "2*x**3 + 3*x**2 + 4*x + 5",
-        normalized_latex: "p",
-      },
-      proposed: {
-        normalized_sympy: "x*(x*(2*x + 3) + 4) + 5",
-        normalized_latex: "h",
-      },
+      transformations: [
+        {
+          target: { kind: "expression", name: null },
+          occurrences: [{ path: [], binders: [], output_indices: [] }],
+          original: {
+            normalized_sympy: "2*x**3 + 3*x**2 + 4*x + 5",
+            normalized_latex: "p",
+          },
+          proposed: {
+            normalized_sympy: "x*(x*(2*x + 3) + 4) + 5",
+            normalized_latex: "h",
+          },
+        },
+      ],
       intermediate: null,
       conclusion: "proved",
       conditions: [],
@@ -979,7 +988,7 @@ describe("private formula bridge", () => {
       await kind(invokeAdapter(node, responder(value), request()), "protocol");
   });
 
-  it("strictly validates populated protocol-v11 query result unions", async () => {
+  it("strictly validates populated protocol-v12 query result unions", async () => {
     const identityAnswer = {
       check: null,
       conclusion: "proved",

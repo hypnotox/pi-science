@@ -1,7 +1,7 @@
 import { TextDecoder } from "node:util";
 import { spawnIsolated, terminateTree } from "./process.js";
 
-export const PROTOCOL_VERSION = 11;
+export const PROTOCOL_VERSION = 12;
 export const MAX_FORMULA_BYTES = 65_536;
 export const MAX_ENVELOPE_BYTES = 2_097_152;
 export const MAX_RESPONSE_BYTES = 327_936;
@@ -328,14 +328,16 @@ export type OptimizationSuggestion = {
     | "iterator_invariant_hoisting"
     | "cross_equation_sharing"
     | "horner";
-  target: { kind: "expression" | "equation"; name: string | null };
-  occurrences: Array<{
-    path: number[];
-    binders: string[];
-    output_indices: string[];
+  transformations: Array<{
+    target: { kind: "expression" | "equation"; name: string | null };
+    occurrences: Array<{
+      path: number[];
+      binders: string[];
+      output_indices: string[];
+    }>;
+    original: Interpretation;
+    proposed: Interpretation;
   }>;
-  original: Interpretation;
-  proposed: Interpretation;
   intermediate: {
     name: string;
     expression: Interpretation;
@@ -2647,10 +2649,7 @@ function validOptimizationSuggestion(
     !isRecord(value) ||
     !exactKeys(value, [
       "kind",
-      "target",
-      "occurrences",
-      "original",
-      "proposed",
+      "transformations",
       "intermediate",
       "conclusion",
       "evidence",
@@ -2673,41 +2672,70 @@ function validOptimizationSuggestion(
     "cross_equation_sharing",
     "horner",
   ];
-  if (!kinds.includes(String(value.kind))) return false;
-  if (!isRecord(value.target) || !exactKeys(value.target, ["kind", "name"]))
-    return false;
-  const target = value.target;
-  const targetValid = isExpressionRequest(request)
-    ? target.kind === "expression" && target.name === null
-    : target.kind === "equation" &&
-      typeof target.name === "string" &&
-      request.equations.some((equation) => equation.name === target.name);
-  if (!targetValid) return false;
-  const targetEquation = isExpressionRequest(request)
-    ? undefined
-    : request.equations.find((equation) => equation.name === target.name);
-  const allowedOutputIndices = new Set(
-    Object.keys(targetEquation?.domains ?? {}),
-  );
-  const validOutputIndices = (indices: unknown): indices is string[] =>
-    validStringArray(indices) &&
-    indices.length <= 32 &&
-    indices.every((index) => allowedOutputIndices.has(index));
   if (
-    !Array.isArray(value.occurrences) ||
-    value.occurrences.length < 1 ||
-    value.occurrences.length > 128 ||
-    !value.occurrences.every(
-      (occurrence) =>
-        isRecord(occurrence) &&
-        exactKeys(occurrence, ["path", "binders", "output_indices"]) &&
-        Array.isArray(occurrence.path) &&
-        occurrence.path.length <= 128 &&
-        occurrence.path.every(nonNegativeInteger) &&
-        validStringArray(occurrence.binders) &&
-        occurrence.binders.length <= 32 &&
-        validOutputIndices(occurrence.output_indices),
+    !kinds.includes(String(value.kind)) ||
+    !Array.isArray(value.transformations) ||
+    value.transformations.length < 1 ||
+    value.transformations.length > 128
+  )
+    return false;
+  const seen = new Set<string>();
+  const validTransformation = (transformation: unknown): boolean => {
+    if (
+      !isRecord(transformation) ||
+      !exactKeys(transformation, [
+        "target",
+        "occurrences",
+        "original",
+        "proposed",
+      ]) ||
+      !isRecord(transformation.target) ||
+      !exactKeys(transformation.target, ["kind", "name"])
     )
+      return false;
+    const target = transformation.target;
+    const targetValid = isExpressionRequest(request)
+      ? target.kind === "expression" && target.name === null
+      : target.kind === "equation" &&
+        typeof target.name === "string" &&
+        request.equations.some((equation) => equation.name === target.name);
+    if (!targetValid) return false;
+    const key = `${target.kind}:${target.name ?? ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    const targetEquation = isExpressionRequest(request)
+      ? undefined
+      : request.equations.find((equation) => equation.name === target.name);
+    const allowedOutputIndices = new Set(
+      Object.keys(targetEquation?.domains ?? {}),
+    );
+    const validOutputIndices = (indices: unknown): indices is string[] =>
+      validStringArray(indices) &&
+      indices.length <= 32 &&
+      indices.every((index) => allowedOutputIndices.has(index));
+    return (
+      Array.isArray(transformation.occurrences) &&
+      transformation.occurrences.length >= 1 &&
+      transformation.occurrences.length <= 128 &&
+      transformation.occurrences.every(
+        (occurrence) =>
+          isRecord(occurrence) &&
+          exactKeys(occurrence, ["path", "binders", "output_indices"]) &&
+          Array.isArray(occurrence.path) &&
+          occurrence.path.length <= 128 &&
+          occurrence.path.every(nonNegativeInteger) &&
+          validStringArray(occurrence.binders) &&
+          occurrence.binders.length <= 32 &&
+          validOutputIndices(occurrence.output_indices),
+      ) &&
+      validInterpretation(transformation.original) &&
+      validInterpretation(transformation.proposed)
+    );
+  };
+  if (
+    !value.transformations.every(validTransformation) ||
+    (value.kind === "cross_equation_sharing" &&
+      value.transformations.length < 2)
   )
     return false;
   const requiresIntermediate = [
@@ -2717,6 +2745,14 @@ function validOptimizationSuggestion(
     "iterator_invariant_hoisting",
     "cross_equation_sharing",
   ].includes(String(value.kind));
+  const allOutputIndices = new Set(
+    (value.transformations as Array<Record<string, unknown>>).flatMap(
+      (transformation) =>
+        (
+          (transformation.occurrences as Array<Record<string, unknown>>) ?? []
+        ).flatMap((occurrence) => occurrence.output_indices as string[]),
+    ),
+  );
   const validIntermediate =
     value.intermediate === null
       ? !requiresIntermediate
@@ -2734,10 +2770,12 @@ function validOptimizationSuggestion(
         validInterpretation(value.intermediate.expression) &&
         validStringArray(value.intermediate.scope_binders) &&
         value.intermediate.scope_binders.length <= 32 &&
-        validOutputIndices(value.intermediate.scope_output_indices);
+        validStringArray(value.intermediate.scope_output_indices) &&
+        value.intermediate.scope_output_indices.length <= 32 &&
+        (value.intermediate.scope_output_indices as string[]).every((index) =>
+          allOutputIndices.has(index),
+        );
   return (
-    validInterpretation(value.original) &&
-    validInterpretation(value.proposed) &&
     validIntermediate &&
     ["proved", "proved_under_assumptions"].includes(String(value.conclusion)) &&
     isRecord(value.evidence) &&
@@ -2761,7 +2799,6 @@ function validOptimizationSuggestion(
     value.finite_precision_qualification === "exact_symbolic_only"
   );
 }
-
 function validOptimization(
   value: unknown,
   requested: unknown,

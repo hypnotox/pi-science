@@ -159,7 +159,9 @@ def test_local_optimization_families_publish_only_verified_savings() -> None:
         assert suggestion.conclusion in {"proved", "proved_under_assumptions"}
         assert int(suggestion.savings) > 0
         assert int(suggestion.work_before) > int(suggestion.work_after)
-        assert not isinstance(parse_expression(suggestion.proposed.normalized_sympy), ParseFailure)
+        assert not isinstance(
+            parse_expression(suggestion.transformations[0].proposed.normalized_sympy), ParseFailure
+        )
 
 
 def test_repeated_defined_call_is_reused_but_unknown_call_is_omitted() -> None:
@@ -330,8 +332,8 @@ def test_each_local_family_can_publish_for_an_equation_system() -> None:
         )
         assert outcome.status == "success" and outcome.optimization is not None
         suggestion = next(item for item in outcome.optimization.suggestions if item.kind == family)
-        assert suggestion.target.kind == "equation"
-        assert suggestion.target.name == "value"
+        assert suggestion.transformations[0].target.kind == "equation"
+        assert suggestion.transformations[0].target.name == "value"
         assert int(suggestion.work_before) > int(suggestion.work_after) > 0
 
 
@@ -450,11 +452,9 @@ def test_comparable_symbolic_savings_rank_by_proof_before_stable_ties() -> None:
     )
     assert outcome.status == "success" and outcome.optimization is not None
     sharing = [
-        item
-        for item in outcome.optimization.suggestions
-        if item.kind == "cross_equation_sharing"
+        item for item in outcome.optimization.suggestions if item.kind == "cross_equation_sharing"
     ]
-    assert [(item.target.name, item.savings) for item in sharing] == [
+    assert [(item.transformations[0].target.name, item.savings) for item in sharing] == [
         ("c", "2*N + 1"),
         ("a", "N + 1"),
     ]
@@ -488,7 +488,7 @@ def test_output_multiplicity_and_intermediate_scope_are_charged_directly() -> No
     suggestion = next(
         item for item in outcome.optimization.suggestions if item.kind == "repeated_subexpression"
     )
-    assert all(item.output_indices == ("i",) for item in suggestion.occurrences)
+    assert all(item.output_indices == ("i",) for item in suggestion.transformations[0].occurrences)
     assert suggestion.intermediate is not None
     assert suggestion.intermediate.scope_output_indices == ()
     assert (suggestion.work_before, suggestion.work_after, suggestion.savings) == (
@@ -529,8 +529,8 @@ def test_public_proposals_reparse_and_reconstruct_independently() -> None:
         outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression))
         assert outcome.status == "success" and outcome.optimization is not None
         suggestion = outcome.optimization.suggestions[0]
-        original = _expression(suggestion.original.normalized_sympy)
-        proposed = _expression(suggestion.proposed.normalized_sympy)
+        original = _expression(suggestion.transformations[0].original.normalized_sympy)
+        proposed = _expression(suggestion.transformations[0].proposed.normalized_sympy)
         expanded = proposed
         if suggestion.intermediate is not None:
             expanded = substitute(
@@ -576,7 +576,7 @@ def test_repeated_defined_call_can_publish_for_an_equation_system() -> None:
     suggestion = next(
         item for item in outcome.optimization.suggestions if item.kind == "repeated_call"
     )
-    assert suggestion.target.name == "value"
+    assert suggestion.transformations[0].target.name == "value"
     assert (suggestion.work_before, suggestion.work_after, suggestion.savings) == (
         "3",
         "2",
@@ -631,9 +631,14 @@ def test_oversized_advice_truncates_without_replacing_base_success() -> None:
     suggestion = outcome.optimization.suggestions[0]
     oversized = suggestion.model_copy(
         update={
-            "proposed": Interpretation(
-                normalized_sympy="x" * 70_000,
-                normalized_latex="x" * 70_000,
+            "transformations": (
+                suggestion.transformations[0].model_copy(
+                    update={
+                        "proposed": Interpretation(
+                            normalized_sympy="x" * 70_000, normalized_latex="x" * 70_000
+                        )
+                    }
+                ),
             )
         }
     )
@@ -664,9 +669,7 @@ def test_exact_base_and_maximum_field_contribution_preserve_success() -> None:
         interpretation=Interpretation(normalized_sympy="x", normalized_latex="x"),
         operation_counts=OperationCounts(),
         abstract_work=0,
-        scenarios=(
-            ScenarioResult(name="padding", substituted_work="0", qualifications=("",)),
-        ),
+        scenarios=(ScenarioResult(name="padding", substituted_work="0", qualifications=("",)),),
     )
     base_overhead = len(empty.model_dump_json(exclude={"optimization"}).encode("utf-8"))
     exact_base = empty.model_copy(
@@ -692,11 +695,7 @@ def test_exact_base_and_maximum_field_contribution_preserve_success() -> None:
     )
     seed_bytes = len(seed.model_dump_json().encode("utf-8"))
     maximum_report = seed.model_copy(
-        update={
-            "qualifications": (
-                "y" * (formula_service.MAX_OPTIMIZATION_BYTES - seed_bytes),
-            )
-        }
+        update={"qualifications": ("y" * (formula_service.MAX_OPTIMIZATION_BYTES - seed_bytes),)}
     )
     assert (
         len(maximum_report.model_dump_json().encode("utf-8"))
@@ -773,7 +772,11 @@ def test_cross_equation_sharing_and_horner_publish_verified_savings() -> None:
     )
     assert sharing.intermediate is not None
     assert sharing.intermediate.scope_output_indices == ("i",)
-    assert {item.output_indices for item in sharing.occurrences} == {("i",), ("j",)}
+    assert {
+        occurrence.output_indices
+        for transformation in sharing.transformations
+        for occurrence in transformation.occurrences
+    } == {("i",), ("j",)}
     assert int(sharing.work_before) > int(sharing.work_after) > 0
 
     horner = analyze(
@@ -835,9 +838,7 @@ def test_independent_budget_qualifications_report_measured_and_configured(
     from py_science.formula import optimization as optimization_service
 
     monkeypatch.setattr(optimization_service, "MAX_OPTIMIZATION_CANDIDATES", 1)
-    outcome = analyze(
-        AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="(x + 0) * (y + 0)")
-    )
+    outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="(x + 0) * (y + 0)"))
     assert outcome.status == "success" and outcome.optimization is not None
     assert outcome.optimization.status == "incomplete"
     qualification = outcome.optimization.qualifications[0]
@@ -965,9 +966,7 @@ def test_sharing_refuses_unequal_arity_constraints_and_uses_collision_free_name(
                     name="a",
                     expression="Eq(a[i], x[i]*x[i])",
                     domains={"i": IndexDomain(lower="0", upper="3")},
-                    constraints=(
-                        DomainConstraint(name="cap", target="i", relationship="i <= 2"),
-                    ),
+                    constraints=(DomainConstraint(name="cap", target="i", relationship="i <= 2"),),
                 ),
                 EquationRequest(
                     name="b",
@@ -982,9 +981,7 @@ def test_sharing_refuses_unequal_arity_constraints_and_uses_collision_free_name(
         )
     )
     assert refused.status == "success" and refused.optimization is not None
-    assert all(
-        item.kind != "cross_equation_sharing" for item in refused.optimization.suggestions
-    )
+    assert all(item.kind != "cross_equation_sharing" for item in refused.optimization.suggestions)
 
     collision = analyze(
         AnalysisRequest(
@@ -1034,7 +1031,9 @@ def test_horner_coefficients_bounds_refusals_and_higher_work_filtering(
         )
         assert suggestion.conclusion in {"proved", "proved_under_assumptions"}
         assert int(suggestion.work_before) > int(suggestion.work_after) > 0
-        assert not isinstance(parse_expression(suggestion.proposed.normalized_sympy), ParseFailure)
+        assert not isinstance(
+            parse_expression(suggestion.transformations[0].proposed.normalized_sympy), ParseFailure
+        )
 
     for expression in ("x**8 + 1", "x*(x*(2*x + 3) + 4) + 5", "x**2 + y**2"):
         outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression))
@@ -1082,16 +1081,13 @@ def test_each_independent_search_budget_preserves_base_success(
     from py_science.formula import optimization as optimization_service
 
     monkeypatch.setattr(optimization_service, constant, configured)
-    outcome = analyze(
-        AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="(x + 0) * (y + 0)")
-    )
+    outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="(x + 0) * (y + 0)"))
     assert outcome.status == "success" and outcome.optimization is not None
     assert outcome.interpretation.normalized_sympy == "x*y"
     assert outcome.optimization.status == "incomplete"
     assert any(resource in item for item in outcome.optimization.qualifications)
     assert all(
-        "measured" in item and "configured" in item
-        for item in outcome.optimization.qualifications
+        "measured" in item and "configured" in item for item in outcome.optimization.qualifications
     )
 
 
@@ -1106,10 +1102,7 @@ def test_limits_and_repeated_process_json_are_deterministic() -> None:
         analyze,
     )
 
-    expression = (
-        "(a*x**3 + b*x**2 + c*x + d) + "
-        "(y + 1)*(y + 1) + z*w + z*q + (r + 0)"
-    )
+    expression = "(a*x**3 + b*x**2 + c*x + d) + (y + 1)*(y + 1) + z*w + z*q + (r + 0)"
     for limit in (0, 1, 3, 16):
         outcome = analyze(
             AnalysisRequest(
@@ -1138,8 +1131,7 @@ request = AnalysisRequest(
 print(analyze(request).model_dump_json())
 """
     populations = tuple(
-        subprocess.check_output([sys.executable, "-c", script], text=True).strip()
-        for _ in range(3)
+        subprocess.check_output([sys.executable, "-c", script], text=True).strip() for _ in range(3)
     )
     assert populations[0] == populations[1] == populations[2]
 
@@ -1154,9 +1146,14 @@ def test_multibyte_advice_limit_measures_encoded_bytes() -> None:
     suggestion = outcome.optimization.suggestions[0]
     oversized = suggestion.model_copy(
         update={
-            "proposed": Interpretation(
-                normalized_sympy="é" * 40_000,
-                normalized_latex="é" * 40_000,
+            "transformations": (
+                suggestion.transformations[0].model_copy(
+                    update={
+                        "proposed": Interpretation(
+                            normalized_sympy="é" * 40_000, normalized_latex="é" * 40_000
+                        )
+                    }
+                ),
             )
         }
     )

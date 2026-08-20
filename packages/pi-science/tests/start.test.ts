@@ -120,7 +120,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 11, result: response }),
+            JSON.stringify({ version: 12, result: response }),
           )}))`,
         ],
       }),
@@ -375,7 +375,7 @@ describe("readiness gate", () => {
     });
     const text = result.content[0]!.text;
     expect(text).toContain("Optimization advice");
-    expect(text).toContain("factoring (expression): x*(y + z)");
+    expect(text).toContain("factoring (expression: x*(y + z))");
     expect(text).toContain("work 3 → 2; saves 1");
     expect(text).toContain("exact_symbolic_only");
     expect(result.details).toMatchObject({
@@ -613,7 +613,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 11, result: response }),
+            JSON.stringify({ version: 12, result: response }),
           )}))`,
         ],
       }),

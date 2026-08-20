@@ -17,7 +17,7 @@ from py_science.formula import (
 )
 from pydantic import TypeAdapter, ValidationError
 
-PROTOCOL_VERSION = 11
+PROTOCOL_VERSION = 12
 REQUEST_ADAPTER: TypeAdapter[
     AnalysisRequest | CandidateComparisonRequest | DominanceAnalysisRequest
 ] = TypeAdapter(AnalysisRequest | CandidateComparisonRequest | DominanceAnalysisRequest)

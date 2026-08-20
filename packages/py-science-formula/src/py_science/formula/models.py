@@ -1244,6 +1244,15 @@ class OptimizationIntermediate(StructuredModel):
     scope_output_indices: tuple[str, ...] = Field(default=(), max_length=32)
 
 
+class OptimizationTransformation(StructuredModel):
+    """One target-local edit in an atomic optimization suggestion."""
+
+    target: OptimizationTarget
+    occurrences: tuple[OptimizationOccurrence, ...] = Field(min_length=1, max_length=128)
+    original: Interpretation
+    proposed: Interpretation
+
+
 class OptimizationSuggestion(StructuredModel):
     kind: Literal[
         "repeated_subexpression",
@@ -1255,10 +1264,7 @@ class OptimizationSuggestion(StructuredModel):
         "cross_equation_sharing",
         "horner",
     ]
-    target: OptimizationTarget
-    occurrences: tuple[OptimizationOccurrence, ...] = Field(min_length=1, max_length=128)
-    original: Interpretation
-    proposed: Interpretation
+    transformations: tuple[OptimizationTransformation, ...] = Field(min_length=1, max_length=128)
     intermediate: OptimizationIntermediate | None = None
     conclusion: Literal["proved", "proved_under_assumptions"]
     evidence: IdentityEvidence
@@ -1271,6 +1277,13 @@ class OptimizationSuggestion(StructuredModel):
 
     @model_validator(mode="after")
     def proved_positive_shape(self) -> "OptimizationSuggestion":
+        targets = tuple(
+            (item.target.kind, item.target.name) for item in self.transformations
+        )
+        if len(set(targets)) != len(targets):
+            raise ValueError("optimization transformations require unique targets")
+        if self.kind == "cross_equation_sharing" and len(self.transformations) < 2:
+            raise ValueError("cross-equation sharing requires every affected target")
         numeric_work: list[Fraction | None] = []
         for value in (self.work_before, self.work_after, self.savings):
             try:

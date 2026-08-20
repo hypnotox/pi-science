@@ -190,11 +190,16 @@ function compactToolText(result: BridgeResult): string {
   const optimization = [
     `- ${analysis.optimization.status}; requested at most ${analysis.optimization.requested_limit}`,
     ...analysis.optimization.suggestions.map((suggestion) => {
-      const target =
-        suggestion.target.kind === "expression"
-          ? "expression"
-          : `equation ${suggestion.target.name}`;
-      return `- ${suggestion.kind} (${target}): ${compactExpression(suggestion.proposed.normalized_sympy)}; work ${suggestion.work_before} → ${suggestion.work_after}; saves ${suggestion.savings}${suggestion.conditions.length ? `; conditions: ${suggestion.conditions.join(", ")}` : ""}; ${suggestion.finite_precision_qualification}`;
+      const targets = suggestion.transformations
+        .map((transformation) => {
+          const target =
+            transformation.target.kind === "expression"
+              ? "expression"
+              : `equation ${transformation.target.name}`;
+          return `${target}: ${compactExpression(transformation.proposed.normalized_sympy)}`;
+        })
+        .join("; ");
+      return `- ${suggestion.kind} (${targets}); work ${suggestion.work_before} → ${suggestion.work_after}; saves ${suggestion.savings}${suggestion.conditions.length ? `; conditions: ${suggestion.conditions.join(", ")}` : ""}; ${suggestion.finite_precision_qualification}`;
     }),
     ...analysis.optimization.qualifications.map(
       (qualification) => `- qualification: ${qualification}`,

@@ -156,7 +156,7 @@ describe("formula adapter protocol boundary", () => {
       },
     ];
     const reports = requests.map((request) => {
-      const result = invoke(JSON.stringify({ version: 11, request }));
+      const result = invoke(JSON.stringify({ version: 12, request }));
       expect(result.status).toBe(0);
       return JSON.parse(result.stdout).result.optimization;
     });
@@ -173,7 +173,20 @@ describe("formula adapter protocol boundary", () => {
     });
     expect(reports[2].suggestions[0]).toMatchObject({
       kind: "factoring",
-      target: { kind: "expression", name: null },
+      transformations: [
+        {
+          target: { kind: "expression", name: null },
+          occurrences: [{ path: [], binders: [], output_indices: [] }],
+          original: {
+            normalized_sympy: "x*y + x*z",
+            normalized_latex: "x y + x z",
+          },
+          proposed: {
+            normalized_sympy: "x*(y + z)",
+            normalized_latex: "x \\left(y + z\\right)",
+          },
+        },
+      ],
       intermediate: null,
       work_before: "3",
       work_after: "2",
@@ -181,17 +194,19 @@ describe("formula adapter protocol boundary", () => {
     });
     expect(reports[3].suggestions[0]).toMatchObject({
       kind: "repeated_subexpression",
-      target: { kind: "equation", name: "value" },
+      transformations: [{ target: { kind: "equation", name: "value" } }],
     });
     expect(reports[4].suggestions[0]).toMatchObject({
       kind: "horner",
-      target: { kind: "expression", name: null },
+      transformations: [{ target: { kind: "expression", name: null } }],
       intermediate: null,
     });
-    expect(reports[5].suggestions[0]).toMatchObject({
-      kind: "cross_equation_sharing",
-      target: { kind: "equation", name: "left" },
-    });
+    expect(reports[5].suggestions[0].kind).toBe("cross_equation_sharing");
+    expect(
+      reports[5].suggestions[0].transformations.map(
+        (item: { target: { name: string } }) => item.target.name,
+      ),
+    ).toEqual(["left", "right"]);
     expect(reports[6]).toMatchObject({
       requested_limit: 3,
       status: "incomplete",
@@ -208,21 +223,21 @@ describe("formula adapter protocol boundary", () => {
     [
       "extra request key",
       JSON.stringify({
-        version: 11,
+        version: 12,
         request: { syntax: "sympy", expression: "x", extra: true },
       }),
     ],
     [
       "invalid request type",
       JSON.stringify({
-        version: 11,
+        version: 12,
         request: { syntax: "sympy", expression: 1 },
       }),
     ],
     [
       "reserved query name",
       JSON.stringify({
-        version: 11,
+        version: 12,
         request: {
           syntax: "sympy",
           expression: "x",
@@ -233,7 +248,7 @@ describe("formula adapter protocol boundary", () => {
     [
       "reserved property variable",
       JSON.stringify({
-        version: 11,
+        version: 12,
         request: {
           syntax: "sympy",
           expression: "x",
@@ -250,7 +265,7 @@ describe("formula adapter protocol boundary", () => {
     [
       "reserved limit variable",
       JSON.stringify({
-        version: 11,
+        version: 12,
         request: {
           syntax: "sympy",
           expression: "x",
@@ -269,7 +284,7 @@ describe("formula adapter protocol boundary", () => {
     [
       "reserved asymptotic variable",
       JSON.stringify({
-        version: 11,
+        version: 12,
         request: {
           syntax: "sympy",
           expression: "x",
@@ -296,7 +311,7 @@ describe("formula adapter protocol boundary", () => {
     expect(result.stderr).toBe("");
     expect(Buffer.byteLength(result.stdout)).toBeLessThan(10_000);
     expect(JSON.parse(result.stdout)).toMatchObject({
-      version: 11,
+      version: 12,
       error: { kind: "request" },
     });
   });
@@ -319,10 +334,10 @@ print(module._encoded({"result": "x" * 327937}) is None)
     expect(result.stdout.trim()).toBe("True");
   });
 
-  it("preserves mandatory nulls in populated protocol-v11 query answers", () => {
+  it("preserves mandatory nulls in populated protocol-v12 query answers", () => {
     const result = invoke(
       JSON.stringify({
-        version: 11,
+        version: 12,
         request: {
           syntax: "sympy",
           expression: "x",
@@ -346,10 +361,10 @@ print(module._encoded({"result": "x" * 327937}) is None)
     });
   });
 
-  it("round trips partial nested polynomial closed forms under protocol v11", () => {
+  it("round trips partial nested polynomial closed forms under protocol v12", () => {
     const success = invoke(
       JSON.stringify({
-        version: 11,
+        version: 12,
         request: {
           syntax: "sympy",
           expression: "Sum(Sum(1, (l, -k, k)), (k, 0, p))",
@@ -369,7 +384,7 @@ print(module._encoded({"result": "x" * 327937}) is None)
     expect(success.status).toBe(0);
     const envelope = JSON.parse(success.stdout);
     expect(envelope).toMatchObject({
-      version: 11,
+      version: 12,
       result: {
         status: "success",
         system: { equations: [{ name: "expression" }] },
@@ -404,7 +419,7 @@ print(module._encoded({"result": "x" * 327937}) is None)
 
     const unresolved = invoke(
       JSON.stringify({
-        version: 11,
+        version: 12,
         request: {
           syntax: "sympy",
           expression: "Sum(Sum(1, (l, -k, k)), (k, -1, 1))",
@@ -426,7 +441,7 @@ print(module._encoded({"result": "x" * 327937}) is None)
   it("canonicalizes exact real scenario values and interval endpoints", () => {
     const result = invoke(
       JSON.stringify({
-        version: 11,
+        version: 12,
         request: {
           syntax: "sympy",
           expression: "primitive(x)",
@@ -449,7 +464,7 @@ print(module._encoded({"result": "x" * 327937}) is None)
     expect(result.status).toBe(2); // One variable cannot have fixed and bound treatments.
     const bounded = invoke(
       JSON.stringify({
-        version: 11,
+        version: 12,
         request: {
           syntax: "sympy",
           expression: "primitive(x)",
@@ -481,12 +496,12 @@ print(module._encoded({"result": "x" * 327937}) is None)
 
   it("round trips candidate comparison through the real adapter", () => {
     const result = invoke(
-      JSON.stringify({ version: 11, request: comparisonRequest }),
+      JSON.stringify({ version: 12, request: comparisonRequest }),
     );
     expect(result.status).toBe(0);
     expect(result.stderr).toBe("");
     expect(JSON.parse(result.stdout)).toMatchObject({
-      version: 11,
+      version: 12,
       result: {
         kind: "candidate_comparison",
         status: "success",
@@ -518,13 +533,13 @@ print(module._encoded({"result": "x" * 327937}) is None)
 
   it("round trips a complete equation-system request through the real adapter", () => {
     const result = invoke(
-      JSON.stringify({ version: 11, request: systemRequest }),
+      JSON.stringify({ version: 12, request: systemRequest }),
     );
     expect(result.status).toBe(0);
     expect(result.stderr).toBe("");
     const envelope = JSON.parse(result.stdout);
     expect(envelope).toMatchObject({
-      version: 11,
+      version: 12,
       result: {
         status: "success",
         system: {
@@ -563,11 +578,11 @@ print(module._encoded({"result": "x" * 327937}) is None)
   });
 });
 
-describe("dominance protocol v11", () => {
+describe("dominance protocol v12", () => {
   it("round trips canonical bounded integer dominance", () => {
     const result = invoke(
       JSON.stringify({
-        version: 11,
+        version: 12,
         request: {
           syntax: "sympy",
           operation: "analyze_dominance",
