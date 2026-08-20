@@ -12,9 +12,9 @@ Run `./scripts/check` before every commit. It runs Python pytest, verifies that 
 ## Tiers and lanes
 Python tests cover the transport-free public formula API, qualified equation systems, AFMM-like acceptance, and distribution. `packages/pi-science/tests/` exercises the actual full-request adapter, strict Pi schema and rich result shapes, whole-envelope and output bounds, AFMM system translation through the registered callback, installed-extension schema compilation by the host Pi runtime, stderr draining, process failure, timeout and cancellation cleanup, readiness withholding, immutable checkout identity, package contents, and prerequisite-specific diagnostics. A barrier wrapper around real uv proves concurrent healthy starts reuse one immutable-source cache without modifying the checkout; a synchronized failure proves identical fail-closed results. The combined gate confines transient test data to an external user-cache directory and removes it on exit; direct Pi test runs also remove their temporary package, install, provisioning, and checkout fixtures.
 
-The Pi tier includes protocol-v9 analysis and candidate-comparison request/result parity, a query-bearing AFMM tail round trip, and partial nested finite-polynomial closed-form transport separate from preserved submitted-work fixtures. Comparison coverage proves strict result variants, correlation, syntax injection, and semantic-before-work presentation without duplicating Python mathematics.
+The Pi tier includes protocol-v11 analysis and candidate-comparison request/result parity, a query-bearing AFMM tail round trip, and partial nested finite-polynomial closed-form transport separate from preserved submitted-work fixtures. Comparison coverage proves strict result variants, correlation, syntax injection, and semantic-before-work presentation without duplicating Python mathematics.
 
-Derived query targets cross protocol v9 as strict correlation data only; Python owns earlier-only validation, verified-candidate eligibility, bounded qualification composition, and unavailable-target results.
+Derived query targets cross protocol v11 as strict correlation data only; Python owns earlier-only validation, verified-candidate eligibility, bounded qualification composition, and unavailable-target results.
 
 The Python and Pi tiers cover canonical dominance decomposition, poles, exact cells, bounded abstention, and strict dominance transport.
 
@@ -22,16 +22,16 @@ The Python and Pi tiers cover canonical dominance decomposition, poles, exact ce
 Bounded aggregate-work dominance is available in Python and Pi protocol v11. Python owns its canonical rational decomposition and exact one-axis regions; Pi validates and presents the report without recomputing mathematical policy. It excludes multiple axes, exponentials, opaque aggregates, rewrites, resource vectors, scheduling, and empirical performance.
 
 
-Ordinary analysis defaults to three bounded optimization suggestions; zero disables advice. Python proves and ranks only positive abstract aggregate-work reductions, while Pi strictly transports the qualified report. Phase 2 ships local repeated-structure, reuse, factoring, redundant-operation-removal, and iterator-invariant-hoisting advice; cross-equation sharing and Horner remain pending.
+Optimization coverage fixes the strict default/disabled/`0..16` truth table, report and suggestion correlations, every shipped local family in expressions and systems, scope/capture/cardinality/unknown-cost refusals, independent proof evidence, whole-work values, unchanged ordinary fields, schema generation, real-adapter and strict-bridge round trips, and the separate 262,144-byte base plus 65,536-byte advice limits. TypeScript tests validate shape and correlation without algebraic recomputation. Cross-equation sharing and Horner remain pending.
 
 
 <!-- awf:edit layout: from .awf/docs/parts/testing/layout.md -->
 ## Layout and test shape
 Python tests cover the transport-free public formula API and distribution. `packages/pi-science/tests/` exercises the actual private adapter, strict envelopes and result shapes, UTF-8 request and response bounds, installed-extension schema compilation and tool invocation under the host Pi runtime, stderr draining, process failure, timeout and cancellation cleanup, real Pi command/tool result contracts, mode-aware warnings, immutable checkout identity, health validation, and prerequisite-specific diagnostics. A barrier wrapper around real uv proves two healthy concurrent starts reuse one immutable-source cache without modifying the checkout; a separate synchronized failure proves identical fail-closed results.
 
-Pi regressions also cover protocol-v9 analysis and candidate-comparison requests, exact discriminated result shapes, malformed transport, correlation, named constrained-domain reports, and registered-tool round trips. Candidate tests preserve mapped semantics, original aggregate work, second-minus-first delta, syntax injection, and semantic-before-work compact output without TypeScript mathematical recomputation.
+Pi regressions also cover protocol-v11 analysis and candidate-comparison requests, exact discriminated result shapes, malformed transport, correlation, named constrained-domain reports, and registered-tool round trips. Candidate tests preserve mapped semantics, original aggregate work, second-minus-first delta, syntax injection, and semantic-before-work compact output without TypeScript mathematical recomputation.
 
-Derived query targets cross protocol v9 as strict correlation data only; Python owns earlier-only validation, verified-candidate eligibility, bounded qualification composition, and unavailable-target results. Focused regressions cover the partial direct nested finite-polynomial closed-form family and preserve submitted work separately from its informational candidate.
+Derived query targets cross protocol v11 as strict correlation data only; Python owns earlier-only validation, verified-candidate eligibility, bounded qualification composition, and unavailable-target results. Focused regressions cover the partial direct nested finite-polynomial closed-form family and preserve submitted work separately from its informational candidate.
 
 `tests/e2e/test_formula_dominance.py` covers the direct-Python dominance contract and preserves ordinary nested analysis.
 
@@ -39,5 +39,5 @@ Derived query targets cross protocol v9 as strict correlation data only; Python 
 Bounded aggregate-work dominance is available in Python and Pi protocol v11. Python owns its canonical rational decomposition and exact one-axis regions; Pi validates and presents the report without recomputing mathematical policy. It excludes multiple axes, exponentials, opaque aggregates, rewrites, resource vectors, scheduling, and empirical performance.
 
 
-Ordinary analysis defaults to three bounded optimization suggestions; zero disables advice. Python proves and ranks only positive abstract aggregate-work reductions, while Pi strictly transports the qualified report. Phase 2 ships local repeated-structure, reuse, factoring, redundant-operation-removal, and iterator-invariant-hoisting advice; cross-equation sharing and Horner remain pending.
+`tests/unit/test_formula_optimization.py` and the expression/system e2e suites cover strict controls, typed occurrence scope, every shipped local family, checked intermediate substitution, proof evidence, work correlation, and conservative omission. Schema, adapter, bridge, provisioning, start, package, and documented-example tests cover protocol v11, mandatory default/disabled/populated/incomplete reports, strict correlation, base/advice byte separation, and unchanged ordinary results. Cross-equation sharing and Horner remain pending.
 

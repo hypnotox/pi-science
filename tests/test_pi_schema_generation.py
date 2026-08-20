@@ -121,6 +121,19 @@ def test_generated_pi_schema_has_public_expression_and_system_branches() -> None
     assert "expression" not in system_candidate["properties"]
     assert system_candidate["properties"]["equations"]["minItems"] == 1
     assert comparison["properties"]["outputs"]["maxItems"] == 32
+    for ordinary in (expression, system):
+        optimization = ordinary["properties"]["optimization"]
+        assert optimization["additionalProperties"] is False
+        assert optimization["properties"]["max_suggestions"] == {
+            "default": 3,
+            "minimum": 0,
+            "maximum": 16,
+            "type": "integer",
+        }
+    assert all(
+        "optimization" not in branch["properties"]
+        for branch in (comparison, dominance_expression, dominance_system)
+    )
     assert dominance_expression["properties"]["operation"]["enum"] == ["analyze_dominance"]
     assert "syntax" not in dominance_expression["properties"]
     assert dominance_expression["required"] == ["operation", "expression", "axis"]

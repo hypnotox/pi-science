@@ -187,6 +187,19 @@ function compactToolText(result: BridgeResult): string {
             `- Specialized evaluation work (scenario ${scenario.name}): ${scenario.substituted_work}`,
         )),
   ];
+  const optimization = [
+    `- ${analysis.optimization.status}; requested at most ${analysis.optimization.requested_limit}`,
+    ...analysis.optimization.suggestions.map((suggestion) => {
+      const target =
+        suggestion.target.kind === "expression"
+          ? "expression"
+          : `equation ${suggestion.target.name}`;
+      return `- ${suggestion.kind} (${target}): ${compactExpression(suggestion.proposed.normalized_sympy)}; work ${suggestion.work_before} → ${suggestion.work_after}; saves ${suggestion.savings}${suggestion.conditions.length ? `; conditions: ${suggestion.conditions.join(", ")}` : ""}; ${suggestion.finite_precision_qualification}`;
+    }),
+    ...analysis.optimization.qualifications.map(
+      (qualification) => `- qualification: ${qualification}`,
+    ),
+  ];
   const blockers = [
     ...analysis.direct_work_blockers,
     ...(analysis.system?.unknown_costs.map((cost) => `unknown cost: ${cost}`) ??
@@ -211,6 +224,8 @@ function compactToolText(result: BridgeResult): string {
     ...(queryConclusions.length === 0 ? ["- none"] : queryConclusions),
     "Work",
     ...work,
+    "Optimization advice",
+    ...optimization,
     "Blockers",
     ...(blockers.length === 0
       ? ["- none"]

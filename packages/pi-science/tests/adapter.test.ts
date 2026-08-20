@@ -113,13 +113,78 @@ const systemRequest = {
 };
 
 describe("formula adapter protocol boundary", () => {
+  it("round trips default, disabled, populated, system, and incomplete optimization reports", () => {
+    const requests = [
+      { syntax: "sympy", expression: "x" },
+      {
+        syntax: "sympy",
+        expression: "x",
+        optimization: { max_suggestions: 0 },
+      },
+      { syntax: "sympy", expression: "x*y + x*z" },
+      {
+        syntax: "sympy",
+        equations: [
+          { name: "value", expression: "Eq(value, (x + 1) * (x + 1))" },
+        ],
+        variables: { x: { domain: "real" } },
+      },
+      {
+        syntax: "sympy",
+        equations: Array.from({ length: 128 }, (_, index) => ({
+          name: `value_${index}`,
+          expression: `Eq(value_${index}, (x + 0) + (y + 0) + (z + 0))`,
+        })),
+        variables: {
+          x: { domain: "real" },
+          y: { domain: "real" },
+          z: { domain: "real" },
+        },
+      },
+    ];
+    const reports = requests.map((request) => {
+      const result = invoke(JSON.stringify({ version: 11, request }));
+      expect(result.status).toBe(0);
+      return JSON.parse(result.stdout).result.optimization;
+    });
+    expect(reports[0]).toMatchObject({
+      requested_limit: 3,
+      status: "complete",
+      suggestions: [],
+    });
+    expect(reports[1]).toEqual({
+      requested_limit: 0,
+      status: "disabled",
+      suggestions: [],
+      qualifications: [],
+    });
+    expect(reports[2].suggestions[0]).toMatchObject({
+      kind: "factoring",
+      target: { kind: "expression", name: null },
+      intermediate: null,
+      work_before: "3",
+      work_after: "2",
+      savings: "1",
+    });
+    expect(reports[3].suggestions[0]).toMatchObject({
+      kind: "repeated_subexpression",
+      target: { kind: "equation", name: "value" },
+    });
+    expect(reports[4]).toMatchObject({
+      requested_limit: 3,
+      status: "incomplete",
+      qualifications: ["optimization candidate budget exhausted"],
+    });
+    expect(reports[4].suggestions.length).toBeGreaterThan(0);
+  });
+
   it.each([
     ["malformed request", "not json"],
-    ["incompatible protocol", JSON.stringify({ version: 9, request: {} })],
+    ["incompatible protocol", JSON.stringify({ version: 10, request: {} })],
     [
       "extra request key",
       JSON.stringify({
-        version: 7,
+        version: 11,
         request: { syntax: "sympy", expression: "x", extra: true },
       }),
     ],
@@ -133,7 +198,7 @@ describe("formula adapter protocol boundary", () => {
     [
       "reserved query name",
       JSON.stringify({
-        version: 8,
+        version: 11,
         request: {
           syntax: "sympy",
           expression: "x",
@@ -230,7 +295,7 @@ print(module._encoded({"result": "x" * 327937}) is None)
     expect(result.stdout.trim()).toBe("True");
   });
 
-  it("preserves mandatory nulls in populated protocol-v10 query answers", () => {
+  it("preserves mandatory nulls in populated protocol-v11 query answers", () => {
     const result = invoke(
       JSON.stringify({
         version: 11,
@@ -257,7 +322,7 @@ print(module._encoded({"result": "x" * 327937}) is None)
     });
   });
 
-  it("round trips partial nested polynomial closed forms under protocol v10", () => {
+  it("round trips partial nested polynomial closed forms under protocol v11", () => {
     const success = invoke(
       JSON.stringify({
         version: 11,
@@ -474,7 +539,7 @@ print(module._encoded({"result": "x" * 327937}) is None)
   });
 });
 
-describe("dominance protocol v10", () => {
+describe("dominance protocol v11", () => {
   it("round trips canonical bounded integer dominance", () => {
     const result = invoke(
       JSON.stringify({

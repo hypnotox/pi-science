@@ -110,4 +110,10 @@ The tool analyzes formulas and directly attached mathematical schema only. It do
 
 For persistent or one-off direct Python use, depend on `py-science-formula` independently of Pi's isolated backend and import `py_science.formula`. The [`py-science-formula` README](../../../py-science-formula/README.md) contains the matching typed request and PEP 723 guidance.
 
-Optimization advice is informational: ordinary analysis defaults to at most three exact-symbolically proved positive abstract aggregate-work suggestions. Set `optimization.max_suggestions` to `0` to disable it; Pi transports the Python qualification and does not recompute it.
+## Use bounded local optimization advice
+
+Ordinary expression and equation-system analysis defaults to at most three suggestions. Set `optimization.max_suggestions` to a strict integer from `0` through `16`; `0` disables advice and any positive value is an upper bound, not a guaranteed count. `complete` with no suggestions means no candidate qualified within the bounded search. `incomplete` means a search or advice-output budget was exhausted, may still contain proved suggestions, and never means no improvement exists.
+
+The shipped local families are repeated-subexpression extraction, identical-call and reciprocal reuse, checked factoring, redundant-operation removal, and iterator-invariant hoisting. Cross-equation sharing and Horner reformulation remain pending. Read each structural target, occurrence path, crossed binder/output scope, optional intermediate, exact identity evidence, conditions and assumptions, work before/after, savings, and `exact_symbolic_only` finite-precision qualification from `details`. Python publishes only independently proved positive whole-computation abstract-work reductions; it omits unknown-cost, unresolved-cardinality, unproved, capture-prone, incompatible-scope, nonpositive, or incomparable candidates. Pi validates shape and correlation only and never recomputes algebra, work, applicability, or ranking.
+
+Advice never changes submitted interpretation, ordinary work, scenarios, queries, dependencies, reuse, or extraction diagnostics. Treat aggregate abstract work as a mathematical metric rather than runtime, and do not infer floating-point equivalence or numerical stability from exact-symbolic reassociation.

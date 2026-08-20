@@ -105,6 +105,12 @@ describe("readiness gate", () => {
       direct_work_blockers: [],
       scenarios: [],
       queries: [],
+      optimization: {
+        requested_limit: 3,
+        status: "complete",
+        suggestions: [],
+        qualifications: [],
+      },
     };
     await start(
       current.api,
@@ -340,12 +346,51 @@ describe("readiness gate", () => {
             "Work",
             "- General direct work: 0",
             "- Specialized evaluation work: none",
+            "Optimization advice",
+            "- complete; requested at most 3",
             "Blockers",
             "- none",
           ].join("\n"),
         },
       ],
       details: response,
+    });
+  });
+
+  it("presents proved local optimization advice compactly with canonical details", async () => {
+    const current = host();
+    const adapter = fileURLToPath(
+      new URL("../bridge/formula_adapter.py", import.meta.url),
+    );
+    await start(
+      current.api,
+      Promise.resolve({
+        ready: true,
+        command: "uv",
+        args: ["run", "--locked", "python", adapter],
+      }),
+    );
+    const result = await current.tools[0]!.execute("id", {
+      expression: "x*y + x*z",
+    });
+    const text = result.content[0]!.text;
+    expect(text).toContain("Optimization advice");
+    expect(text).toContain("factoring (expression): x*(y + z)");
+    expect(text).toContain("work 3 → 2; saves 1");
+    expect(text).toContain("exact_symbolic_only");
+    expect(result.details).toMatchObject({
+      optimization: {
+        requested_limit: 3,
+        status: "complete",
+        suggestions: [
+          {
+            kind: "factoring",
+            work_before: "3",
+            work_after: "2",
+            savings: "1",
+          },
+        ],
+      },
     });
   });
 
@@ -553,6 +598,12 @@ describe("readiness gate", () => {
           ],
         },
       ],
+      optimization: {
+        requested_limit: 3,
+        status: "complete",
+        suggestions: [],
+        qualifications: [],
+      },
     };
     await start(
       current.api,

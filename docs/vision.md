@@ -12,6 +12,7 @@ The tool reports information such as:
 - qualified bounded properties, limits, asymptotics, equivalence, and closed forms;
 - scenario specializations and conservative parameter bounds;
 - named equation dependencies, ideal reuse, and repeated-expression extraction diagnostics;
+- bounded exact-symbolic local optimization advice with proved positive whole-work savings;
 - unknown costs, assumptions, or evaluator limits that prevent a tighter conclusion.
 
 The goal is not to replace agent reasoning. It is to make the mathematical structure behind that reasoning testable before it becomes code.
@@ -22,8 +23,8 @@ The goal is not to replace agent reasoning. It is to make the mathematical struc
 2. The agent expresses the planned computation in restricted SymPy syntax.
 3. The agent supplies relevant domains, assumptions, scenarios, and opaque primitive costs.
 4. The tool safely parses and normalizes the submission into one internal mathematical model.
-5. The tool analyzes symbolic work, dependencies, scenarios, and supported bounded mathematical queries.
-6. The agent inspects the normalized interpretation and qualifications, then revises the plan before implementation.
+5. The tool analyzes symbolic work, dependencies, scenarios, supported bounded mathematical queries, and independently verified local optimization candidates.
+6. The agent inspects the normalized interpretation, proof and finite-precision qualifications, then revises the plan before implementation.
 
 The same workflow supports a one-line expression and a named system of indexed equations. A motivating use case is a 3D adaptive fast multipole method whose upward pass, interactions, downward pass, and particle evaluation depend on particle count, expansion order, tree occupancy, and interaction-list size. The analysis remains general mathematical tooling rather than an AFMM-specific product.
 
@@ -58,7 +59,8 @@ The MVP provides:
 3. exact or qualified work-complexity analysis under supplied assumptions;
 4. scenario evaluation for fixed values, intervals, finite choices, definitions, and retained asymptotic variables;
 5. dependency, ideal-reuse, and repeated-expression extraction diagnostics for named equation systems;
-6. explicit bounded general-context mathematical queries with qualified evidence.
+6. explicit bounded general-context mathematical queries with qualified evidence;
+7. default-on bounded local repeated-structure, reuse, factoring, redundant-operation-removal, and iterator-invariant-hoisting advice whose exact-symbolic proof and positive aggregate-work reduction are independently checked.
 
 The tooling includes a concise agent skill for formulating analyzable requests and inspecting the normalized result. [Analysis Model](analysis-model.md) defines the request and report contract.
 
@@ -86,13 +88,14 @@ The MVP succeeds when an agent can:
 - fix some parameters while retaining others as scaling dimensions;
 - evaluate intervals and finite choices with correctly qualified results;
 - inspect named dependencies, ideal reuse, and repeated-expression extraction diagnostics;
+- inspect a bounded incomplete-or-complete optimization report without confusing abstract work with runtime or exact-symbolic reassociation with finite-precision stability;
 - ask supported bounded mathematical questions and inspect their evidence and qualifications;
 - see exactly which unknowns or evaluator limits prevent a tighter answer;
 - revise an algorithm plan using the analysis before producing implementation code.
 
 ## Future direction
 
-Later work may add symbolic storage analysis, work-depth and parallelism models, richer stage semantics, recurrence solving, expected-cost models from declared parameter distributions, domain rule libraries, equality-saturation rewrite exploration, target-aware abstract cost models, formula-to-skeleton lowering, and separate profiler or benchmark integrations.
+Later work may add symbolic storage analysis, work-depth and parallelism models, richer stage semantics, recurrence solving, expected-cost models from declared parameter distributions, domain rule libraries, cross-equation optimization sharing, Horner reformulation, equality-saturation rewrite exploration, target-aware abstract cost models, formula-to-skeleton lowering, and separate profiler or benchmark integrations. The shipped local advice remains bounded, omits unknown-cost or unproved candidates, and never claims exhaustive search.
 
 Every extension preserves the central boundary: agents express planned computation in familiar mathematics, provide explicit context, and receive deterministic structural analysis before they write the implementation.
 <!-- awf:edit-in-place body -->

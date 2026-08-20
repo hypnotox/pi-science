@@ -139,3 +139,464 @@ def test_optimization_config_is_strict_and_bounded() -> None:
             }
         )
     assert error.value.errors()[0]["loc"] == ("optimization", "max_suggestions")
+
+
+def test_local_optimization_families_publish_only_verified_savings() -> None:
+    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+
+    fixtures = {
+        "repeated_subexpression": "(x + 1) * (x + 1)",
+        "reciprocal_reuse": "1 / x + 1 / x",
+        "factoring": "x * y + x * z",
+        "redundant_operation_removal": "(x + 0) * y",
+        "iterator_invariant_hoisting": "Sum(x * x + i, (i, 0, 3))",
+    }
+    for family, expression in fixtures.items():
+        outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression))
+        assert outcome.status == "success"
+        assert outcome.optimization is not None
+        suggestion = next(item for item in outcome.optimization.suggestions if item.kind == family)
+        assert suggestion.conclusion in {"proved", "proved_under_assumptions"}
+        assert int(suggestion.savings) > 0
+        assert int(suggestion.work_before) > int(suggestion.work_after)
+        assert not isinstance(parse_expression(suggestion.proposed.normalized_sympy), ParseFailure)
+
+
+def test_repeated_defined_call_is_reused_but_unknown_call_is_omitted() -> None:
+    from py_science.formula import AnalysisRequest, FormulaSyntax, FunctionDefinition, analyze
+
+    known = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="f(x) + f(x)",
+            functions=(FunctionDefinition(name="f", parameters=("z",), body="z * z"),),
+        )
+    )
+    unknown = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="f(x) + f(x)"))
+    assert known.status == "success" and known.optimization is not None
+    assert any(item.kind == "repeated_call" for item in known.optimization.suggestions)
+    assert unknown.status == "success" and unknown.optimization is not None
+    assert unknown.optimization.suggestions == ()
+
+
+def test_disabled_optimization_preserves_every_ordinary_field() -> None:
+    from py_science.formula import AnalysisRequest, FormulaSyntax, OptimizationConfig, analyze
+
+    enabled = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="(x + 1) * (x + 1)"))
+    disabled = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="(x + 1) * (x + 1)",
+            optimization=OptimizationConfig(max_suggestions=0),
+        )
+    )
+    assert enabled.status == "success" and disabled.status == "success"
+    assert enabled.model_copy(update={"optimization": None}) == disabled.model_copy(
+        update={"optimization": None}
+    )
+    assert disabled.optimization is not None
+    assert disabled.optimization.status == "disabled"
+
+
+def test_optimization_config_truth_table_and_exact_error_paths() -> None:
+    from py_science.formula import AnalysisRequest, FormulaSyntax
+    from pydantic import ValidationError
+
+    base = {"syntax": FormulaSyntax.SYMPY, "expression": "x"}
+    assert AnalysisRequest.model_validate(base).optimization.max_suggestions == 3
+    for accepted in (0, 16):
+        assert (
+            AnalysisRequest.model_validate(
+                {**base, "optimization": {"max_suggestions": accepted}}
+            ).optimization.max_suggestions
+            == accepted
+        )
+    for rejected in (-1, 17, 1.5, "3"):
+        with pytest.raises(ValidationError) as error:
+            AnalysisRequest.model_validate({**base, "optimization": {"max_suggestions": rejected}})
+        assert error.value.errors()[0]["loc"] == (
+            "optimization",
+            "max_suggestions",
+        )
+    with pytest.raises(ValidationError) as error:
+        AnalysisRequest.model_validate(
+            {**base, "optimization": {"max_suggestions": 3, "extra": True}}
+        )
+    assert error.value.errors()[0]["loc"] == ("optimization", "extra")
+
+
+def test_report_and_suggestion_cross_field_truth_table() -> None:
+    from py_science.formula import AnalysisRequest, FormulaSyntax, OptimizationReport, analyze
+    from pydantic import ValidationError
+
+    populated = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="(x + 1) * (x + 1)",
+        )
+    )
+    assert populated.status == "success" and populated.optimization is not None
+    suggestion = populated.optimization.suggestions[0]
+    assert OptimizationReport(requested_limit=3, status="complete").suggestions == ()
+    assert OptimizationReport(
+        requested_limit=3, status="complete", suggestions=(suggestion,)
+    ).suggestions == (suggestion,)
+    assert (
+        OptimizationReport(
+            requested_limit=3,
+            status="incomplete",
+            suggestions=(suggestion,),
+            qualifications=("optimization candidate budget exhausted",),
+        ).status
+        == "incomplete"
+    )
+    for invalid in (
+        {"requested_limit": 0, "status": "complete"},
+        {"requested_limit": 3, "status": "disabled"},
+        {"requested_limit": 3, "status": "incomplete"},
+        {
+            "requested_limit": 3,
+            "status": "complete",
+            "qualifications": ("unexpected qualification",),
+        },
+    ):
+        with pytest.raises(ValidationError):
+            OptimizationReport.model_validate(invalid)
+    with pytest.raises(ValidationError):
+        type(suggestion).model_validate({**suggestion.model_dump(), "savings": "-1"})
+    with pytest.raises(ValidationError):
+        type(suggestion).model_validate({**suggestion.model_dump(), "intermediate": None})
+    with pytest.raises(ValidationError):
+        type(populated).model_validate({**populated.model_dump(), "optimization": None})
+
+
+def test_scope_collision_reciprocal_conditions_and_incompatible_sums() -> None:
+    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+
+    collision = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="(optimization_tmp_1 + 1) * (optimization_tmp_1 + 1)",
+        )
+    )
+    reciprocal = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="1 / x + 1 / x"))
+    incompatible = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="Sum(x + 1, (i, 0, 3)) + Sum(x + 1, (j, 0, 3))",
+        )
+    )
+    assert collision.status == "success" and collision.optimization is not None
+    assert collision.optimization.suggestions[0].intermediate is not None
+    assert collision.optimization.suggestions[0].intermediate.name == "optimization_tmp_2"
+    assert reciprocal.status == "success" and reciprocal.optimization is not None
+    reuse = next(
+        item for item in reciprocal.optimization.suggestions if item.kind == "reciprocal_reuse"
+    )
+    assert reuse.conditions == ("x != 0",)
+    assert incompatible.status == "success" and incompatible.optimization is not None
+    assert all(
+        item.kind != "repeated_subexpression" for item in incompatible.optimization.suggestions
+    )
+
+
+def test_each_local_family_can_publish_for_an_equation_system() -> None:
+    from py_science.formula import (
+        AnalysisRequest,
+        EquationRequest,
+        FormulaSyntax,
+        MathematicalDomain,
+        VariableDeclaration,
+        analyze,
+    )
+
+    fixtures = {
+        "repeated_subexpression": "(x + 1) * (x + 1)",
+        "reciprocal_reuse": "1 / x + 1 / x",
+        "factoring": "x * y + x * z",
+        "redundant_operation_removal": "(x + 0) * y",
+        "iterator_invariant_hoisting": "Sum(x * x + i, (i, 0, 3))",
+    }
+    variables = {
+        name: VariableDeclaration(domain=MathematicalDomain.REAL) for name in ("x", "y", "z")
+    }
+    for family, expression in fixtures.items():
+        outcome = analyze(
+            AnalysisRequest(
+                syntax=FormulaSyntax.SYMPY,
+                equations=(EquationRequest(name="value", expression=f"Eq(value, {expression})"),),
+                variables=variables,
+            )
+        )
+        assert outcome.status == "success" and outcome.optimization is not None
+        suggestion = next(item for item in outcome.optimization.suggestions if item.kind == family)
+        assert suggestion.target.kind == "equation"
+        assert suggestion.target.name == "value"
+        assert int(suggestion.work_before) > int(suggestion.work_after) > 0
+
+
+def test_advice_has_a_separate_result_allowance_and_excludes_its_key_from_base() -> None:
+    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+    from py_science.formula import service as formula_service
+
+    assert formula_service.MAX_RESULT_BYTES == 262_144
+    assert formula_service.MAX_OPTIMIZATION_BYTES == 65_536
+    assert formula_service.MAX_COMBINED_RESULT_BYTES == 327_680
+    outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x"))
+    assert outcome.status == "success" and outcome.optimization is not None
+    base_json = outcome.model_dump_json(exclude={"optimization"})
+    assert '"optimization"' not in base_json
+    assert len(outcome.optimization.model_dump_json().encode("utf-8")) < 65_536
+
+
+def test_candidate_budget_exhaustion_preserves_already_proved_advice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+    from py_science.formula import optimization as optimization_service
+
+    monkeypatch.setattr(optimization_service, "MAX_OPTIMIZATION_CANDIDATES", 1)
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="(x + 0) * (y + 0)",
+        )
+    )
+    assert outcome.status == "success" and outcome.optimization is not None
+    assert outcome.optimization.status == "incomplete"
+    assert outcome.optimization.qualifications == ("optimization candidate budget exhausted",)
+    assert len(outcome.optimization.suggestions) == 1
+
+
+def test_deterministic_ranking_prefers_unconditional_then_larger_exact_savings() -> None:
+    from py_science.formula import (
+        AnalysisRequest,
+        EquationRequest,
+        FormulaSyntax,
+        MathematicalDomain,
+        OptimizationConfig,
+        VariableDeclaration,
+        analyze,
+    )
+
+    unconditional = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=(
+                EquationRequest(name="reciprocal", expression="Eq(a, 1/x + 1/x)"),
+                EquationRequest(name="polynomial", expression="Eq(b, (y + 1) * (y + 1))"),
+            ),
+            variables={
+                name: VariableDeclaration(domain=MathematicalDomain.REAL) for name in ("x", "y")
+            },
+            optimization=OptimizationConfig(max_suggestions=16),
+        )
+    )
+    ranked = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="(x + 1) * (x + 1) + (x + 1) + (y + 1) * (y + 1)",
+            optimization=OptimizationConfig(max_suggestions=16),
+        )
+    )
+    assert unconditional.status == "success" and unconditional.optimization is not None
+    assert unconditional.optimization.suggestions[0].conclusion == "proved"
+    assert ranked.status == "success" and ranked.optimization is not None
+    exact_savings = [
+        int(item.savings)
+        for item in ranked.optimization.suggestions
+        if item.conclusion == "proved" and item.savings.isdigit()
+    ]
+    assert exact_savings == sorted(exact_savings, reverse=True)
+
+
+def test_output_multiplicity_and_intermediate_scope_are_charged_directly() -> None:
+    from py_science.formula import (
+        AnalysisRequest,
+        EquationRequest,
+        FormulaSyntax,
+        IndexDomain,
+        MathematicalDomain,
+        VariableDeclaration,
+        analyze,
+    )
+
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=(
+                EquationRequest(
+                    name="value",
+                    expression="Eq(value[i], (x + 1) * (x + 1))",
+                    domains={"i": IndexDomain(lower="0", upper="3")},
+                ),
+            ),
+            variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
+        )
+    )
+    assert outcome.status == "success" and outcome.optimization is not None
+    suggestion = next(
+        item for item in outcome.optimization.suggestions if item.kind == "repeated_subexpression"
+    )
+    assert all(item.output_indices == ("i",) for item in suggestion.occurrences)
+    assert suggestion.intermediate is not None
+    assert suggestion.intermediate.scope_output_indices == ()
+    assert (suggestion.work_before, suggestion.work_after, suggestion.savings) == (
+        "12",
+        "5",
+        "7",
+    )
+
+
+def test_hoisting_with_no_whole_work_improvement_is_omitted() -> None:
+    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="Sum(x * x + i, (i, 0, 0))",
+        )
+    )
+    assert outcome.status == "success" and outcome.optimization is not None
+    assert all(
+        item.kind != "iterator_invariant_hoisting" for item in outcome.optimization.suggestions
+    )
+
+
+def test_public_proposals_reparse_and_reconstruct_independently() -> None:
+    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+    from py_science.formula.equivalence import equivalence_answer
+    from py_science.formula.expressions import substitute
+    from py_science.formula.reasoning import ReasoningContext
+
+    for expression in (
+        "(x + 1) * (x + 1)",
+        "1/x + 1/x",
+        "x*y + x*z",
+        "(x + 0) * y",
+        "Sum(x*x + i, (i, 0, 3))",
+    ):
+        outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression))
+        assert outcome.status == "success" and outcome.optimization is not None
+        suggestion = outcome.optimization.suggestions[0]
+        original = _expression(suggestion.original.normalized_sympy)
+        proposed = _expression(suggestion.proposed.normalized_sympy)
+        expanded = proposed
+        if suggestion.intermediate is not None:
+            expanded = substitute(
+                proposed,
+                {
+                    suggestion.intermediate.name: _expression(
+                        suggestion.intermediate.expression.normalized_sympy
+                    )
+                },
+                max_nodes=8_192,
+            )
+        answer = equivalence_answer(
+            original,
+            expanded,
+            ReasoningContext.build({}, (), ()),
+        )
+        assert original == expanded or answer.conclusion in {
+            "proved",
+            "proved_under_assumptions",
+        }
+
+
+def test_repeated_defined_call_can_publish_for_an_equation_system() -> None:
+    from py_science.formula import (
+        AnalysisRequest,
+        EquationRequest,
+        FormulaSyntax,
+        FunctionDefinition,
+        MathematicalDomain,
+        VariableDeclaration,
+        analyze,
+    )
+
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=(EquationRequest(name="value", expression="Eq(value, f(x) + f(x))"),),
+            variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
+            functions=(FunctionDefinition(name="f", parameters=("z",), body="z * z"),),
+        )
+    )
+    assert outcome.status == "success" and outcome.optimization is not None
+    suggestion = next(
+        item for item in outcome.optimization.suggestions if item.kind == "repeated_call"
+    )
+    assert suggestion.target.name == "value"
+    assert (suggestion.work_before, suggestion.work_after, suggestion.savings) == (
+        "3",
+        "2",
+        "1",
+    )
+
+
+def test_historical_exact_base_result_limit_still_succeeds() -> None:
+    from py_science.formula import AnalysisSuccess
+    from py_science.formula import service as formula_service
+    from py_science.formula.models import Interpretation, OperationCounts, ScenarioResult
+
+    def outcome_with_padding(length: int) -> AnalysisSuccess:
+        return AnalysisSuccess(
+            interpretation=Interpretation(normalized_sympy="x", normalized_latex="x"),
+            operation_counts=OperationCounts(
+                additions=0,
+                subtractions=0,
+                multiplications=0,
+                divisions=0,
+                powers=0,
+            ),
+            abstract_work=0,
+            scenarios=(
+                ScenarioResult(
+                    name="padding",
+                    substituted_work="0",
+                    qualifications=("x" * length,),
+                ),
+            ),
+        )
+
+    empty = outcome_with_padding(0)
+    overhead = len(empty.model_dump_json(exclude={"optimization"}).encode("utf-8"))
+    exact = outcome_with_padding(formula_service.MAX_RESULT_BYTES - overhead)
+    assert (
+        len(exact.model_dump_json(exclude={"optimization"}).encode("utf-8"))
+        == formula_service.MAX_RESULT_BYTES
+    )
+    assert formula_service._bound_result(exact).status == "success"  # pyright: ignore[reportPrivateUsage]
+    overflow = outcome_with_padding(formula_service.MAX_RESULT_BYTES - overhead + 1)
+    assert formula_service._bound_result(overflow).status == "failure"  # pyright: ignore[reportPrivateUsage]
+
+
+def test_oversized_advice_truncates_without_replacing_base_success() -> None:
+    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+    from py_science.formula import service as formula_service
+    from py_science.formula.models import Interpretation
+
+    outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x*y + x*z"))
+    assert outcome.status == "success" and outcome.optimization is not None
+    suggestion = outcome.optimization.suggestions[0]
+    oversized = suggestion.model_copy(
+        update={
+            "proposed": Interpretation(
+                normalized_sympy="x" * 70_000,
+                normalized_latex="x" * 70_000,
+            )
+        }
+    )
+    bounded = formula_service._bound_result(  # pyright: ignore[reportPrivateUsage]
+        outcome.model_copy(
+            update={
+                "optimization": outcome.optimization.model_copy(
+                    update={"suggestions": (oversized,)}
+                )
+            }
+        )
+    )
+    assert bounded.status == "success"
+    assert bounded.optimization.status == "incomplete"
+    assert bounded.optimization.suggestions == ()
+    assert bounded.optimization.qualifications == ("optimization advice exceeds its byte bound",)

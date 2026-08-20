@@ -88,6 +88,7 @@
           "description": "Bounded, informational advice requested only for ordinary analysis.",
           "properties": {
             "max_suggestions": {
+              "default": 3,
               "maximum": 16,
               "minimum": 0,
               "type": "integer"
@@ -767,6 +768,7 @@
           "description": "Bounded, informational advice requested only for ordinary analysis.",
           "properties": {
             "max_suggestions": {
+              "default": 3,
               "maximum": 16,
               "minimum": 0,
               "type": "integer"

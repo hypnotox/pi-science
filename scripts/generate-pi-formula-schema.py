@@ -18,6 +18,7 @@ ALLOWED_SCHEMA_KEYS = {
     "additionalProperties",
     "anyOf",
     "description",
+    "default",
     "enum",
     "items",
     "maxItems",
@@ -193,6 +194,13 @@ def generate_schema() -> JsonObject:
         for name, schema in properties.items()
         if name not in {"syntax", "expression", "equations", "queries"}
     }
+    optimization = metadata.get("optimization")
+    if not isinstance(optimization, dict):
+        raise ValueError("AnalysisRequest optimization schema is unavailable")
+    optimization_limit = optimization.get("properties", {}).get("max_suggestions")
+    if not isinstance(optimization_limit, dict):
+        raise ValueError("AnalysisRequest optimization limit schema is unavailable")
+    optimization_limit["default"] = 3
     query_schema = properties["queries"]
     expression_queries = {
         "items": {"anyOf": _query_variants(definitions, query_schema, system=False)},

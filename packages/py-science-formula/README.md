@@ -143,4 +143,21 @@ assert pole_scope.shared_denominator == "n - 1"
 assert [pole.value for pole in pole_scope.exclusions] == ["1"]
 ```
 
-Ordinary `AnalysisRequest` accepts frozen `optimization.max_suggestions` (default `3`, range `0..16`). Successful ordinary analysis carries a bounded qualified optimization report; zero disables advice.
+## Bounded local optimization advice
+
+Ordinary `AnalysisRequest` accepts the frozen `OptimizationConfig(max_suggestions=...)` only. The strict range is `0..16`, the default is `3`, and the value is an upper bound; zero returns a disabled empty report. Candidate-comparison and dominance request models have no optimization setting. A `complete` report may contain fewer suggestions than requested, including none. An `incomplete` report identifies bounded search exhaustion, preserves already proved suggestions, and does not establish that no other improvement exists.
+
+The shipped Python generators cover local repeated-subexpression extraction, identical-call and reciprocal reuse, bounded checked factoring, redundant-operation removal, and iterator-invariant hoisting for expressions and individual equation RHSs. Cross-equation sharing and Horner form remain pending. Every generated candidate goes through one verifier: generated intermediates are expanded by checked substitution for output equivalence, retained outputs are proved under declared assumptions and domains, and whole-computation aggregate abstract work includes iterator cardinality, output multiplicity, and intermediate scope. Unknown costs, unresolved cardinality or proof, incompatible scopes, capture, nonpositive savings, and incomparable work are omitted.
+
+```python
+factored = analyze(AnalysisRequest(
+    syntax=FormulaSyntax.SYMPY,
+    expression="x*y + x*z",
+))
+assert factored.status == "success"
+assert factored.optimization is not None
+assert factored.optimization.suggestions[0].proposed.normalized_sympy == "x*(y + z)"
+assert factored.optimization.suggestions[0].savings == "1"
+```
+
+Suggestions expose deterministic child-index occurrence paths, binders and output indices, normalized original and proposed forms, optional collision-free intermediates, exact identity evidence, conditions and assumptions, before/after work, positive savings, and the `exact_symbolic_only` finite-precision qualification. Advice is informational and never changes the retained interpretation, counts, work, scenarios, queries, dependencies, reuse, or extraction diagnostics. Exact-symbolic equivalence is not a runtime, numerical-stability, or identical floating-point evaluation claim.

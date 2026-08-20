@@ -102,6 +102,12 @@ const success = {
   direct_work_blockers: [],
   scenarios: [],
   queries: [],
+  optimization: {
+    requested_limit: 3,
+    status: "complete",
+    suggestions: [],
+    qualifications: [],
+  },
 };
 const richSuccess = {
   ...success,
@@ -266,6 +272,121 @@ async function kind(promise: Promise<unknown>, expected: BridgeError["kind"]) {
 }
 
 describe("private formula bridge", () => {
+  it("reserves the combined base and optimization response allowance", () => {
+    expect(MAX_RESPONSE_BYTES).toBe(327_936);
+  });
+
+  it("strictly transports correlated optimization reports without recomputing policy", async () => {
+    const suggestion = {
+      kind: "reciprocal_reuse",
+      target: { kind: "expression", name: null },
+      occurrences: [
+        { path: [0], binders: [], output_indices: [] },
+        { path: [1], binders: [], output_indices: [] },
+      ],
+      original: { normalized_sympy: "2/x", normalized_latex: "2/x" },
+      proposed: {
+        normalized_sympy: "2*optimization_tmp_1",
+        normalized_latex: "2t",
+      },
+      intermediate: {
+        name: "optimization_tmp_1",
+        expression: { normalized_sympy: "1/x", normalized_latex: "1/x" },
+        scope_binders: [],
+        scope_output_indices: [],
+      },
+      conclusion: "proved_under_assumptions",
+      evidence: {
+        kind: "identity",
+        statement: "normalized difference is zero",
+      },
+      conditions: ["x != 0"],
+      assumptions_used: [],
+      work_before: "3",
+      work_after: "2",
+      savings: "1",
+      finite_precision_qualification: "exact_symbolic_only",
+    };
+    const populated = {
+      ...success,
+      optimization: {
+        requested_limit: 3,
+        status: "complete",
+        suggestions: [suggestion],
+        qualifications: [],
+      },
+    };
+    await expect(
+      invokeAdapter(node, responder(populated), request("1/x + 1/x")),
+    ).resolves.toMatchObject({ optimization: populated.optimization });
+
+    const disabled = {
+      ...success,
+      optimization: {
+        requested_limit: 0,
+        status: "disabled",
+        suggestions: [],
+        qualifications: [],
+      },
+    };
+    await expect(
+      invokeAdapter(node, responder(disabled), {
+        ...request(),
+        optimization: { max_suggestions: 0 },
+      }),
+    ).resolves.toMatchObject({ optimization: disabled.optimization });
+
+    const incomplete = {
+      ...success,
+      optimization: {
+        requested_limit: 3,
+        status: "incomplete",
+        suggestions: [suggestion],
+        qualifications: ["optimization candidate budget exhausted"],
+      },
+    };
+    await expect(
+      invokeAdapter(node, responder(incomplete), request("1/x + 1/x")),
+    ).resolves.toMatchObject({ optimization: incomplete.optimization });
+
+    const { optimization: _missing, ...missing } = populated;
+    for (const malformed of [
+      missing,
+      {
+        ...populated,
+        optimization: { ...populated.optimization, requested_limit: 4 },
+      },
+      {
+        ...populated,
+        optimization: {
+          ...populated.optimization,
+          suggestions: [{ ...suggestion, surplus: true }],
+        },
+      },
+      {
+        ...populated,
+        optimization: {
+          ...populated.optimization,
+          suggestions: [
+            { ...suggestion, target: { kind: "equation", name: "fabricated" } },
+          ],
+        },
+      },
+      {
+        ...populated,
+        optimization: {
+          ...populated.optimization,
+          status: "complete",
+          qualifications: ["contradictory"],
+        },
+      },
+    ]) {
+      await expect(
+        invokeAdapter(node, responder(malformed), request("1/x + 1/x")),
+      ).rejects.toMatchObject({ kind: "protocol" });
+    }
+  });
+
   it("round trips the actual adapter for success and analysis failure", async () => {
     const adapter = fileURLToPath(
       new URL("../bridge/formula_adapter.py", import.meta.url),
@@ -818,7 +939,7 @@ describe("private formula bridge", () => {
       await kind(invokeAdapter(node, responder(value), request()), "protocol");
   });
 
-  it("strictly validates populated protocol-v10 query result unions", async () => {
+  it("strictly validates populated protocol-v11 query result unions", async () => {
     const identityAnswer = {
       check: null,
       conclusion: "proved",

@@ -190,7 +190,7 @@ export type CandidateOutputMapping = {
 };
 export type CandidateComparisonRequest = Omit<
   RequestMetadata<QueryRequest>,
-  "scenarios" | "queries"
+  "scenarios" | "queries" | "optimization"
 > & {
   syntax: "sympy";
   operation: "compare_candidates";
@@ -205,7 +205,7 @@ export type DominanceRange = {
 };
 export type DominanceRequest = Omit<
   RequestMetadata<QueryRequest>,
-  "scenarios" | "queries"
+  "scenarios" | "queries" | "optimization"
 > & {
   syntax: "sympy";
   operation: "analyze_dominance";
@@ -334,7 +334,12 @@ export type OptimizationSuggestion = {
   }>;
   original: Interpretation;
   proposed: Interpretation;
-  intermediate: unknown | null;
+  intermediate: {
+    name: string;
+    expression: Interpretation;
+    scope_binders: string[];
+    scope_output_indices: string[];
+  } | null;
   conclusion: "proved" | "proved_under_assumptions";
   evidence: { kind: "identity"; statement: string };
   conditions: string[];
@@ -361,7 +366,7 @@ export type AnalysisSuccess = {
   system?: SystemReport;
   scenarios: ScenarioResult[];
   queries: QueryResult[];
-  optimization?: OptimizationReport;
+  optimization: OptimizationReport;
 };
 export type ResolvedTarget =
   { kind: "expression" } | { kind: "equation"; name: string } | DerivedTarget;
@@ -2632,7 +2637,131 @@ function validDominanceResult(
     : value.shared_denominator !== null;
 }
 
-function validOptimization(value: unknown, requested: unknown): boolean {
+function validOptimizationSuggestion(
+  value: unknown,
+  request: AnalysisRequest,
+): boolean {
+  if (
+    !isRecord(value) ||
+    !exactKeys(value, [
+      "kind",
+      "target",
+      "occurrences",
+      "original",
+      "proposed",
+      "intermediate",
+      "conclusion",
+      "evidence",
+      "conditions",
+      "assumptions_used",
+      "work_before",
+      "work_after",
+      "savings",
+      "finite_precision_qualification",
+    ])
+  )
+    return false;
+  const kinds = [
+    "repeated_subexpression",
+    "repeated_call",
+    "reciprocal_reuse",
+    "factoring",
+    "redundant_operation_removal",
+    "iterator_invariant_hoisting",
+  ];
+  if (!kinds.includes(String(value.kind))) return false;
+  if (!isRecord(value.target) || !exactKeys(value.target, ["kind", "name"]))
+    return false;
+  const target = value.target;
+  const targetValid = isExpressionRequest(request)
+    ? target.kind === "expression" && target.name === null
+    : target.kind === "equation" &&
+      typeof target.name === "string" &&
+      request.equations.some((equation) => equation.name === target.name);
+  if (!targetValid) return false;
+  const targetEquation = isExpressionRequest(request)
+    ? undefined
+    : request.equations.find((equation) => equation.name === target.name);
+  const allowedOutputIndices = new Set(
+    Object.keys(targetEquation?.domains ?? {}),
+  );
+  const validOutputIndices = (indices: unknown): indices is string[] =>
+    validStringArray(indices) &&
+    indices.length <= 32 &&
+    indices.every((index) => allowedOutputIndices.has(index));
+  if (
+    !Array.isArray(value.occurrences) ||
+    value.occurrences.length < 1 ||
+    value.occurrences.length > 128 ||
+    !value.occurrences.every(
+      (occurrence) =>
+        isRecord(occurrence) &&
+        exactKeys(occurrence, ["path", "binders", "output_indices"]) &&
+        Array.isArray(occurrence.path) &&
+        occurrence.path.length <= 128 &&
+        occurrence.path.every(nonNegativeInteger) &&
+        validStringArray(occurrence.binders) &&
+        occurrence.binders.length <= 32 &&
+        validOutputIndices(occurrence.output_indices),
+    )
+  )
+    return false;
+  const requiresIntermediate = [
+    "repeated_subexpression",
+    "repeated_call",
+    "reciprocal_reuse",
+    "iterator_invariant_hoisting",
+  ].includes(String(value.kind));
+  const validIntermediate =
+    value.intermediate === null
+      ? !requiresIntermediate
+      : requiresIntermediate &&
+        isRecord(value.intermediate) &&
+        exactKeys(value.intermediate, [
+          "name",
+          "expression",
+          "scope_binders",
+          "scope_output_indices",
+        ]) &&
+        typeof value.intermediate.name === "string" &&
+        /^[A-Za-z][A-Za-z0-9_]*$/.test(value.intermediate.name) &&
+        value.intermediate.name.length <= 128 &&
+        validInterpretation(value.intermediate.expression) &&
+        validStringArray(value.intermediate.scope_binders) &&
+        value.intermediate.scope_binders.length <= 32 &&
+        validOutputIndices(value.intermediate.scope_output_indices);
+  return (
+    validInterpretation(value.original) &&
+    validInterpretation(value.proposed) &&
+    validIntermediate &&
+    ["proved", "proved_under_assumptions"].includes(String(value.conclusion)) &&
+    isRecord(value.evidence) &&
+    exactKeys(value.evidence, ["kind", "statement"]) &&
+    value.evidence.kind === "identity" &&
+    validBoundedDiagnosticText(value.evidence.statement, 4_096) &&
+    validStringArray(value.conditions) &&
+    value.conditions.length <= 128 &&
+    value.conditions.every((condition) =>
+      validBoundedDiagnosticText(condition, 4_096),
+    ) &&
+    validRelationshipUses(value.assumptions_used) &&
+    (value.assumptions_used as unknown[]).length <= 128 &&
+    (value.conclusion !== "proved" ||
+      (value.conditions.length === 0 &&
+        (value.assumptions_used as unknown[]).length === 0)) &&
+    [value.work_before, value.work_after, value.savings].every((item) =>
+      validBoundedDiagnosticText(item, 4_096),
+    ) &&
+    value.work_before !== value.work_after &&
+    value.finite_precision_qualification === "exact_symbolic_only"
+  );
+}
+
+function validOptimization(
+  value: unknown,
+  requested: unknown,
+  request: AnalysisRequest,
+): boolean {
   if (
     !isRecord(value) ||
     !exactKeys(value, [
@@ -2652,7 +2781,14 @@ function validOptimization(value: unknown, requested: unknown): boolean {
     !["disabled", "complete", "incomplete"].includes(String(value.status)) ||
     !Array.isArray(value.suggestions) ||
     value.suggestions.length > limit ||
-    !validStringArray(value.qualifications)
+    !value.suggestions.every((item) =>
+      validOptimizationSuggestion(item, request),
+    ) ||
+    !validStringArray(value.qualifications) ||
+    value.qualifications.length > 128 ||
+    !value.qualifications.every((qualification) =>
+      validBoundedDiagnosticText(qualification, 4_096),
+    )
   )
     return false;
   if (value.status === "disabled")
@@ -2661,7 +2797,10 @@ function validOptimization(value: unknown, requested: unknown): boolean {
       value.suggestions.length === 0 &&
       value.qualifications.length === 0
     );
+  if (limit === 0 || value.status === "disabled") return false;
   if (value.status === "incomplete" && value.qualifications.length === 0)
+    return false;
+  if (value.status === "complete" && value.qualifications.length > 0)
     return false;
   return (
     limit ===
@@ -2714,8 +2853,8 @@ function validResult(
       Array.isArray(value.queries) &&
       value.queries.every(validQueryResult) &&
       validQueryCorrelation(request, value.queries as QueryResult[]) &&
-      (!("optimization" in value) ||
-        validOptimization(value.optimization, request.optimization))
+      "optimization" in value &&
+      validOptimization(value.optimization, request.optimization, request)
     );
   }
   if (value.status === "failure") {

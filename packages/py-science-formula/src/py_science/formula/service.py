@@ -187,7 +187,7 @@ def analyze(request: AnalysisRequest) -> AnalysisOutcome:
     if request.queries:
         outcome = _attach_queries(request, result)
     if isinstance(outcome, AnalysisSuccess):
-        optimization = _optimization_report(request, result.expression)
+        optimization = _optimization_report(request, result, result.work_context)
         outcome = outcome.model_copy(update={"optimization": optimization})
     return _bound_result(outcome)
 
@@ -1255,6 +1255,7 @@ def _analyze_single(
             equation_analyses=MappingProxyType({"expression": analysis}),
             aggregate_analysis=analysis,
             knowledge=knowledge,
+            work_context=context,
         )
     index_error, index_unresolved = _validate_index_scopes(parsed, set(), context)
     if index_error is not None:
@@ -1317,6 +1318,7 @@ def _analyze_single(
         equation_analyses=MappingProxyType({"expression": retained_analysis}),
         aggregate_analysis=retained_analysis,
         knowledge=knowledge,
+        work_context=context,
     )
 
 
@@ -1551,6 +1553,7 @@ def _analyze_system(
         equation_analyses=MappingProxyType(retained_analyses),
         aggregate_analysis=_retain_work_analysis(combined),
         knowledge=knowledge,
+        work_context=context,
     )
 
 
@@ -2846,14 +2849,15 @@ def _request_size_failure(request: AnalysisRequest) -> AnalysisFailure | None:
 
 def _bound_result(outcome: AnalysisOutcome) -> AnalysisOutcome:
     if isinstance(outcome, AnalysisSuccess):
-        base = outcome.model_copy(update={"optimization": None})
         advice = outcome.optimization
-        if len(base.model_dump_json().encode("utf-8")) > MAX_RESULT_BYTES:
+        # Preserve the pre-advice success population exactly: the optional
+        # internal field itself must not consume the historical base allowance.
+        base_bytes = len(
+            outcome.model_dump_json(exclude={"optimization"}).encode("utf-8")
+        )
+        if base_bytes > MAX_RESULT_BYTES:
             return _complexity_failure("analysis result exceeds its base size bound")
-        if (
-            advice is not None
-            and len(advice.model_dump_json().encode("utf-8")) > MAX_OPTIMIZATION_BYTES
-        ):
+        if len(advice.model_dump_json().encode("utf-8")) > MAX_OPTIMIZATION_BYTES:
             outcome = outcome.model_copy(
                 update={
                     "optimization": advice.model_copy(

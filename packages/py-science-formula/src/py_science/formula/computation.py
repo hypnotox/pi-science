@@ -11,7 +11,7 @@ from py_science.formula.models import (
     AnalysisSuccess,
     DomainConstraint,
 )
-from py_science.formula.work import SymbolicTally, WorkAnalysis
+from py_science.formula.work import SymbolicTally, WorkAnalysis, WorkContext
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,3 +81,4 @@ class RetainedComputation:
     equation_analyses: Mapping[str, RetainedWorkAnalysis]
     aggregate_analysis: RetainedWorkAnalysis
     knowledge: Knowledge
+    work_context: WorkContext

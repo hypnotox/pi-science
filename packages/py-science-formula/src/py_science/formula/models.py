@@ -1262,8 +1262,34 @@ class OptimizationSuggestion(StructuredModel):
 
     @model_validator(mode="after")
     def proved_positive_shape(self) -> "OptimizationSuggestion":
-        if not self.savings or self.work_before == self.work_after:
+        numeric_work: list[Fraction | None] = []
+        for value in (self.work_before, self.work_after, self.savings):
+            try:
+                numeric_work.append(Fraction(value))
+            except (ValueError, ZeroDivisionError):
+                numeric_work.append(None)
+        if any(value is not None and value <= 0 for value in numeric_work):
+            raise ValueError("optimization work and savings must be positive")
+        before, after, savings = numeric_work
+        if (
+            not self.savings
+            or self.work_before == self.work_after
+            or (
+                before is not None
+                and after is not None
+                and savings is not None
+                and (before <= after or before - after != savings)
+            )
+        ):
             raise ValueError("optimization suggestions require positive savings")
+        requires_intermediate = self.kind in {
+            "repeated_subexpression",
+            "repeated_call",
+            "reciprocal_reuse",
+            "iterator_invariant_hoisting",
+        }
+        if requires_intermediate != (self.intermediate is not None):
+            raise ValueError("optimization family and intermediate shape are inconsistent")
         if self.conclusion == "proved" and (self.conditions or self.assumptions_used):
             raise ValueError("unconditional optimization proof cannot carry conditions")
         return self
@@ -1279,12 +1305,16 @@ class OptimizationReport(StructuredModel):
     def report_shape(self) -> "OptimizationReport":
         if len(self.suggestions) > self.requested_limit:
             raise ValueError("optimization suggestions exceed requested limit")
-        if self.status == "disabled" and (self.requested_limit != 0 or self.suggestions or self.qualifications):
+        if self.status == "disabled" and (
+            self.requested_limit != 0 or self.suggestions or self.qualifications
+        ):
             raise ValueError("disabled optimization requires an empty zero-limit report")
+        if self.requested_limit == 0 and self.status != "disabled":
+            raise ValueError("zero-limit optimization must be disabled")
         if self.status == "incomplete" and not self.qualifications:
             raise ValueError("incomplete optimization requires an exhaustion qualification")
-        if self.status == "complete" and any("exhaust" in item for item in self.qualifications):
-            raise ValueError("complete optimization cannot claim exhaustion")
+        if self.status == "complete" and self.qualifications:
+            raise ValueError("complete optimization cannot carry search qualifications")
         return self
 
 
@@ -1298,7 +1328,9 @@ class AnalysisSuccess(StructuredModel):
     system: SystemReport | None = None
     scenarios: tuple[ScenarioResult, ...] = ()
     queries: tuple[QueryResult, ...] = ()
-    optimization: OptimizationReport | None = Field(default_factory=lambda: OptimizationReport(requested_limit=3, status="complete"))
+    optimization: OptimizationReport = Field(
+        default_factory=lambda: OptimizationReport(requested_limit=3, status="complete")
+    )
 
     @model_validator(mode="after")
     def validate_direct_work(self) -> "AnalysisSuccess":

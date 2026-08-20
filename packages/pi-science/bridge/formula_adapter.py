@@ -24,7 +24,8 @@ REQUEST_ADAPTER: TypeAdapter[
 # The public request permits 262,144 UTF-8 source bytes. This whole-envelope
 # limit also covers JSON escaping and every bounded collection/name field.
 MAX_ENVELOPE_BYTES = 2_097_152
-# The Python result policy is 262,144 bytes; this adds bounded protocol framing.
+# Python preserves 262,144 base-result bytes and separately allows 65,536
+# optimization bytes; this ceiling adds 256 bytes of bounded protocol framing.
 MAX_RESPONSE_BYTES = 327_936
 MAX_DIAGNOSTIC_BYTES = 4_096
 
@@ -111,6 +112,12 @@ def main() -> int:
             if outcome.status == "success":
                 result["abstract_work"] = outcome.abstract_work
                 result["queries"] = [query.model_dump(mode="json") for query in outcome.queries]
+                assert outcome.optimization is not None
+                # Optimization target/intermediate nulls are correlation-bearing
+                # protocol fields, unlike absent optional ordinary report sections.
+                result["optimization"] = outcome.optimization.model_dump(
+                    mode="json", exclude_none=False
+                )
                 if outcome.system is not None:
                     system_result = result["system"]
                     counts = outcome.system.aggregate_operation_counts

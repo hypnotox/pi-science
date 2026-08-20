@@ -1369,6 +1369,32 @@ def _asymptotic_render_terms(coefficients: list[Any], shift: int) -> str:
     return " + ".join(values) or "0"
 
 
+def bounded_factor_candidate(
+    expression: Expression,
+    *,
+    max_nodes: int = 512,
+    max_render_bytes: int = 16_384,
+) -> str | None:
+    """Return one bounded rational factorization for restricted reparsing.
+
+    This seam deliberately returns syntax rather than project IR: the caller
+    reparses through the restricted project parser before independent proof.
+    """
+    measurement = rational_ir_measure(expression, max_nodes=max_nodes)
+    if isinstance(measurement, RationalMeasureFailure):
+        return None
+    try:
+        factored = sympy.factor(_to_sympy(expression))
+        if sum(1 for _ in sympy.preorder_traversal(factored)) > max_nodes:
+            return None
+        rendered = str(factored)
+        if len(rendered.encode("utf-8")) > max_render_bytes:
+            return None
+        return rendered
+    except Exception:
+        return None
+
+
 def render(formula: Expression | Equation) -> NormalizedRendering:
     try:
         return _render_value(_to_sympy(formula))
@@ -1644,8 +1670,7 @@ def dominance_rational_form(
             raise ValueError("intermediate-node bound")
         numerator, denominator = sympy.fraction(reduced)
         if any(
-            dominance_node_count(value, max_nodes) > max_nodes
-            for value in (numerator, denominator)
+            dominance_node_count(value, max_nodes) > max_nodes for value in (numerator, denominator)
         ):
             raise ValueError("intermediate-node bound")
         if numerator == 0:
@@ -1655,9 +1680,7 @@ def dominance_rational_form(
             raise ValueError("intermediate-node bound")
         items = [
             (int(power[0]), coefficient)
-            for power, coefficient in zip(
-                polynomial.monoms(), polynomial.coeffs(), strict=True
-            )
+            for power, coefficient in zip(polynomial.monoms(), polynomial.coeffs(), strict=True)
             if coefficient != 0
         ]
         if any(power < 0 for power, _ in items):
@@ -1704,9 +1727,7 @@ def dominance_pair_difference(
     max_nodes: int,
 ) -> Any | None:
     axis = sympy.Symbol(axis_name)
-    difference = (left[1] * axis ** left[0]) ** 2 - (
-        right[1] * axis ** right[0]
-    ) ** 2
+    difference = (left[1] * axis ** left[0]) ** 2 - (right[1] * axis ** right[0]) ** 2
     if dominance_node_count(difference, max_nodes) > max_nodes:
         return None
     expanded = sympy.expand(difference)
