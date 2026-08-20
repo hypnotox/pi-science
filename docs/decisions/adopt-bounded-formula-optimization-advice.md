@@ -38,6 +38,8 @@ Cross-equation sharing is one atomic suggestion with changes in several equation
 
 Agents receive a small set of actionable, verified improvements without having to request a separate comparison or infer that a structural diagnostic is beneficial. Expressions and systems share one qualified advice contract, while equation domains and lexical sum scope remain part of the work proof. Multi-equation suggestions identify every target-local change without weakening their atomic proof or work claim.
 
+Protocol v12 is an incompatible report-shape migration: Python and Pi models, generated schema, strict validation, rendering, fixtures, and consumers must move atomically to target-local transformations, and protocol v11 optimization payloads are not valid protocol v12 payloads.
+
 The analyzer becomes more expensive and its report surface grows. Independent budgets, deterministic truncation, and the request-level disable control confine that cost. The base analysis remains valid when advice is partial or absent.
 
 A typed occurrence and scope model, capture-safe generated-candidate evaluation, and reusable equivalence and aggregate-work comparison seams become necessary. Existing repeated-expression diagnostics must derive from the shared detector or otherwise remain explicitly compatible so two policies cannot contradict each other.
@@ -54,6 +56,7 @@ The decision does not add arbitrary rewrite search, approximation, numerical-sta
 | Rank local node-count reductions | Local syntax size ignores iterator cardinality, equation multiplicity, reuse, and opaque work. |
 | Include algorithmic or approximate reformulations | They require numerical, semantic, or performance contracts outside the approved exact-symbolic slice. |
 | Keep a singular primary target and add target identities only to occurrences | Other equations would still lack explicit original and proposed forms, leaving cross-equation advice less actionable and preserving a misleading primary-target convention. |
+| Publish each affected equation edit as a separate suggestion | The edits are not independently applicable or independently proved improvements; splitting them would lose the atomic equivalence and whole-computation work claim. |
 | Restrict sharing to identical index names or one equation | This would exclude compatible positional interfaces and contradict the approved cross-equation family. |
 
 ## Status history
@@ -64,3 +67,4 @@ The decision does not add arbitrary rewrite search, approximation, numerical-sta
 - 2026-08-20: Applied; operations: update `product/product-boundary:symbolic-analysis-only`, add `product/mathematical-input-contract:bounded-optimization-advice-requests`, add `product/analysis-report-contract:qualified-optimization-advice`, add `product/mathematical-analysis-model:bounded-optimization-transformation`
 - 2026-08-20: Reapplied; operations: update `product/product-boundary:symbolic-analysis-only`, add `product/mathematical-analysis-model:bounded-optimization-transformation`
 - 2026-08-21: Amended; content-sha256: 5ada01f2f781a9ea5d49331da7b42e5443c85adc7ed43913cc148bb9dcd15e9f
+- 2026-08-21: Amended; content-sha256: 8614abf356beff2fd1024c27d0c6474eda9564e8d4629c17b6210a1d72d6749a
