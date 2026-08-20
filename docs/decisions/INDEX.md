@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-_No decisions are in flight._
+- [ADR-adopt-bounded-formula-optimization-advice: Adopt bounded formula optimization advice](adopt-bounded-formula-optimization-advice.md) (Proposed)
 
 ## History
 
