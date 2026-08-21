@@ -443,6 +443,19 @@ describe("private formula bridge", () => {
           ],
         },
       },
+      ...[
+        { work_before: "0" },
+        { work_after: "-1" },
+        { savings: "0" },
+        { work_before: "2", work_after: "3", savings: "1" },
+        { work_before: "3", work_after: "2", savings: "2" },
+      ].map((invalidWork) => ({
+        ...populated,
+        optimization: {
+          ...populated.optimization,
+          suggestions: [{ ...suggestion, ...invalidWork }],
+        },
+      })),
     ]) {
       await expect(
         invokeAdapter(node, responder(malformed), request("1/x + 1/x")),

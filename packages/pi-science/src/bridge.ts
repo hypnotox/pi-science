@@ -2641,6 +2641,43 @@ function validDominanceResult(
     : value.shared_denominator !== null;
 }
 
+type ExactRational = { numerator: bigint; denominator: bigint };
+
+function exactRational(value: unknown): ExactRational | null {
+  if (typeof value !== "string") return null;
+  const match = /^([+-]?\d+)(?:\/([1-9]\d*))?$/.exec(value);
+  if (match === null) return null;
+  return {
+    numerator: BigInt(match[1]),
+    denominator: match[2] === undefined ? 1n : BigInt(match[2]),
+  };
+}
+
+function validOptimizationWorkClaims(
+  beforeValue: unknown,
+  afterValue: unknown,
+  savingsValue: unknown,
+): boolean {
+  const before = exactRational(beforeValue);
+  const after = exactRational(afterValue);
+  const savings = exactRational(savingsValue);
+  if (
+    [before, after, savings].some(
+      (value) => value !== null && value.numerator <= 0n,
+    )
+  )
+    return false;
+  if (before === null || after === null || savings === null) return true;
+  const differenceNumerator =
+    before.numerator * after.denominator - after.numerator * before.denominator;
+  const differenceDenominator = before.denominator * after.denominator;
+  return (
+    differenceNumerator > 0n &&
+    differenceNumerator * savings.denominator ===
+      savings.numerator * differenceDenominator
+  );
+}
+
 function validOptimizationSuggestion(
   value: unknown,
   request: AnalysisRequest,
@@ -2794,6 +2831,11 @@ function validOptimizationSuggestion(
       validBoundedDiagnosticText(item, 4_096),
     ) &&
     value.work_before !== value.work_after &&
+    validOptimizationWorkClaims(
+      value.work_before,
+      value.work_after,
+      value.savings,
+    ) &&
     value.finite_precision_qualification === "exact_symbolic_only"
   );
 }
