@@ -4,7 +4,7 @@ slug: adopt-exact-weighted-optimization-objectives
 status: Implementing
 date: 2026-08-22
 ---
-# ADR-adopt-exact-weighted-optimization-objectives: Adopt exact weighted optimization objectives
+# ADR-0019: Adopt exact weighted optimization objectives
 
 ## Context
 

@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-- [ADR-adopt-exact-weighted-optimization-objectives: Adopt exact weighted optimization objectives](adopt-exact-weighted-optimization-objectives.md) (Implementing)
+- [ADR-0019: Adopt exact weighted optimization objectives](0019-adopt-exact-weighted-optimization-objectives.md) (Implementing)
 
 ## History
 
@@ -23,4 +23,4 @@
 - [ADR-0015: Adopt bounded candidate comparison](0015-adopt-bounded-candidate-comparison.md) (Implemented)
 - [ADR-0016: Adopt bounded aggregate-work dominance analysis](0016-adopt-bounded-aggregate-work-dominance-analysis.md) (Implemented)
 - [ADR-0017: Adopt bounded formula optimization advice](0017-adopt-bounded-formula-optimization-advice.md) (Implemented)
-- [ADR-adopt-stateless-replayable-formula-optimization-plans: Adopt stateless replayable formula optimization plans](adopt-stateless-replayable-formula-optimization-plans.md) (Implemented)
+- [ADR-0018: Adopt stateless replayable formula optimization plans](0018-adopt-stateless-replayable-formula-optimization-plans.md) (Implemented)

@@ -41,4 +41,4 @@ Origin: ADR-0016
 ### `rule: bounded-optimization-transformation`
 Python uses bounded repeated-structure, reuse, factoring, redundant-operation-removal, iterator-invariant-hoisting, compatible cross-equation-sharing, and Horner candidates only after retained ordinary analysis. It projects retained tally dimensions only for the selected optimizer objective and publishes only independently exact-symbolically proved positive selected-objective reductions under declared domains; shared producers require compatible positional free-index interfaces and acyclic placement, and Horner stays behind explicit variable, degree, term, and node ceilings. Python verifies and constructs every complete replayable candidate before either surface publishes it. Pi protocol v14 strictly transports candidate context, output identities, plans, and typed failures without recomputing mathematics, scope, equivalence, work, applicability, ranking, or failure policy.
 Origin: ADR-0017
-Revised-by: ADR-adopt-stateless-replayable-formula-optimization-plans, ADR-adopt-exact-weighted-optimization-objectives
+Revised-by: ADR-0018, ADR-0019

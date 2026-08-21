@@ -4,7 +4,7 @@ slug: adopt-stateless-replayable-formula-optimization-plans
 status: Implemented
 date: 2026-08-21
 ---
-# ADR-adopt-stateless-replayable-formula-optimization-plans: Adopt stateless replayable formula optimization plans
+# ADR-0018: Adopt stateless replayable formula optimization plans
 
 ## Context
 
