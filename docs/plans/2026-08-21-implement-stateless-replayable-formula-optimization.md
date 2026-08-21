@@ -2,7 +2,7 @@
 format: plan-v2
 date: 2026-08-21
 adrs: [adopt-stateless-replayable-formula-optimization-plans]
-status: Proposed
+status: Implemented
 ---
 # Plan: Implement stateless replayable formula optimization
 
