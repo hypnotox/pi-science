@@ -2,7 +2,7 @@
 format: plan-v2
 date: 2026-08-21
 adrs: [0017]
-status: Proposed
+status: Implemented
 ---
 # Plan: Stabilize Formula Optimization Correctness
 
