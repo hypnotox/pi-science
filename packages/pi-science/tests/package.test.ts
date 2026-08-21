@@ -27,13 +27,15 @@ describe("npm package boundary", () => {
     );
     expect(skill).toContain("compact human-readable projection");
     expect(skill).toContain("complete canonical report in `details`");
-    expect(skill).toContain("verified local optimization advice");
+    expect(skill).toContain("complete replayable plans");
     expect(skill).toContain("first-ranked proved suggestion");
-    expect(skill).toContain("Do not combine separate suggestions");
+    expect(skill).toContain(
+      "Keep plans atomic and do not combine separate candidates",
+    );
     expect(skill).not.toContain("best proved");
     expect(skill).toContain("never a primary target");
     expect(skill).toContain(
-      "additional proved suggestions in canonical `details`",
+      "Canonical `details` contains every plan and suggestion",
     );
     expect(skill).toContain(
       "evaluation work, not represented mathematical value",

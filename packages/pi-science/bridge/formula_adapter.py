@@ -28,7 +28,7 @@ REQUEST_ADAPTER: TypeAdapter[
 # The public request permits 262,144 UTF-8 source bytes. This whole-envelope
 # limit also covers JSON escaping and every bounded collection/name field.
 MAX_ENVELOPE_BYTES = 2_097_152
-# Python preserves 262,144 base-result bytes and separately allows 65,536
+# Python preserves 262,144 base-result bytes and separately allows 262,144
 # optimization bytes; this ceiling adds 256 bytes of bounded protocol framing.
 MAX_RESPONSE_BYTES = 524_544
 MAX_DIAGNOSTIC_BYTES = 4_096
@@ -67,6 +67,19 @@ def response(payload: dict[str, Any]) -> bool:
         return False
     sys.stdout.buffer.write(encoded)
     return True
+
+
+def _project_plan_candidates(plans: object) -> None:
+    if not isinstance(plans, list):
+        return
+    for raw_plan in cast(list[object], plans):
+        if not isinstance(raw_plan, dict):
+            continue
+        plan = cast(dict[str, object], raw_plan)
+        raw_candidate = plan.get("candidate")
+        if isinstance(raw_candidate, dict):
+            candidate = cast(dict[str, object], raw_candidate)
+            candidate.pop("syntax", None)
 
 
 def _request_error(error: Exception) -> int:
@@ -150,6 +163,12 @@ def main() -> int:
                                 "primitive_invocations": equation.primitive_invocations,
                             }
                         )
+        typed_result = cast(dict[str, object], result)
+        _project_plan_candidates(typed_result.get("plans"))
+        optimization = typed_result.get("optimization")
+        if isinstance(optimization, dict):
+            typed_optimization = cast(dict[str, object], optimization)
+            _project_plan_candidates(typed_optimization.get("plans"))
         if outcome.status == "failure":
             error = result["error"]
             error.update(

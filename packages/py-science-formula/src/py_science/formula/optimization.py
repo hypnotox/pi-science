@@ -1684,7 +1684,7 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
             assumptions=candidate_request.assumptions,
             definitions=candidate_request.definitions,
             outputs=("expression",) if candidate_request.expression is not None else tuple(
-                equation.name for equation in candidate_request.equations
+                equation.name for equation in computed.equations
             ),
         )
         # This canonical JSON identity is stable across the direct and passive surfaces.

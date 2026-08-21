@@ -1816,3 +1816,64 @@ def test_optimize_operation_returns_replayable_complete_plans() -> None:
     assert plan.candidate.outputs == ("expression",)
     replay = analyze(AnalysisRequest.model_validate(plan.candidate.model_dump(exclude={"outputs"})))
     assert replay.status == "success"
+
+
+def test_optimize_system_plan_outputs_exclude_generated_producers() -> None:
+    from py_science.formula import (
+        EquationRequest,
+        FormulaSyntax,
+        MathematicalDomain,
+        OptimizationSuccess,
+        OptimizeRequest,
+        VariableDeclaration,
+        optimize,
+    )
+
+    result = optimize(
+        OptimizeRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=(
+                EquationRequest(name="a", expression="Eq(a, x*x + 1)"),
+                EquationRequest(name="b", expression="Eq(b, x*x - 1)"),
+            ),
+            variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
+            max_plans=16,
+        )
+    )
+
+    assert isinstance(result, OptimizationSuccess)
+    sharing = next(
+        plan for plan in result.plans if plan.suggestion.kind == "cross_equation_sharing"
+    )
+    assert sharing.candidate.outputs == ("a", "b")
+    assert {equation.name for equation in sharing.candidate.equations} == {
+        "optimization_tmp_1",
+        "a",
+        "b",
+    }
+
+
+def test_optimize_operation_bounds_duplicated_plan_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from py_science.formula import (
+        FormulaSyntax,
+        OptimizationSuccess,
+        OptimizeRequest,
+        optimize,
+        service,
+    )
+
+    monkeypatch.setattr(service, "MAX_OPTIMIZATION_BYTES", 600)
+    result = optimize(
+        OptimizeRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="(alpha + beta)*(alpha + beta) + 0",
+            max_plans=16,
+        )
+    )
+
+    assert isinstance(result, OptimizationSuccess)
+    assert result.search_status == "incomplete"
+    assert result.qualifications
+    assert len(result.model_dump_json().encode("utf-8")) <= service.MAX_OPTIMIZATION_BYTES

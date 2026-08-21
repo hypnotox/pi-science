@@ -367,10 +367,26 @@ export type OptimizationSuggestion = {
   savings: string;
   finite_precision_qualification: "exact_symbolic_only";
 };
+export type OptimizationCandidate = {
+  expression: string | null;
+  equations: EquationRequest[];
+  variables: Record<string, VariableDeclaration>;
+  functions: FunctionDefinition[];
+  primitive_costs: PrimitiveCost[];
+  assumptions: Assumption[];
+  definitions: DirectedDefinition[];
+  outputs: string[];
+};
+export type OptimizationPlan = {
+  identity: string;
+  candidate: OptimizationCandidate;
+  suggestion: OptimizationSuggestion;
+};
 export type OptimizationReport = {
   requested_limit: number;
-  status: "disabled" | "complete" | "incomplete";
+  status: "disabled" | "complete" | "incomplete" | "failed";
   suggestions: OptimizationSuggestion[];
+  plans: OptimizationPlan[];
   qualifications: string[];
 };
 
@@ -549,7 +565,7 @@ export type OptimizationOperationSuccess = {
   status: "success";
   requested_limit: number;
   search_status: "complete" | "incomplete";
-  plans: unknown[];
+  plans: OptimizationPlan[];
   qualifications: string[];
 };
 export type OptimizationOperationFailure = { status: "failed"; error: string };
@@ -2891,6 +2907,161 @@ function validOptimizationSuggestion(
     value.finite_precision_qualification === "exact_symbolic_only"
   );
 }
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (isRecord(value))
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(",")}}`;
+  return JSON.stringify(value);
+}
+
+function sameJson(left: unknown, right: unknown): boolean {
+  return canonicalJson(left) === canonicalJson(right);
+}
+
+function validCandidateEquation(value: unknown): value is EquationRequest {
+  if (
+    !isRecord(value) ||
+    !exactKeys(value, ["name", "expression", "domains", "constraints"]) ||
+    typeof value.name !== "string" ||
+    typeof value.expression !== "string" ||
+    !isRecord(value.domains) ||
+    !Array.isArray(value.constraints)
+  )
+    return false;
+  return (
+    Object.values(value.domains).every(
+      (domain) =>
+        isRecord(domain) &&
+        exactKeys(domain, ["lower", "upper"]) &&
+        typeof domain.lower === "string" &&
+        typeof domain.upper === "string",
+    ) &&
+    value.constraints.every(
+      (constraint) =>
+        isRecord(constraint) &&
+        exactKeys(constraint, ["name", "target", "relationship"]) &&
+        [constraint.name, constraint.target, constraint.relationship].every(
+          (item) => typeof item === "string",
+        ),
+    )
+  );
+}
+
+function normalizedEquationContext(equation: EquationRequest): object {
+  return {
+    name: equation.name,
+    domains: equation.domains ?? {},
+    constraints: equation.constraints ?? [],
+  };
+}
+
+function validOptimizationCandidate(
+  value: unknown,
+  request: AnalysisRequest | OptimizeRequest,
+): value is OptimizationCandidate {
+  if (
+    !isRecord(value) ||
+    !exactKeys(value, [
+      "expression",
+      "equations",
+      "variables",
+      "functions",
+      "primitive_costs",
+      "assumptions",
+      "definitions",
+      "outputs",
+    ]) ||
+    !(value.expression === null || typeof value.expression === "string") ||
+    !Array.isArray(value.equations) ||
+    !value.equations.every(validCandidateEquation) ||
+    !isRecord(value.variables) ||
+    !Array.isArray(value.functions) ||
+    !Array.isArray(value.primitive_costs) ||
+    !Array.isArray(value.assumptions) ||
+    !Array.isArray(value.definitions) ||
+    !validStringArray(value.outputs) ||
+    value.outputs.length === 0 ||
+    new Set(value.outputs).size !== value.outputs.length ||
+    !sameJson(value.variables, request.variables ?? {}) ||
+    !sameJson(value.functions, request.functions ?? []) ||
+    !sameJson(value.primitive_costs, request.primitive_costs ?? []) ||
+    !sameJson(value.assumptions, request.assumptions ?? []) ||
+    !sameJson(value.definitions, request.definitions ?? [])
+  )
+    return false;
+  if ("expression" in request) {
+    return (
+      typeof value.expression === "string" &&
+      value.equations.length === 0 &&
+      sameJson(value.outputs, ["expression"])
+    );
+  }
+  if (value.expression !== null || value.equations.length === 0) return false;
+  const equations = value.equations as EquationRequest[];
+  const equationNames = equations.map((equation) => equation.name);
+  const expectedOutputs = request.equations.map((equation) => equation.name);
+  if (
+    new Set(equationNames).size !== equationNames.length ||
+    !sameJson(value.outputs, expectedOutputs) ||
+    !expectedOutputs.every((name) => equationNames.includes(name))
+  )
+    return false;
+  return request.equations.every((source) => {
+    const candidate = equations.find(
+      (equation) => equation.name === source.name,
+    );
+    return (
+      candidate !== undefined &&
+      sameJson(
+        normalizedEquationContext(candidate),
+        normalizedEquationContext(source),
+      )
+    );
+  });
+}
+
+function validOptimizationPlan(
+  value: unknown,
+  request: AnalysisRequest | OptimizeRequest,
+): value is OptimizationPlan {
+  if (
+    !isRecord(value) ||
+    !exactKeys(value, ["identity", "candidate", "suggestion"]) ||
+    typeof value.identity !== "string" ||
+    Buffer.byteLength(value.identity, "utf8") > MAX_RESPONSE_BYTES ||
+    !validOptimizationCandidate(value.candidate, request)
+  )
+    return false;
+  let identity: unknown;
+  try {
+    identity = JSON.parse(value.identity);
+  } catch {
+    return false;
+  }
+  const identityCandidate: Record<string, unknown> = { ...value.candidate };
+  if (identityCandidate.expression === null)
+    delete identityCandidate.expression;
+  if (
+    JSON.stringify(identity) !== value.identity ||
+    !isRecord(identity) ||
+    identity.syntax !== "sympy" ||
+    !sameJson(identity, { syntax: "sympy", ...identityCandidate })
+  )
+    return false;
+  const analysisRequest =
+    "operation" in request
+      ? ({
+          ...request,
+          operation: undefined,
+          max_plans: undefined,
+        } as unknown as AnalysisRequest)
+      : request;
+  return validOptimizationSuggestion(value.suggestion, analysisRequest);
+}
+
 function validOptimization(
   value: unknown,
   requested: unknown,
@@ -2902,7 +3073,7 @@ function validOptimization(
       "requested_limit",
       "status",
       "suggestions",
-      ...("plans" in value ? ["plans"] : []),
+      "plans",
       "qualifications",
     ])
   )
@@ -2917,19 +3088,16 @@ function validOptimization(
       String(value.status),
     ) ||
     !Array.isArray(value.suggestions) ||
-    ("plans" in value &&
-      (!Array.isArray(value.plans) ||
-        value.plans.length !== value.suggestions.length ||
-        !value.plans.every(
-          (plan, index) =>
-            isRecord(plan) &&
-            exactKeys(plan, ["identity", "candidate", "suggestion"]) &&
-            typeof plan.identity === "string" &&
-            Buffer.byteLength(plan.identity, "utf8") <= MAX_RESPONSE_BYTES &&
-            isRecord(plan.candidate) &&
-            JSON.stringify(plan.suggestion) ===
-              JSON.stringify((value.suggestions as unknown[])[index]),
-        ))) ||
+    !Array.isArray(value.plans) ||
+    value.plans.length !== value.suggestions.length ||
+    !value.plans.every(
+      (plan, index) =>
+        validOptimizationPlan(plan, request) &&
+        sameJson(
+          (plan as OptimizationPlan).suggestion,
+          (value.suggestions as unknown[])[index],
+        ),
+    ) ||
     value.suggestions.length > limit ||
     !value.suggestions.every((item) =>
       validOptimizationSuggestion(item, request),
@@ -2950,16 +3118,16 @@ function validOptimization(
     return (
       limit === 0 &&
       value.suggestions.length === 0 &&
-      (!("plans" in value) ||
-        (Array.isArray(value.plans) && value.plans.length === 0)) &&
+      Array.isArray(value.plans) &&
+      value.plans.length === 0 &&
       value.qualifications.length === 0
     );
   if (limit === 0 || value.status === "disabled") return false;
   if (value.status === "failed")
     return (
       value.suggestions.length === 0 &&
-      (!("plans" in value) ||
-        (Array.isArray(value.plans) && value.plans.length === 0)) &&
+      Array.isArray(value.plans) &&
+      value.plans.length === 0 &&
       value.qualifications.length > 0
     );
   if (value.status === "incomplete" && value.qualifications.length === 0)
@@ -3118,14 +3286,22 @@ function validOptimizeResult(
     ])
   )
     return false;
+  if (
+    value.requested_limit !== (request.max_plans ?? 3) ||
+    (value.search_status !== "complete" &&
+      value.search_status !== "incomplete") ||
+    !Array.isArray(value.plans) ||
+    value.plans.length > (request.max_plans ?? 3) ||
+    !value.plans.every((plan) => validOptimizationPlan(plan, request)) ||
+    !validStringArray(value.qualifications) ||
+    value.qualifications.length > 128 ||
+    !value.qualifications.every((item) =>
+      validBoundedDiagnosticText(item, MAX_DIAGNOSTIC_BYTES),
+    )
+  )
+    return false;
   return (
-    value.requested_limit === (request.max_plans ?? 3) &&
-    (value.search_status === "complete" ||
-      value.search_status === "incomplete") &&
-    Array.isArray(value.plans) &&
-    value.plans.length <= (request.max_plans ?? 3) &&
-    Array.isArray(value.qualifications) &&
-    value.qualifications.every((item) => typeof item === "string")
+    (value.search_status === "incomplete") === value.qualifications.length > 0
   );
 }
 

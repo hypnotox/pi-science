@@ -67,6 +67,36 @@ function compactExpression(expression: string): string {
 }
 
 function compactToolText(result: BridgeResult): string {
+  if (result.status === "failed")
+    return ["Optimization", "- failed", "Blockers", `- ${result.error}`].join(
+      "\n",
+    );
+
+  if (result.status === "success" && "search_status" in result) {
+    const plans = result.plans.flatMap((plan, index) => {
+      const computation =
+        plan.candidate.expression ??
+        plan.candidate.equations
+          .map((equation) => equation.expression)
+          .join("; ");
+      return [
+        `- Plan ${index + 1}: ${plan.suggestion.kind}; outputs: ${plan.candidate.outputs.join(", ")}`,
+        `  Candidate: ${compactExpression(computation)}`,
+        `  Savings: ${plan.suggestion.savings}; ${plan.suggestion.finite_precision_qualification}`,
+      ];
+    });
+    return [
+      "Optimization plans",
+      ...(plans.length ? plans : ["- none"]),
+      "Search status",
+      `- ${result.search_status}`,
+      "Qualifications",
+      ...(result.qualifications.length
+        ? result.qualifications.map((qualification) => `- ${qualification}`)
+        : ["- none"]),
+    ].join("\n");
+  }
+
   if (result.status === "failure")
     return [
       "Interpretation",
@@ -323,9 +353,9 @@ export async function start(
     name: "analyze_formula",
     label: "Analyze formula",
     description:
-      "Analyze one restricted SymPy expression or named equation system with bounded exact-symbolic optimization advice, compare two candidates, or identify bounded aggregate-work term dominance on one axis",
+      "Analyze or explicitly optimize one restricted SymPy expression or named equation system with bounded exact-symbolic replayable plans, compare two candidates, or identify bounded aggregate-work term dominance on one axis",
     promptSnippet:
-      "Analyze restricted-SymPy formulas for qualified symbolic work and bounded exact-symbolic optimization advice, candidate comparison, or bounded one-axis aggregate-work term dominance",
+      "Analyze or optimize restricted-SymPy formulas for qualified symbolic work and bounded replayable plans, candidate comparison, or bounded one-axis aggregate-work term dominance",
     promptGuidelines: [
       "Before first using analyze_formula, read the available pi-science-formula-analysis skill for the accepted dialect, request modeling, and result interpretation.",
       "When analyze_formula rejects a request, use its Python-owned message and any returned path, span, or supported alternative to correct the request.",

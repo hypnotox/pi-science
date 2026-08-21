@@ -87,6 +87,31 @@ function context(hasUI: boolean) {
   };
 }
 
+function optimizationPlan(
+  suggestion: Record<string, unknown>,
+  options: {
+    expression?: string;
+    variables?: Record<string, unknown>;
+    assumptions?: unknown[];
+  } = {},
+) {
+  const candidate = {
+    expression: options.expression ?? "x",
+    equations: [],
+    variables: options.variables ?? {},
+    functions: [],
+    primitive_costs: [],
+    assumptions: options.assumptions ?? [],
+    definitions: [],
+    outputs: ["expression"],
+  };
+  return {
+    identity: JSON.stringify({ syntax: "sympy", ...candidate }),
+    candidate,
+    suggestion,
+  };
+}
+
 describe("readiness gate", () => {
   it("advertises bounded optimization advice and uses the real command signature", async () => {
     const current = host();
@@ -109,6 +134,7 @@ describe("readiness gate", () => {
         requested_limit: 3,
         status: "complete",
         suggestions: [],
+        plans: [],
         qualifications: [],
       },
     };
@@ -129,10 +155,10 @@ describe("readiness gate", () => {
     expect(current.tools).toHaveLength(1);
     expect(current.tools[0]).toMatchObject({
       description: expect.stringMatching(
-        /restricted SymPy.*bounded exact-symbolic optimization advice.*candidate.*dominance/,
+        /restricted SymPy.*bounded exact-symbolic replayable plans.*candidate.*dominance/,
       ),
       promptSnippet: expect.stringMatching(
-        /qualified symbolic work.*bounded exact-symbolic optimization advice.*candidate.*dominance/,
+        /qualified symbolic work.*bounded replayable plans.*candidate.*dominance/,
       ),
       promptGuidelines: [
         expect.stringMatching(
@@ -357,6 +383,67 @@ describe("readiness gate", () => {
     });
   });
 
+  it("presents direct replayable optimization plans through the registered tool", async () => {
+    const current = host();
+    const adapter = fileURLToPath(
+      new URL("../bridge/formula_adapter.py", import.meta.url),
+    );
+    await start(
+      current.api,
+      Promise.resolve({
+        ready: true,
+        command: "uv",
+        args: ["run", "--locked", "python", adapter],
+      }),
+    );
+    const result = await current.tools[0]!.execute("id", {
+      operation: "optimize",
+      expression: "x*x + x*x",
+    });
+    const text = result.content[0]!.text;
+    expect(text).toContain("Optimization plans");
+    expect(text).toContain("Plan 1");
+    expect(text).toContain("outputs: expression");
+    expect(text).toContain("Candidate:");
+    expect(text).toContain("exact_symbolic_only");
+    expect(text).toContain("Search status\n- complete");
+    expect(result.details).toMatchObject({
+      status: "success",
+      requested_limit: 3,
+      search_status: "complete",
+    });
+    const details = result.details as {
+      plans: Array<{ candidate: { outputs: string[] } }>;
+    };
+    expect(details.plans[0]?.candidate.outputs).toEqual(["expression"]);
+  });
+
+  it("presents typed direct optimization failures without analysis casting", async () => {
+    const current = host();
+    const failure = { status: "failed", error: "bounded optimizer failure" };
+    await start(
+      current.api,
+      Promise.resolve({
+        ready: true,
+        command: process.execPath,
+        args: [
+          "-e",
+          `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
+            JSON.stringify({ version: 13, result: failure }),
+          )}))`,
+        ],
+      }),
+    );
+    const result = await current.tools[0]!.execute("id", {
+      operation: "optimize",
+      expression: "x",
+    });
+    expect(result.content[0]!.text).toBe(
+      "Optimization\n- failed\nBlockers\n- bounded optimizer failure",
+    );
+    expect(result.details).toEqual(failure);
+  });
+
   it("presents first-ranked optimization advice compactly with canonical details", async () => {
     const current = host();
     const adapter = fileURLToPath(
@@ -422,6 +509,14 @@ describe("readiness gate", () => {
       savings,
       finite_precision_qualification: "exact_symbolic_only",
     });
+    const suggestions = [
+      suggestion("factoring", "first_candidate", "M + 4", "N"),
+      suggestion("horner", "second_candidate", "N + 4", "M"),
+    ];
+    const variables = {
+      N: { domain: "positive_integer" as const },
+      M: { domain: "positive_integer" as const },
+    };
     const response = {
       status: "success",
       interpretation: { normalized_sympy: "x", normalized_latex: "x" },
@@ -440,10 +535,8 @@ describe("readiness gate", () => {
       optimization: {
         requested_limit: 3,
         status: "complete",
-        suggestions: [
-          suggestion("factoring", "first_candidate", "M + 4", "N"),
-          suggestion("horner", "second_candidate", "N + 4", "M"),
-        ],
+        suggestions,
+        plans: suggestions.map((item) => optimizationPlan(item, { variables })),
         qualifications: [],
       },
     };
@@ -463,10 +556,7 @@ describe("readiness gate", () => {
 
     const result = await current.tools[0]!.execute("id", {
       expression: "x",
-      variables: {
-        N: { domain: "positive_integer" },
-        M: { domain: "positive_integer" },
-      },
+      variables,
     });
     const text = result.content[0]!.text;
     expect(text).toContain(
@@ -534,6 +624,15 @@ describe("readiness gate", () => {
       savings: "1",
       finite_precision_qualification: "exact_symbolic_only",
     };
+    const suggestions = [
+      suggestion,
+      {
+        ...suggestion,
+        kind: "redundant_operation_removal",
+        conclusion: "proved",
+        assumptions_used: [],
+      },
+    ];
     const response = {
       status: "success",
       interpretation: { normalized_sympy: "x", normalized_latex: "x" },
@@ -552,15 +651,12 @@ describe("readiness gate", () => {
       optimization: {
         requested_limit: 3,
         status: "incomplete",
-        suggestions: [
-          suggestion,
-          {
-            ...suggestion,
-            kind: "redundant_operation_removal",
-            conclusion: "proved",
-            assumptions_used: [],
-          },
-        ],
+        suggestions,
+        plans: suggestions.map((item) =>
+          optimizationPlan(item, {
+            assumptions: [{ name: "known", relationship: "x > 0" }],
+          }),
+        ),
         qualifications: [
           "optimization inspected nodes budget exhausted (measured 4, configured 3)",
         ],
@@ -619,6 +715,7 @@ describe("readiness gate", () => {
         requested_limit: 3,
         status: "incomplete",
         suggestions: [],
+        plans: [],
         qualifications: [
           "optimization proof nodes budget exhausted (measured 4, configured 3)",
         ],
@@ -895,6 +992,7 @@ describe("readiness gate", () => {
         requested_limit: 3,
         status: "complete",
         suggestions: [],
+        plans: [],
         qualifications: [],
       },
     };

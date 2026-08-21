@@ -10,6 +10,7 @@ import type {
   CandidateComparisonSuccess,
   DominanceRequest,
   DominanceSuccess,
+  OptimizeRequest,
   SystemReport,
 } from "../src/bridge.js";
 import {
@@ -106,6 +107,7 @@ const success = {
     requested_limit: 3,
     status: "complete",
     suggestions: [],
+    plans: [],
     qualifications: [],
   },
 };
@@ -215,6 +217,27 @@ function request(expression = "x") {
   return { syntax: "sympy" as const, expression };
 }
 
+function optimizationPlan(
+  suggestion: Record<string, unknown>,
+  expression = "optimization_tmp_1 + optimization_tmp_1",
+) {
+  const candidate = {
+    expression,
+    equations: [],
+    variables: {},
+    functions: [],
+    primitive_costs: [],
+    assumptions: [],
+    definitions: [],
+    outputs: ["expression"],
+  };
+  return {
+    identity: JSON.stringify({ syntax: "sympy", ...candidate }),
+    candidate,
+    suggestion,
+  };
+}
+
 function comparisonRequest(): CandidateComparisonRequest {
   return {
     syntax: "sympy",
@@ -317,6 +340,7 @@ describe("private formula bridge", () => {
         requested_limit: 3,
         status: "complete",
         suggestions: [suggestion],
+        plans: [optimizationPlan(suggestion)],
         qualifications: [],
       },
     };
@@ -330,6 +354,14 @@ describe("private formula bridge", () => {
         ...populated.optimization,
         suggestions: [
           { ...suggestion, work_before: "1", work_after: "0", savings: "1" },
+        ],
+        plans: [
+          optimizationPlan({
+            ...suggestion,
+            work_before: "1",
+            work_after: "0",
+            savings: "1",
+          }),
         ],
       },
     };
@@ -363,7 +395,11 @@ describe("private formula bridge", () => {
     };
     const hornerReport = {
       ...populated,
-      optimization: { ...populated.optimization, suggestions: [horner] },
+      optimization: {
+        ...populated.optimization,
+        suggestions: [horner],
+        plans: [optimizationPlan(horner, "x*(x*(2*x + 3) + 4) + 5")],
+      },
     };
     await expect(
       invokeAdapter(
@@ -405,6 +441,7 @@ describe("private formula bridge", () => {
         requested_limit: 3,
         status: "incomplete",
         suggestions: [suggestion],
+        plans: [optimizationPlan(suggestion)],
         qualifications: ["optimization candidate budget exhausted"],
       },
     };
@@ -489,6 +526,14 @@ describe("private formula bridge", () => {
             work_after: "N",
             savings: "1",
           },
+        ],
+        plans: [
+          optimizationPlan({
+            ...suggestion,
+            work_before: "N + 1",
+            work_after: "N",
+            savings: "1",
+          }),
         ],
       },
     };
@@ -863,6 +908,69 @@ describe("private formula bridge", () => {
         },
       ],
     });
+  });
+
+  it("strictly validates replayable optimize plans from the real adapter", async () => {
+    const adapter = fileURLToPath(
+      new URL("../bridge/formula_adapter.py", import.meta.url),
+    );
+    const optimizeRequest: OptimizeRequest = {
+      syntax: "sympy",
+      operation: "optimize",
+      expression: "x*x + x*x",
+      variables: { x: { domain: "real" } },
+    };
+    const result = await invokeAdapter(
+      "uv",
+      ["run", "--locked", "python", adapter],
+      optimizeRequest,
+    );
+    if (result.status !== "success" || !("search_status" in result))
+      throw new Error("expected optimize success");
+    expect(result.plans.length).toBeGreaterThan(0);
+    expect(result.plans[0]?.candidate).not.toHaveProperty("syntax");
+    expect(result.plans[0]?.candidate.outputs).toEqual(["expression"]);
+    await expect(
+      invokeAdapter(node, responder(result), optimizeRequest),
+    ).resolves.toEqual(result);
+
+    const malformed: unknown[] = [];
+    const surplus = structuredClone(result);
+    Object.assign(surplus.plans[0]!.candidate, { scenarios: [] });
+    malformed.push(surplus);
+    const outputMismatch = structuredClone(result);
+    outputMismatch.plans[0]!.candidate.outputs = ["wrong"];
+    malformed.push(outputMismatch);
+    const identityDrift = structuredClone(result);
+    identityDrift.plans[0]!.identity += " ";
+    malformed.push(identityDrift);
+    const suggestionDrift = structuredClone(result);
+    suggestionDrift.plans[0]!.suggestion.savings = "999";
+    malformed.push(suggestionDrift);
+    for (const invalid of malformed) {
+      await expect(
+        invokeAdapter(node, responder(invalid), optimizeRequest),
+      ).rejects.toMatchObject({ kind: "protocol" });
+    }
+
+    await expect(
+      invokeAdapter(
+        node,
+        responder({ status: "failed", error: "bounded failure" }),
+        optimizeRequest,
+      ),
+    ).resolves.toEqual({ status: "failed", error: "bounded failure" });
+    await expect(
+      invokeAdapter(
+        node,
+        responder({
+          ...result,
+          search_status: "incomplete",
+          qualifications: [],
+        }),
+        optimizeRequest,
+      ),
+    ).rejects.toMatchObject({ kind: "protocol" });
   });
 
   it("preserves canonical null systems for expression candidate reports", async () => {
@@ -2576,6 +2684,7 @@ describe("retained optimization ownership", () => {
           requested_limit: 3,
           status: "complete",
           suggestions: [],
+          plans: [],
           qualifications: [],
         };
       }

@@ -205,6 +205,27 @@ def analyze(request: AnalysisRequest) -> AnalysisOutcome:
     return _bound_result(outcome)
 
 
+def _bound_optimization_result(outcome: OptimizationSuccess) -> OptimizationSuccess:
+    measured = len(outcome.model_dump_json().encode("utf-8"))
+    if measured <= MAX_OPTIMIZATION_BYTES:
+        return outcome
+    qualification = (
+        "optimization result bytes budget exhausted "
+        f"(measured {measured}, configured {MAX_OPTIMIZATION_BYTES})"
+    )
+    for retained in range(len(outcome.plans) - 1, -1, -1):
+        bounded = outcome.model_copy(
+            update={
+                "search_status": "incomplete",
+                "plans": outcome.plans[:retained],
+                "qualifications": (qualification,),
+            }
+        )
+        if len(bounded.model_dump_json().encode("utf-8")) <= MAX_OPTIMIZATION_BYTES:
+            return bounded
+    raise ValueError("optimization result bound cannot contain its exhaustion diagnostic")
+
+
 def optimize(request: OptimizeRequest) -> OptimizeOutcome:
     """Run the same bounded Python policy exposed by ordinary advice."""
     try:
@@ -221,11 +242,13 @@ def optimize(request: OptimizeRequest) -> OptimizeOutcome:
         report = _optimization_report(ordinary, computed, computed.work_context)
         if report.status == "failed":
             return OptimizationFailure(error=report.qualifications[0])
-        return OptimizationSuccess(
-            requested_limit=request.max_plans,
-            search_status="incomplete" if report.status == "incomplete" else "complete",
-            plans=report.plans,
-            qualifications=report.qualifications,
+        return _bound_optimization_result(
+            OptimizationSuccess(
+                requested_limit=request.max_plans,
+                search_status="incomplete" if report.status == "incomplete" else "complete",
+                plans=report.plans,
+                qualifications=report.qualifications,
+            )
         )
     except Exception:
         # Direct operation failures remain typed and never expose partial candidates.
@@ -2981,6 +3004,7 @@ def _bound_result(outcome: AnalysisOutcome) -> AnalysisOutcome:
                     "optimization": advice.model_copy(
                         update={
                             "suggestions": (),
+                            "plans": (),
                             "status": "incomplete",
                             "qualifications": (
                                 "optimization advice bytes budget exhausted "

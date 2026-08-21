@@ -782,9 +782,13 @@ class OptimizationCandidate(StructuredModel):
     def complete_shape(self) -> "OptimizationCandidate":
         if (self.expression is None) != bool(self.equations):
             raise ValueError("candidate requires exactly one expression or nonempty equation list")
-        expected = ("expression",) if self.expression is not None else tuple(item.name for item in self.equations)
-        if self.outputs != expected:
-            raise ValueError("candidate output identities must match its transformed computation")
+        if self.expression is not None:
+            if self.outputs != ("expression",):
+                raise ValueError("expression candidate output identity must be expression")
+        else:
+            equation_names = {item.name for item in self.equations}
+            if len(set(self.outputs)) != len(self.outputs) or not set(self.outputs) <= equation_names:
+                raise ValueError("candidate output identities must name unique transformed equations")
         return self
 
 
