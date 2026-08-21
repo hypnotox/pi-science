@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-_No decisions are in flight._
+- [ADR-adopt-stateless-replayable-formula-optimization-plans: Adopt stateless replayable formula optimization plans](adopt-stateless-replayable-formula-optimization-plans.md) (Proposed)
 
 ## History
 
