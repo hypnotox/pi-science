@@ -2504,3 +2504,67 @@ describe("private formula bridge", () => {
     }
   });
 });
+
+describe("retained optimization ownership", () => {
+  it("strictly correlates nested retained optimization disabled", async () => {
+    const adapter = fileURLToPath(
+      new URL("../bridge/formula_adapter.py", import.meta.url),
+    );
+    const requests = [
+      comparisonRequest(),
+      {
+        syntax: "sympy" as const,
+        operation: "analyze_dominance" as const,
+        expression: "cost(N)",
+        axis: "N",
+        variables: { N: { domain: "positive_integer" as const } },
+        primitive_costs: [{ name: "cost", parameters: ["n"], work: "n + 0" }],
+      },
+    ];
+    for (const request of requests) {
+      const result = await invokeAdapter(
+        "uv",
+        ["run", "--locked", "python", adapter],
+        request,
+      );
+      const analyses =
+        "kind" in result && result.kind === "candidate_comparison"
+          ? result.candidates.map((candidate) => candidate.analysis)
+          : "kind" in result && result.kind === "dominance_analysis"
+            ? [result.analysis]
+            : [];
+      expect(analyses).not.toHaveLength(0);
+      for (const analysis of analyses) {
+        expect(analysis.optimization).toEqual({
+          requested_limit: 0,
+          status: "disabled",
+          suggestions: [],
+          qualifications: [],
+        });
+      }
+      await expect(
+        invokeAdapter(node, responder(result), request),
+      ).resolves.toEqual(result);
+      const malformed = structuredClone(result);
+      const malformedAnalyses =
+        "kind" in malformed && malformed.kind === "candidate_comparison"
+          ? malformed.candidates.map((candidate) => candidate.analysis)
+          : "kind" in malformed && malformed.kind === "dominance_analysis"
+            ? [malformed.analysis]
+            : [];
+      for (const analysis of malformedAnalyses) {
+        analysis.optimization = {
+          requested_limit: 3,
+          status: "complete",
+          suggestions: [],
+          qualifications: [],
+        };
+      }
+      await expect(
+        invokeAdapter(node, responder(malformed), request),
+      ).rejects.toMatchObject({
+        kind: "protocol",
+      });
+    }
+  });
+});

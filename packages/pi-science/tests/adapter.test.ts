@@ -668,3 +668,56 @@ describe("dominance protocol v12", () => {
     expect(dominance.analysis.status).toBe("success");
   });
 });
+
+describe("retained optimization ownership", () => {
+  it("round trips nested retained optimization disabled through the real adapter", () => {
+    const requests = [
+      {
+        syntax: "sympy",
+        operation: "compare_candidates",
+        candidates: [
+          { name: "first", expression: "x + 0" },
+          { name: "second", expression: "x + 0" },
+        ],
+        outputs: [
+          {
+            name: "value",
+            targets: [
+              { candidate: "first", target: { kind: "expression" } },
+              { candidate: "second", target: { kind: "expression" } },
+            ],
+          },
+        ],
+      },
+      {
+        syntax: "sympy",
+        operation: "analyze_dominance",
+        expression: "cost(N)",
+        axis: "N",
+        variables: { N: { domain: "positive_integer" } },
+        primitive_costs: [{ name: "cost", parameters: ["n"], work: "n + 0" }],
+      },
+    ];
+    for (const request of requests) {
+      const result = invoke(JSON.stringify({ version: 12, request }));
+      expect(result.status).toBe(0);
+      const parsed = JSON.parse(result.stdout).result;
+      const analyses =
+        parsed.kind === "candidate_comparison"
+          ? parsed.candidates.map(
+              (candidate: { analysis: unknown }) => candidate.analysis,
+            )
+          : [parsed.analysis];
+      for (const analysis of analyses) {
+        expect(JSON.parse(JSON.stringify(analysis))).toMatchObject({
+          optimization: {
+            requested_limit: 0,
+            status: "disabled",
+            suggestions: [],
+            qualifications: [],
+          },
+        });
+      }
+    }
+  });
+});

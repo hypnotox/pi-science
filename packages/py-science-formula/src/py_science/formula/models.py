@@ -1360,7 +1360,7 @@ class AnalysisSuccess(StructuredModel):
     scenarios: tuple[ScenarioResult, ...] = ()
     queries: tuple[QueryResult, ...] = ()
     optimization: OptimizationReport = Field(
-        default_factory=lambda: OptimizationReport(requested_limit=3, status="complete")
+        default_factory=lambda: OptimizationReport(requested_limit=0, status="disabled")
     )
 
     @model_validator(mode="after")

@@ -6,6 +6,7 @@ import py_science.formula.sympy_backend as sympy_backend
 import pytest
 from py_science.formula import (
     AnalysisFailure,
+    AnalysisSuccess,
     Assumption,
     DirectedDefinition,
     DominanceAnalysisRequest,
@@ -324,10 +325,22 @@ def test_reconstruction_pair_and_backend_failures_are_falsifiable(
     assert backend.blockers == ("aggregate work rational backend failed",)
 
 
-def test_nested_analysis_is_the_independent_ordinary_analysis() -> None:
-    request = _request("N**2 - N + 1")
+def test_nested_analysis_disables_optimization() -> None:
+    request = _request("N", expression="N + 0", primitive_costs=())
     result = _success(request)
-    assert result.analysis == analyze(request.analysis_request())
+    assert result.analysis.optimization.model_dump() == {
+        "requested_limit": 0,
+        "status": "disabled",
+        "suggestions": (),
+        "qualifications": (),
+    }
+    ordinary = analyze(request.analysis_request())
+    assert isinstance(ordinary, AnalysisSuccess)
+    assert ordinary.optimization.requested_limit == 3
+    assert any(
+        suggestion.kind == "redundant_operation_removal"
+        for suggestion in ordinary.optimization.suggestions
+    )
 
 
 def test_exact_cancellation_and_zero_work_retain_original_poles() -> None:

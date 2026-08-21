@@ -5,6 +5,7 @@ import py_science.formula.mapped_outputs as mapped_outputs
 import pytest
 from py_science.formula import (
     AnalysisFailure,
+    AnalysisSuccess,
     CandidateComparisonRequest,
     CandidateComparisonSuccess,
     CandidateComputation,
@@ -84,7 +85,7 @@ def test_identical_rational_outputs_retain_denominator_qualification() -> None:
     assert result.semantic_status == "proved_equal_under_assumptions"
 
 
-def test_scalar_producer_expansion_aligns_indexed_outputs_and_retains_work() -> None:
+def test_nested_analysis_disables_optimization() -> None:
     request = CandidateComparisonRequest(
         syntax=FormulaSyntax.SYMPY,
         variables={
@@ -130,12 +131,22 @@ def test_scalar_producer_expansion_aligns_indexed_outputs_and_retains_work() -> 
         "x/d",
         "x/d",
     )
-    assert result.candidates[0].analysis == analyze(
-        request.analysis_request(request.candidates[0])
+    for candidate in result.candidates:
+        assert candidate.analysis.optimization.model_dump() == {
+            "requested_limit": 0,
+            "status": "disabled",
+            "suggestions": (),
+            "qualifications": (),
+        }
+    optimizable = compare_candidates(_expression_request("x + 0", "x + 0"))
+    assert isinstance(optimizable, CandidateComparisonSuccess)
+    assert all(
+        candidate.analysis.optimization.status == "disabled"
+        for candidate in optimizable.candidates
     )
-    assert result.candidates[1].analysis == analyze(
-        request.analysis_request(request.candidates[1])
-    )
+    ordinary = analyze(request.analysis_request(request.candidates[0]))
+    assert isinstance(ordinary, AnalysisSuccess)
+    assert ordinary.optimization.requested_limit == 3
     assert result.candidates[0].aggregate_work != result.candidates[1].aggregate_work
     assert result.work_comparison.delta == "-1"
     assert result.work_comparison.status == "second_lower"

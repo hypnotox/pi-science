@@ -1823,6 +1823,7 @@ function validComparisonResult(
               primitive_costs: request.primitive_costs,
               assumptions: request.assumptions,
               definitions: request.definitions,
+              optimization: { max_suggestions: 0 },
             }
           : {
               syntax: "sympy",
@@ -1832,6 +1833,7 @@ function validComparisonResult(
               primitive_costs: request.primitive_costs,
               assumptions: request.assumptions,
               definitions: request.definitions,
+              optimization: { max_suggestions: 0 },
             };
       return (
         validResult(analysis, candidateRequest) &&
@@ -2361,7 +2363,10 @@ function dominanceAnalysisRequest(request: DominanceRequest): AnalysisRequest {
     range: _range,
     ...analysis
   } = request;
-  return analysis as AnalysisRequest;
+  return {
+    ...analysis,
+    optimization: { max_suggestions: 0 },
+  } as AnalysisRequest;
 }
 function validDominanceResult(
   value: unknown,

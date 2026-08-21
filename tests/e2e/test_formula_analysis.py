@@ -21,6 +21,7 @@ from py_science.formula import (
     MathematicalDomain,
     OperationCounts,
     OptimizationConfig,
+    OptimizationReport,
     SourceLocation,
     SymbolicOperationCounts,
     SystemReport,
@@ -290,6 +291,7 @@ def test_analyze_returns_normalized_interpretation() -> None:
         interpretation=Interpretation(normalized_sympy="x + 1", normalized_latex="x + 1"),
         operation_counts=OperationCounts(additions=1),
         abstract_work=1,
+        optimization=OptimizationReport(requested_limit=3, status="complete"),
     )
 
 
@@ -302,6 +304,7 @@ def test_analyze_counts_submitted_subtraction() -> None:
         interpretation=Interpretation(normalized_sympy="x - y", normalized_latex="x - y"),
         operation_counts=OperationCounts(subtractions=1),
         abstract_work=1,
+        optimization=OptimizationReport(requested_limit=3, status="complete"),
     )
 
 
@@ -314,6 +317,7 @@ def test_analyze_counts_submitted_multiplication() -> None:
         interpretation=Interpretation(normalized_sympy="x*y", normalized_latex="x y"),
         operation_counts=OperationCounts(multiplications=1),
         abstract_work=1,
+        optimization=OptimizationReport(requested_limit=3, status="complete"),
     )
 
 
@@ -329,6 +333,7 @@ def test_analyze_counts_submitted_division() -> None:
         ),
         operation_counts=OperationCounts(divisions=1),
         abstract_work=1,
+        optimization=OptimizationReport(requested_limit=3, status="complete"),
     )
 
 
@@ -341,6 +346,7 @@ def test_analyze_counts_submitted_power() -> None:
         interpretation=Interpretation(normalized_sympy="x**2", normalized_latex="x^{2}"),
         operation_counts=OperationCounts(powers=1),
         abstract_work=1,
+        optimization=OptimizationReport(requested_limit=3, status="complete"),
     )
 
 
@@ -356,6 +362,7 @@ def test_numeric_powers_are_normalized_without_eager_exponentiation() -> None:
         ),
         operation_counts=OperationCounts(powers=1),
         abstract_work=1,
+        optimization=OptimizationReport(requested_limit=3, status="complete"),
     )
 
 
@@ -397,6 +404,7 @@ def test_signed_integer_literals_have_no_operation_cost(
         ),
         operation_counts=OperationCounts(),
         abstract_work=0,
+        optimization=OptimizationReport(requested_limit=3, status="complete"),
     )
 
 

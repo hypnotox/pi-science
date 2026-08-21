@@ -1470,3 +1470,51 @@ def test_unexpected_factoring_backend_defects_propagate(
     monkeypatch.setattr(sympy_backend.sympy, "factor", defect)
     with pytest.raises(RuntimeError, match="unexpected factoring defect"):
         sympy_backend.bounded_factor_candidate(_expression("x*y + x*z"))
+
+
+def test_retained_analysis_disables_optimization() -> None:
+    from py_science.formula import AnalysisFailure, AnalysisRequest, FormulaSyntax
+    from py_science.formula.service import _analyze_computation
+
+    retained = _analyze_computation(
+        AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 0")
+    )
+
+    assert not isinstance(retained, AnalysisFailure)
+    assert retained.success.optimization.model_dump() == {
+        "requested_limit": 0,
+        "status": "disabled",
+        "suggestions": (),
+        "qualifications": (),
+    }
+    assert type(retained.success).model_validate_json(
+        retained.success.model_dump_json()
+    ).optimization == retained.success.optimization
+
+
+def test_ordinary_analysis_optimization_ownership() -> None:
+    from py_science.formula import AnalysisRequest, FormulaSyntax, OptimizationConfig, analyze
+
+    default = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 0"))
+    disabled = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="x + 0",
+            optimization=OptimizationConfig(max_suggestions=0),
+        )
+    )
+
+    assert default.status == "success"
+    assert default.optimization.requested_limit == 3
+    assert default.optimization.status == "complete"
+    assert any(
+        suggestion.kind == "redundant_operation_removal"
+        for suggestion in default.optimization.suggestions
+    )
+    assert disabled.status == "success"
+    assert disabled.optimization.model_dump() == {
+        "requested_limit": 0,
+        "status": "disabled",
+        "suggestions": (),
+        "qualifications": (),
+    }
