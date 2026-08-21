@@ -1818,3 +1818,31 @@ def test_compatible_cross_equation_sharing_preserves_submitted_system_reports() 
     assert sharing.intermediate.scope_output_indices == ("i",)
     assert sharing.evidence.statement.endswith("every transformed retained output")
     assert (sharing.work_before, sharing.work_after, sharing.savings) == ("16", "12", "4")
+
+
+def test_objective_v1_system_selection_preserves_system_work() -> None:
+    request = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(EquationRequest(name="out", expression="Eq(out, x*y + x*z)"),),
+        variables={
+            name: VariableDeclaration(domain=MathematicalDomain.REAL)
+            for name in ("x", "y", "z")
+        },
+        optimization=OptimizationConfig.model_validate(
+            {
+                "objective": {
+                    "kind": "weighted_operations_v1",
+                    "weights": {
+                        "additions": "2", "subtractions": "1",
+                        "multiplications": "1", "divisions": "1", "powers": "1",
+                    },
+                }
+            }
+        ),
+    )
+    weighted = analyze(request)
+    default = analyze(request.model_copy(update={"optimization": OptimizationConfig()}))
+    assert isinstance(weighted, AnalysisSuccess) and isinstance(default, AnalysisSuccess)
+    assert weighted.system == default.system
+    assert weighted.operation_counts == default.operation_counts
+    assert weighted.optimization.plans[0].objective.kind == "weighted_operations_v1"

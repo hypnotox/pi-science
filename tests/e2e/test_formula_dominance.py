@@ -552,3 +552,16 @@ def test_nonfinite_work_keeps_its_specific_dominance_blocker() -> None:
     result = _success(request)
     assert result.dominance_status == "unresolved"
     assert result.blockers == ("aggregate work is not finite",)
+
+
+def test_objective_v1_dominance_rejects_optimizer_controls() -> None:
+    with pytest.raises(ValidationError):
+        DominanceAnalysisRequest.model_validate(
+            {
+                "syntax": FormulaSyntax.SYMPY,
+                "operation": "analyze_dominance",
+                "expression": "N",
+                "axis": "N",
+                "objective": {"kind": "unit_work_v1"},
+            }
+        )

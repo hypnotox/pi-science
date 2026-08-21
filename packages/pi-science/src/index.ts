@@ -66,6 +66,12 @@ function compactExpression(expression: string): string {
     : `${expression.slice(0, MAX_COMPACT_EXPRESSION_LENGTH - 3)}...`;
 }
 
+function objectiveProfile(
+  objective: import("./bridge.js").OptimizationObjective,
+): string {
+  return objective.kind;
+}
+
 function compactToolText(result: BridgeResult): string {
   if (result.status === "failed")
     return ["Optimization", "- failed", "Blockers", `- ${result.error}`].join(
@@ -82,7 +88,13 @@ function compactToolText(result: BridgeResult): string {
       return [
         `- Plan ${index + 1}: ${plan.suggestion.kind}; outputs: ${plan.candidate.outputs.join(", ")}`,
         `  Candidate: ${compactExpression(computation)}`,
-        `  Savings: ${plan.suggestion.objective_savings}; ${plan.suggestion.finite_precision_qualification}`,
+        `  Objective profile: ${objectiveProfile(plan.objective)}`,
+        `  Selected-objective savings: ${plan.suggestion.objective_savings}; ${plan.suggestion.finite_precision_qualification}`,
+        ...(index === 0
+          ? []
+          : [
+              `  Relation to previous: ${plan.suggestion.ordering.relation_to_previous === "previous_proved_superior" ? "previous plan proved superior" : "deterministic non-superiority tie-break"}`,
+            ]),
       ];
     });
     return [
@@ -259,7 +271,7 @@ function compactToolText(result: BridgeResult): string {
     const additional = report.suggestions.length - 1;
     return [
       "Optimization advice",
-      `- optimization suggestion: ${suggestion.kind}: ${transformations}${intermediate}; work ${suggestion.objective_before} → ${suggestion.objective_after}; saves ${suggestion.objective_savings}${conditions}${assumptions}; ${suggestion.finite_precision_qualification}`,
+      `- optimization suggestion: ${suggestion.kind}: ${transformations}${intermediate}; objective ${objectiveProfile(report.plans[0]!.objective)}: ${suggestion.objective_before} → ${suggestion.objective_after}; saves ${suggestion.objective_savings}${conditions}${assumptions}; ${suggestion.finite_precision_qualification}`,
       ...(additional === 0
         ? []
         : [

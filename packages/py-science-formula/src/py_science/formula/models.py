@@ -1483,12 +1483,34 @@ class OptimizationFailure(StructuredModel):
     error: str = Field(min_length=1, max_length=4_096)
 
 
+def _validate_optimization_plan_population(
+    plans: tuple[OptimizationPlan, ...], requested_limit: int
+) -> None:
+    if len(plans) > requested_limit:
+        raise ValueError("optimization plans exceed requested limit")
+    if not plans:
+        return
+    objective = plans[0].objective
+    for position, plan in enumerate(plans, start=1):
+        if plan.objective != objective:
+            raise ValueError("optimization plans require common objective provenance")
+        if plan.suggestion.ordering.position != position:
+            raise ValueError("optimization plan positions must be contiguous")
+
+
 class OptimizationSuccess(StructuredModel):
     status: Literal["success"] = "success"
     requested_limit: int = Field(ge=1, le=16)
     search_status: Literal["complete", "incomplete"]
     plans: tuple[OptimizationPlan, ...] = Field(default=(), max_length=16)
     qualifications: tuple[BoundedQueryText, ...] = Field(default=(), max_length=128)
+
+    @model_validator(mode="after")
+    def success_shape(self) -> "OptimizationSuccess":
+        _validate_optimization_plan_population(self.plans, self.requested_limit)
+        if (self.search_status == "incomplete") != bool(self.qualifications):
+            raise ValueError("optimization search status must agree with qualifications")
+        return self
 
 
 type OptimizeOutcome = Annotated[OptimizationSuccess | OptimizationFailure, Field(discriminator="status")]
@@ -1503,8 +1525,9 @@ class OptimizationReport(StructuredModel):
 
     @model_validator(mode="after")
     def report_shape(self) -> "OptimizationReport":
-        if len(self.suggestions) > self.requested_limit or len(self.plans) > self.requested_limit:
-            raise ValueError("optimization plans exceed requested limit")
+        if len(self.suggestions) > self.requested_limit:
+            raise ValueError("optimization suggestions exceed requested limit")
+        _validate_optimization_plan_population(self.plans, self.requested_limit)
         if self.plans and tuple(item.suggestion for item in self.plans) != self.suggestions:
             raise ValueError("optimization plans must project the same suggestions")
         if self.status == "disabled" and (

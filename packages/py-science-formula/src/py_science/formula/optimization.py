@@ -1567,6 +1567,48 @@ def _accepted_order(
     return base
 
 
+def _adjacent_ordering_relation(
+    previous: _Accepted,
+    current: _Accepted,
+    reasoning: ReasoningContext,
+    budget: _OptimizationBudget,
+) -> Literal["previous_proved_superior", "deterministic_non_superiority"]:
+    if (
+        previous.suggestion.conclusion != current.suggestion.conclusion
+        or previous.suggestion.conditions != current.suggestion.conditions
+        or previous.suggestion.assumptions_used != current.suggestion.assumptions_used
+    ):
+        return "deterministic_non_superiority"
+    try:
+        previous_exact = Fraction(previous.suggestion.objective_savings)
+        current_exact = Fraction(current.suggestion.objective_savings)
+    except (ValueError, ZeroDivisionError):
+        previous_exact = current_exact = None
+    if previous_exact is not None and current_exact is not None:
+        return (
+            "previous_proved_superior"
+            if previous_exact > current_exact
+            else "deterministic_non_superiority"
+        )
+    budget.work(
+        expression_node_count(previous.savings_expression)
+        + expression_node_count(current.savings_expression)
+    )
+    relation = compare_aggregate_work(
+        AggregateWorkComparisonInput(work=previous.savings_expression),
+        AggregateWorkComparisonInput(work=current.savings_expression),
+        reasoning,
+        semantic_established=True,
+    )
+    if relation.conditions or relation.assumptions_used:
+        return "deterministic_non_superiority"
+    return (
+        "previous_proved_superior"
+        if relation.status == "second_lower"
+        else "deterministic_non_superiority"
+    )
+
+
 def _candidate_semantic_key(candidate: _CandidateComputation) -> tuple[object, ...]:
     transformations = candidate.transformed_targets or (
         (candidate.target, candidate.original, candidate.proposed),
@@ -1702,18 +1744,12 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
     for position, item in enumerate(selected, start=1):
         relation_to_previous = None
         if position > 1:
-            relation_to_previous = "deterministic_non_superiority"
-            previous = ordered[-1]
             try:
-                relation = compare_aggregate_work(
-                    AggregateWorkComparisonInput(work=previous.savings_expression),
-                    AggregateWorkComparisonInput(work=item.savings_expression), reasoning,
-                    semantic_established=True,
+                relation_to_previous = _adjacent_ordering_relation(
+                    ordered[-1], item, reasoning, budget
                 )
-                if relation.status == "second_lower":
-                    relation_to_previous = "previous_proved_superior"
             except _BudgetExhausted:
-                pass
+                relation_to_previous = "deterministic_non_superiority"
         ordered.append(_Accepted(
             item.suggestion.model_copy(update={"ordering": OptimizationOrdering(
                 position=position, relation_to_previous=relation_to_previous)}),

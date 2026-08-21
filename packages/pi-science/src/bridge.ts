@@ -39,8 +39,24 @@ export type PrimitiveCost = {
 };
 export type Assumption = { name: string; relationship: string };
 export type DirectedDefinition = { variable: string; expression: string };
-export type OptimizationConfig = { max_suggestions?: number };
 export type ExactScenarioScalar = string | number;
+export type OptimizationObjectiveInput =
+  | { kind: "unit_work_v1" }
+  | {
+      kind: "weighted_operations_v1";
+      weights: Record<
+        | "additions"
+        | "subtractions"
+        | "multiplications"
+        | "divisions"
+        | "powers",
+        ExactScenarioScalar
+      >;
+    };
+export type OptimizationConfig = {
+  max_suggestions?: number;
+  objective?: OptimizationObjectiveInput;
+};
 export type IntervalBound = {
   lower: ExactScenarioScalar;
   upper: ExactScenarioScalar;
@@ -225,6 +241,7 @@ export type OptimizeRequest = Omit<
   syntax: "sympy";
   operation: "optimize";
   max_plans?: number;
+  objective?: OptimizationObjectiveInput;
 } & (
     | { expression: string; equations?: never }
     | { equations: EquationRequest[]; expression?: never }
@@ -2743,6 +2760,56 @@ function exactRational(value: unknown): ExactRational | null {
       };
 }
 
+function canonicalRational(value: unknown): string | null {
+  const parsed = exactRational(
+    typeof value === "number" && Number.isFinite(value) ? String(value) : value,
+  );
+  if (parsed === null || parsed.numerator <= 0n) return null;
+  const divisor = greatestCommonDivisor(parsed.numerator, parsed.denominator);
+  const numerator = parsed.numerator / divisor;
+  const denominator = parsed.denominator / divisor;
+  return denominator === 1n ? String(numerator) : `${numerator}/${denominator}`;
+}
+
+function canonicalOptimizationObjective(
+  value: unknown,
+): OptimizationObjective | null {
+  if (value === undefined) return { kind: "unit_work_v1" };
+  if (!isRecord(value) || typeof value.kind !== "string") return null;
+  if (value.kind === "unit_work_v1")
+    return exactKeys(value, ["kind"]) ? { kind: "unit_work_v1" } : null;
+  if (
+    value.kind !== "weighted_operations_v1" ||
+    !exactKeys(value, ["kind", "weights"]) ||
+    !isRecord(value.weights) ||
+    !exactKeys(value.weights, [
+      "additions",
+      "subtractions",
+      "multiplications",
+      "divisions",
+      "powers",
+    ])
+  )
+    return null;
+  const additions = canonicalRational(value.weights.additions);
+  const subtractions = canonicalRational(value.weights.subtractions);
+  const multiplications = canonicalRational(value.weights.multiplications);
+  const divisions = canonicalRational(value.weights.divisions);
+  const powers = canonicalRational(value.weights.powers);
+  if (
+    additions === null ||
+    subtractions === null ||
+    multiplications === null ||
+    divisions === null ||
+    powers === null
+  )
+    return null;
+  return {
+    kind: "weighted_operations_v1",
+    weights: { additions, subtractions, multiplications, divisions, powers },
+  };
+}
+
 function validOptimizationObjective(value: unknown): boolean {
   if (!isRecord(value) || typeof value.kind !== "string") return false;
   if (value.kind === "unit_work_v1") return exactKeys(value, ["kind"]);
@@ -2759,10 +2826,20 @@ function validOptimizationObjective(value: unknown): boolean {
     ])
   )
     return false;
-  return Object.values(value.weights).every((weight) => {
-    const parsed = exactRational(weight);
-    return parsed !== null && parsed.numerator > 0n;
-  });
+  return Object.values(value.weights).every(
+    (weight) =>
+      typeof weight === "string" && canonicalRational(weight) === weight,
+  );
+}
+
+function requestedOptimizationObjective(
+  request: AnalysisRequest | OptimizeRequest,
+): OptimizationObjective | null {
+  return canonicalOptimizationObjective(
+    "operation" in request
+      ? request.objective
+      : request.optimization?.objective,
+  );
 }
 
 function validOptimizationWorkClaims(
@@ -3093,11 +3170,14 @@ function validOptimizationPlan(
   value: unknown,
   request: AnalysisRequest | OptimizeRequest,
 ): value is OptimizationPlan {
+  const expectedObjective = requestedOptimizationObjective(request);
   if (
     !isRecord(value) ||
     !exactKeys(value, ["identity", "objective", "candidate", "suggestion"]) ||
     typeof value.identity !== "string" ||
     !validOptimizationObjective(value.objective) ||
+    expectedObjective === null ||
+    !sameJson(value.objective, expectedObjective) ||
     Buffer.byteLength(value.identity, "utf8") > MAX_RESPONSE_BYTES ||
     !validOptimizationCandidate(value.candidate, request)
   )
@@ -3131,6 +3211,21 @@ function validOptimizationPlan(
   );
 }
 
+function validOptimizationPlanPopulation(plans: unknown[]): boolean {
+  return plans.every((plan, index) => {
+    if (!isRecord(plan) || !isRecord(plan.suggestion)) return false;
+    const ordering = plan.suggestion.ordering;
+    return (
+      isRecord(ordering) &&
+      ordering.position === index + 1 &&
+      (index === 0
+        ? ordering.relation_to_previous === null
+        : ordering.relation_to_previous === "previous_proved_superior" ||
+          ordering.relation_to_previous === "deterministic_non_superiority")
+    );
+  });
+}
+
 function validOptimization(
   value: unknown,
   requested: unknown,
@@ -3159,6 +3254,7 @@ function validOptimization(
     !Array.isArray(value.suggestions) ||
     !Array.isArray(value.plans) ||
     value.plans.length !== value.suggestions.length ||
+    !validOptimizationPlanPopulation(value.plans) ||
     !value.plans.every(
       (plan, index) =>
         validOptimizationPlan(plan, request) &&
@@ -3361,6 +3457,7 @@ function validOptimizeResult(
       value.search_status !== "incomplete") ||
     !Array.isArray(value.plans) ||
     value.plans.length > (request.max_plans ?? 3) ||
+    !validOptimizationPlanPopulation(value.plans) ||
     !value.plans.every((plan) => validOptimizationPlan(plan, request)) ||
     !validStringArray(value.qualifications) ||
     value.qualifications.length > 128 ||

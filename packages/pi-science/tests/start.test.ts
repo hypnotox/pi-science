@@ -405,6 +405,9 @@ describe("readiness gate", () => {
     expect(text).toContain("Plan 1");
     expect(text).toContain("outputs: expression");
     expect(text).toContain("Candidate:");
+    expect(text).toContain("Objective profile: unit_work_v1");
+    expect(text).toContain("Selected-objective savings:");
+    expect(text).not.toContain("relation to previous");
     expect(text).toContain("exact_symbolic_only");
     expect(text).toContain("Search status\n- complete");
     expect(result.details).toMatchObject({
@@ -464,7 +467,7 @@ describe("readiness gate", () => {
     expect(text).toContain("Optimization advice");
     expect(text).toContain("optimization suggestion");
     expect(text).toContain("factoring: expression: x*y + x*z → x*(y + z)");
-    expect(text).toContain("work 3 → 2; saves 1");
+    expect(text).toContain("objective unit_work_v1: 3 → 2; saves 1");
     expect(text).toContain("exact_symbolic_only");
     expect(result.details).toMatchObject({
       optimization: {
@@ -512,7 +515,13 @@ describe("readiness gate", () => {
     });
     const suggestions = [
       suggestion("factoring", "first_candidate", "M + 4", "N"),
-      suggestion("horner", "second_candidate", "N + 4", "M"),
+      {
+        ...suggestion("horner", "second_candidate", "N + 4", "M"),
+        ordering: {
+          position: 2,
+          relation_to_previous: "deterministic_non_superiority" as const,
+        },
+      },
     ];
     const variables = {
       N: { domain: "positive_integer" as const },
@@ -633,6 +642,10 @@ describe("readiness gate", () => {
         kind: "redundant_operation_removal",
         conclusion: "proved",
         assumptions_used: [],
+        ordering: {
+          position: 2,
+          relation_to_previous: "deterministic_non_superiority",
+        },
       },
     ];
     const response = {

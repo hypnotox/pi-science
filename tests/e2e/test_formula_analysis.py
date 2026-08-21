@@ -678,3 +678,33 @@ def test_dense_polynomial_horner_advice_is_independently_proved_and_lower_work()
     assert int(suggestion.work_before) > int(suggestion.work_after) > 0
     assert int(suggestion.savings) == int(suggestion.work_before) - int(suggestion.work_after)
     assert suggestion.finite_precision_qualification == "exact_symbolic_only"
+
+
+def test_objective_v1_custom_selection_preserves_ordinary_analysis_fields() -> None:
+    base = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="(x + 1)*(x + 1) + (y*z + y*w)",
+    )
+    default = analyze(base)
+    weighted = analyze(
+        AnalysisRequest.model_validate(
+            {
+                **base.model_dump(),
+                "optimization": {
+                    "objective": {
+                        "kind": "weighted_operations_v1",
+                        "weights": {
+                            "additions": "1", "subtractions": "1",
+                            "multiplications": "1", "divisions": "1", "powers": "5/2",
+                        },
+                    }
+                },
+            }
+        )
+    )
+    assert isinstance(default, AnalysisSuccess) and isinstance(weighted, AnalysisSuccess)
+    assert default.model_copy(update={"optimization": None}) == weighted.model_copy(
+        update={"optimization": None}
+    )
+    assert default.optimization.plans[0].suggestion.kind == "factoring"
+    assert weighted.optimization.plans[0].suggestion.kind == "repeated_subexpression"

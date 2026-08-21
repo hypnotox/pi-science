@@ -840,3 +840,27 @@ def test_result_models_reject_invalid_qualification_truth_tables() -> None:
                 blockers=("invalid comparable blocker",),
                 evidence=evidence,
             )
+
+
+def test_objective_v1_candidate_comparison_rejects_optimizer_controls() -> None:
+    with pytest.raises(ValidationError):
+        CandidateComparisonRequest.model_validate(
+            {
+                "syntax": FormulaSyntax.SYMPY,
+                "operation": "compare_candidates",
+                "objective": {"kind": "unit_work_v1"},
+                "candidates": [
+                    {"name": "first", "expression": "x"},
+                    {"name": "second", "expression": "x + 0"},
+                ],
+                "outputs": [
+                    {
+                        "name": "value",
+                        "targets": [
+                            {"candidate": "first", "target": {"kind": "expression"}},
+                            {"candidate": "second", "target": {"kind": "expression"}},
+                        ],
+                    }
+                ],
+            }
+        )

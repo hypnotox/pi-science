@@ -924,11 +924,28 @@ describe("private formula bridge", () => {
     const adapter = fileURLToPath(
       new URL("../bridge/formula_adapter.py", import.meta.url),
     );
+    const objective = {
+      kind: "weighted_operations_v1" as const,
+      weights: {
+        additions: 1,
+        subtractions: "1",
+        multiplications: "1",
+        divisions: "1",
+        powers: "5/2",
+      },
+    };
     const optimizeRequest: OptimizeRequest = {
       syntax: "sympy",
       operation: "optimize",
       expression: "x*x + x*x",
       variables: { x: { domain: "real" } },
+      objective,
+    };
+    const ordinaryRequest: AnalysisRequest = {
+      syntax: "sympy",
+      expression: "x*x + x*x",
+      variables: { x: { domain: "real" } },
+      optimization: { objective },
     };
     const result = await invokeAdapter(
       "uv",
@@ -940,9 +957,29 @@ describe("private formula bridge", () => {
     expect(result.plans.length).toBeGreaterThan(0);
     expect(result.plans[0]?.candidate).not.toHaveProperty("syntax");
     expect(result.plans[0]?.candidate.outputs).toEqual(["expression"]);
+    expect(result.plans[0]?.objective).toEqual({
+      kind: "weighted_operations_v1",
+      weights: {
+        additions: "1",
+        subtractions: "1",
+        multiplications: "1",
+        divisions: "1",
+        powers: "5/2",
+      },
+    });
     await expect(
       invokeAdapter(node, responder(result), optimizeRequest),
     ).resolves.toEqual(result);
+    await expect(
+      invokeAdapter(
+        "uv",
+        ["run", "--locked", "python", adapter],
+        ordinaryRequest,
+      ),
+    ).resolves.toMatchObject({
+      status: "success",
+      optimization: { plans: [{ objective: result.plans[0]?.objective }] },
+    });
 
     const malformed: unknown[] = [];
     const surplus = structuredClone(result);
@@ -957,6 +994,19 @@ describe("private formula bridge", () => {
     const suggestionDrift = structuredClone(result);
     suggestionDrift.plans[0]!.suggestion.objective_savings = "999";
     malformed.push(suggestionDrift);
+    const objectiveDrift = structuredClone(result);
+    objectiveDrift.plans[0]!.objective = { kind: "unit_work_v1" };
+    malformed.push(objectiveDrift);
+    const noncanonicalObjective = structuredClone(result);
+    if (
+      noncanonicalObjective.plans[0]!.objective.kind ===
+      "weighted_operations_v1"
+    )
+      noncanonicalObjective.plans[0]!.objective.weights.additions = "2/2";
+    malformed.push(noncanonicalObjective);
+    const duplicatePosition = structuredClone(result);
+    duplicatePosition.plans.push(structuredClone(duplicatePosition.plans[0]!));
+    malformed.push(duplicatePosition);
     for (const invalid of malformed) {
       await expect(
         invokeAdapter(node, responder(invalid), optimizeRequest),

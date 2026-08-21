@@ -431,8 +431,8 @@
     "AGENTS.md": {
       "templateId": "agents-doc/AGENTS.md.tmpl",
       "templateHash": "sha256:70408b662372da03dd91013d9a7e541e7f127889c14e6f5b95e4b29b97cbb92a",
-      "configHash": "sha256:bf76aa30ef6ad060c2a042f3907533ccf17ea98708f099ea8cd2d27741d06cfe",
-      "outputHash": "sha256:423bad91ab3b5dd979a63705753196acc68d8af2edc929e6ea1378d5a6f5d5e4"
+      "configHash": "sha256:b71e8d2c1ce15a0fc51ce6303f00232d40e50dcacc2c2aefb809b4208b04d30a",
+      "outputHash": "sha256:6f3b1e7c39670bc1706cc6e9c4c4949147faa239b939329e2a182d4ccd390372"
     },
     "CLAUDE.md": {
       "templateId": "claude/CLAUDE.md.tmpl",
@@ -462,8 +462,8 @@
     "docs/architecture.md": {
       "templateId": "docs/architecture.md.tmpl",
       "templateHash": "sha256:a1d5d26b03573cc86862912fdc8f46ecf0d4b27455d18cc558b3621a76d0e1c9",
-      "configHash": "sha256:e0c2d04665e218a97305dc679c018e1f5dacdfa0d35d77dff13fbcb17d966877",
-      "outputHash": "sha256:556868db12f24a20cce96a3cab3d9af6a5fc9ec1d275030656543f5593b8704c"
+      "configHash": "sha256:e269aeb1809b2e36d3b3a9a0e83a7975d8da0136189619468a8616341678985a",
+      "outputHash": "sha256:8dc4e4beb102d3942e02c52eaa9b67ac7ac555fa5cbe626ea8cecdfe2a6d6338"
     },
     "docs/config-reference.md": {
       "templateId": "",
@@ -567,8 +567,8 @@
     "docs/testing.md": {
       "templateId": "docs/testing.md.tmpl",
       "templateHash": "sha256:a57a68e1550ff6762ec8021fb14948cf40b221bc228459e70af8e8be4ea16c51",
-      "configHash": "sha256:139ffeded2632a638673c0a3dc2dbf616a29707bb593adb179032f272e1106e1",
-      "outputHash": "sha256:3efbbc3a8900ebe2540a3dc1c73c48608c4767bfcc2766428e736650e373ed09"
+      "configHash": "sha256:f910e4008fb5b10d6c46248392180fc0606df99565446d0ac687c5485730ec3f",
+      "outputHash": "sha256:46e09e78abcd764761b5423d8cf5e7ff5206342e147275753b696920326ec5b4"
     },
     "docs/topics/product/analysis-report-contract.md": {
       "templateId": "topics/topic.md.tmpl",
@@ -610,7 +610,7 @@
       "templateId": "docs/local.md.tmpl",
       "templateHash": "sha256:f09ab3b6e84fa2d6a10c6f2ac2a6e1552ad8cada8855c9e378f432a96b7c733d",
       "configHash": "sha256:66ff8f3f1d7630b01d8c19b8e22984cb5531fa71b124cf560912ab6ff4279069",
-      "outputHash": "sha256:822a2e0390a58b87e74741da0b34b6852473eadf27351cc774a68e6cb2f3fefc",
+      "outputHash": "sha256:0594f483677f150420ff40f4eb83b0e266eed6b32cc7b5577dea7e13c8b255d8",
       "regenChecked": true
     },
     "docs/workflow.md": {
