@@ -407,7 +407,9 @@ describe("readiness gate", () => {
     expect(text).toContain("Candidate:");
     expect(text).toContain("Objective profile: unit_work_v1");
     expect(text).toContain("Selected-objective savings:");
-    expect(text).not.toContain("relation to previous");
+    expect(text).toContain(
+      "Relation to previous: deterministic non-superiority tie-break",
+    );
     expect(text).toContain("exact_symbolic_only");
     expect(text).toContain("Search status\n- complete");
     expect(result.details).toMatchObject({
@@ -419,6 +421,14 @@ describe("readiness gate", () => {
       plans: Array<{ candidate: { outputs: string[] } }>;
     };
     expect(details.plans[0]?.candidate.outputs).toEqual(["expression"]);
+
+    const provedOrder = await current.tools[0]!.execute("id", {
+      operation: "optimize",
+      expression: "(x + 1)*(x + 1) + (y*z + y*w)",
+    });
+    expect(provedOrder.content[0]!.text).toContain(
+      "Relation to previous: previous plan proved superior",
+    );
   });
 
   it("presents typed direct optimization failures without analysis casting", async () => {

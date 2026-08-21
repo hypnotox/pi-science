@@ -2760,15 +2760,57 @@ function exactRational(value: unknown): ExactRational | null {
       };
 }
 
+const MAX_EXACT_DIGITS = 1_024;
+const MAX_EXACT_BITS = 3_402;
+const EXACT_SCALAR = /^-?(0|[1-9][0-9]*)(\/[1-9][0-9]*|\.[0-9]+)?$/;
+
 function canonicalRational(value: unknown): string | null {
-  const parsed = exactRational(
-    typeof value === "number" && Number.isFinite(value) ? String(value) : value,
-  );
-  if (parsed === null || parsed.numerator <= 0n) return null;
-  const divisor = greatestCommonDivisor(parsed.numerator, parsed.denominator);
-  const numerator = parsed.numerator / divisor;
-  const denominator = parsed.denominator / divisor;
-  return denominator === 1n ? String(numerator) : `${numerator}/${denominator}`;
+  if (
+    typeof value === "number" &&
+    (!Number.isSafeInteger(value) || Math.abs(value) > Number.MAX_SAFE_INTEGER)
+  )
+    return null;
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const source = String(value);
+  if (source.length > MAX_EXACT_DIGITS * 2 + 2 || !EXACT_SCALAR.test(source))
+    return null;
+  const negative = source.startsWith("-");
+  const body = negative ? source.slice(1) : source;
+  let numeratorText: string;
+  let denominatorText: string;
+  if (body.includes("/")) {
+    [numeratorText, denominatorText] = body.split("/", 2) as [string, string];
+    if (
+      numeratorText.length > MAX_EXACT_DIGITS ||
+      denominatorText.length > MAX_EXACT_DIGITS
+    )
+      return null;
+  } else if (body.includes(".")) {
+    const [whole, fraction] = body.split(".", 2) as [string, string];
+    if (whole.length + fraction.length > MAX_EXACT_DIGITS) return null;
+    numeratorText = `${whole}${fraction}`;
+    denominatorText = `1${"0".repeat(fraction.length)}`;
+  } else {
+    if (body.length > MAX_EXACT_DIGITS) return null;
+    numeratorText = body;
+    denominatorText = "1";
+  }
+  let numerator = BigInt(numeratorText);
+  const denominator = BigInt(denominatorText);
+  if (negative) numerator = -numerator;
+  if (
+    (numerator < 0n ? -numerator : numerator).toString(2).length >
+      MAX_EXACT_BITS ||
+    denominator.toString(2).length > MAX_EXACT_BITS ||
+    numerator <= 0n
+  )
+    return null;
+  const divisor = greatestCommonDivisor(numerator, denominator);
+  const reducedNumerator = numerator / divisor;
+  const reducedDenominator = denominator / divisor;
+  return reducedDenominator === 1n
+    ? String(reducedNumerator)
+    : `${reducedNumerator}/${reducedDenominator}`;
 }
 
 function canonicalOptimizationObjective(

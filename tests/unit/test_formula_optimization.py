@@ -2185,8 +2185,13 @@ def test_objective_v1_plans_carry_canonical_provenance_and_evidence() -> None:
     assert plan.suggestion.ordering.relation_to_previous is None
 
 
-def test_objective_v1_condition_mismatch_never_claims_adjacent_superiority() -> None:
-    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+def test_objective_v1_qualified_mismatches_never_claim_adjacent_superiority() -> None:
+    from py_science.formula import (
+        AnalysisRequest,
+        FormulaSyntax,
+        RelationshipUse,
+        analyze,
+    )
     from py_science.formula.expressions import IntegerLiteral
     from py_science.formula.optimization import (
         _Accepted,
@@ -2201,12 +2206,66 @@ def test_objective_v1_condition_mismatch_never_claims_adjacent_superiority() -> 
     outcome = analyze(request)
     assert outcome.status == "success" and len(outcome.optimization.plans) >= 2
     previous, current = outcome.optimization.plans[:2]
-    qualified = current.suggestion.model_copy(
-        update={"conclusion": "proved_under_assumptions", "conditions": ("x != 0",)}
+    mismatches = (
+        current.suggestion.model_copy(
+            update={"conclusion": "proved_under_assumptions"}
+        ),
+        current.suggestion.model_copy(update={"conditions": ("x != 0",)}),
+        current.suggestion.model_copy(
+            update={
+                "assumptions_used": (
+                    RelationshipUse(name="positive", relationship="x > 0"),
+                )
+            }
+        ),
     )
+    for qualified in mismatches:
+        assert _adjacent_ordering_relation(
+            _Accepted(previous.suggestion, request, IntegerLiteral(2)),
+            _Accepted(qualified, request, IntegerLiteral(1)),
+            None,  # type: ignore[arg-type]
+            _OptimizationBudget(),
+        ) == "deterministic_non_superiority"
+
+
+def test_objective_v1_comparison_qualifications_never_claim_superiority(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    import py_science.formula.optimization as optimization
+    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+    from py_science.formula.expressions import Symbol
+    from py_science.formula.optimization import (
+        _Accepted,
+        _adjacent_ordering_relation,
+        _OptimizationBudget,
+    )
+
+    request = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="(x + 1)*(x + 1) + (y*z + y*w)",
+    )
+    outcome = analyze(request)
+    assert outcome.status == "success" and len(outcome.optimization.plans) >= 2
+    previous, current = outcome.optimization.plans[:2]
+    def qualified_relation(*_args: object, **_kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(
+            status="second_lower", conditions=("N > M",), assumptions_used=()
+        )
+
+    monkeypatch.setattr(optimization, "compare_aggregate_work", qualified_relation)
     assert _adjacent_ordering_relation(
-        _Accepted(previous.suggestion, request, IntegerLiteral(2)),
-        _Accepted(qualified, request, IntegerLiteral(1)),
+        _Accepted(
+            previous.suggestion.model_copy(update={"objective_savings": "N"}),
+            request,
+            Symbol("N"),
+        ),
+        _Accepted(
+            current.suggestion.model_copy(update={"objective_savings": "M"}),
+            request,
+            Symbol("M"),
+        ),
         None,  # type: ignore[arg-type]
         _OptimizationBudget(),
     ) == "deterministic_non_superiority"
@@ -2216,6 +2275,7 @@ def test_objective_v1_result_models_reject_population_drift() -> None:
     from py_science.formula import (
         AnalysisRequest,
         FormulaSyntax,
+        OptimizationConfig,
         OptimizationReport,
         OptimizationSuccess,
         analyze,
@@ -2253,4 +2313,30 @@ def test_objective_v1_result_models_reject_population_drift() -> None:
             status="complete",
             suggestions=(plans[0].suggestion, drifted_second.suggestion),
             plans=(plans[0], drifted_second),
+        )
+
+    weighted = OptimizationConfig.model_validate(
+        {
+            "objective": {
+                "kind": "weighted_operations_v1",
+                "weights": {
+                    "additions": "1", "subtractions": "1",
+                    "multiplications": "1", "divisions": "1", "powers": "1",
+                },
+            }
+        }
+    ).objective
+    objective_drift = plans[1].model_copy(update={"objective": weighted})
+    with pytest.raises(ValidationError):
+        OptimizationSuccess(
+            requested_limit=3,
+            search_status="complete",
+            plans=(plans[0], objective_drift),
+        )
+    with pytest.raises(ValidationError):
+        OptimizationReport(
+            requested_limit=3,
+            status="complete",
+            suggestions=(plans[0].suggestion, objective_drift.suggestion),
+            plans=(plans[0], objective_drift),
         )

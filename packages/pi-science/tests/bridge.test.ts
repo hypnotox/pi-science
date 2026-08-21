@@ -1013,6 +1013,32 @@ describe("private formula bridge", () => {
       ).rejects.toMatchObject({ kind: "protocol" });
     }
 
+    const invalidRequestWeights: Array<[unknown, string]> = [
+      [1.5, "3/2"],
+      ["+1", "1"],
+      ["1e0", "1"],
+      ["01", "1"],
+      ["1".repeat(1_025), "1".repeat(1_025)],
+    ];
+    for (const [invalidWeight, fabricatedCanonical] of invalidRequestWeights) {
+      const invalidRequest = structuredClone(optimizeRequest) as unknown as {
+        objective: { weights: { additions: unknown } };
+      };
+      invalidRequest.objective.weights.additions = invalidWeight;
+      const fabricated = structuredClone(result);
+      for (const plan of fabricated.plans) {
+        if (plan.objective.kind === "weighted_operations_v1")
+          plan.objective.weights.additions = fabricatedCanonical;
+      }
+      await expect(
+        invokeAdapter(
+          node,
+          responder(fabricated),
+          invalidRequest as unknown as OptimizeRequest,
+        ),
+      ).rejects.toMatchObject({ kind: "protocol" });
+    }
+
     await expect(
       invokeAdapter(
         node,
