@@ -1133,6 +1133,40 @@ def test_independent_budget_qualifications_report_measured_and_configured(
     assert outcome.optimization.suggestions
 
 
+def test_cross_equation_canonical_binders_do_not_capture_user_symbols() -> None:
+    from py_science.formula import (
+        AnalysisRequest,
+        EquationRequest,
+        FormulaSyntax,
+        MathematicalDomain,
+        OptimizationConfig,
+        VariableDeclaration,
+        analyze,
+    )
+
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=(
+                EquationRequest(name="bound", expression="Eq(bound, Sum(i, (i, 0, 3)))"),
+                EquationRequest(
+                    name="free",
+                    expression="Eq(free, Sum(optimization_sum_0, (i, 0, 3)))",
+                ),
+            ),
+            variables={
+                "optimization_sum_0": VariableDeclaration(domain=MathematicalDomain.REAL)
+            },
+            optimization=OptimizationConfig(max_suggestions=16),
+        )
+    )
+
+    assert outcome.status == "success"
+    assert all(
+        item.kind != "cross_equation_sharing" for item in outcome.optimization.suggestions
+    )
+
+
 def test_sharing_covers_scalar_lexical_predecessor_and_producer_dependencies() -> None:
     from py_science.formula import (
         AnalysisRequest,

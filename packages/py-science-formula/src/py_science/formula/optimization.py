@@ -493,9 +493,21 @@ def _target_inputs(
 
 
 def _canonical_output_expression(
-    expression: Expression, output_indices: tuple[str, ...]
+    expression: Expression,
+    output_indices: tuple[str, ...],
+    reserved_names: set[str] | None = None,
 ) -> Expression:
     """Normalize positional output and lexical binder names without algebra."""
+    reserved = set(reserved_names or ()) | _all_symbol_names(expression)
+
+    def fresh(base: str) -> str:
+        name = base
+        position = 0
+        while name in reserved:
+            position += 1
+            name = f"{base}_{position}"
+        reserved.add(name)
+        return name
 
     def visit(
         value: Expression,
@@ -527,7 +539,9 @@ def _canonical_output_expression(
                 visit(value.right, names, (*path, 1)),
             )
         if isinstance(value, Sum):
-            canonical = "optimization_sum_" + "_".join(str(item) for item in path or (0,))
+            canonical = fresh(
+                "optimization_sum_" + "_".join(str(item) for item in path or (0,))
+            )
             inner = dict(names)
             inner[value.index] = canonical
             return Sum(
@@ -537,7 +551,9 @@ def _canonical_output_expression(
                 visit(value.upper, names, (*path, 1)),
             )
         if isinstance(value, Let):
-            canonical = "optimization_let_" + "_".join(str(item) for item in path or (0,))
+            canonical = fresh(
+                "optimization_let_" + "_".join(str(item) for item in path or (0,))
+            )
             inner = dict(names)
             inner[value.name] = canonical
             return Let(
@@ -547,7 +563,10 @@ def _canonical_output_expression(
             )
         return value
 
-    names = {name: f"optimization_index_{position}" for position, name in enumerate(output_indices)}
+    names = {
+        name: fresh(f"optimization_index_{position}")
+        for position, name in enumerate(output_indices)
+    }
     return visit(expression, names, ())
 
 
@@ -559,6 +578,9 @@ def _cross_equation_candidates(
     if computed.expression is not None or len(computed.equations) < 2:
         return ()
     equations = {item.name: item for item in computed.equations}
+    canonical_reserved: set[str] = set()
+    for equation in computed.equations:
+        canonical_reserved.update(_all_symbol_names(equation.formula.right))
     grouped: dict[
         tuple[int, Expression, tuple[tuple[Expression, Expression], ...]],
         list[_Occurrence],
@@ -585,7 +607,11 @@ def _cross_equation_candidates(
             grouped[
                 (
                     len(equation.domain_order),
-                    _canonical_output_expression(occurrence.expression, equation.domain_order),
+                    _canonical_output_expression(
+                        occurrence.expression,
+                        equation.domain_order,
+                        canonical_reserved,
+                    ),
                     domain_signature,
                 )
             ].append(occurrence)
@@ -1289,8 +1315,15 @@ def _verify_candidate(
             answer = equivalence_answer(original_expanded, expanded, reasoning)
             normalized_equal = False
             if answer.conclusion not in {"proved", "proved_under_assumptions"}:
-                original_canonical = _canonical_output_expression(original_expanded, ())
-                expanded_canonical = _canonical_output_expression(expanded, ())
+                canonical_reserved = _all_symbol_names(original_expanded) | _all_symbol_names(
+                    expanded
+                )
+                original_canonical = _canonical_output_expression(
+                    original_expanded, (), canonical_reserved
+                )
+                expanded_canonical = _canonical_output_expression(
+                    expanded, (), canonical_reserved
+                )
                 try:
                     normalized_equal = (
                         original_canonical == expanded_canonical
