@@ -868,6 +868,11 @@ def _free_symbol_names(expression: Expression, bound: frozenset[str] = frozenset
             | _free_symbol_names(expression.upper, bound)
             | _free_symbol_names(expression.body, bound | {expression.index})
         )
+    if isinstance(expression, Let):
+        return _free_symbol_names(expression.value, bound) | _free_symbol_names(
+            expression.body,
+            bound | {expression.name},
+        )
     result: set[str] = set()
     for child in _expression_children(expression):
         result.update(_free_symbol_names(child, bound))
@@ -896,6 +901,12 @@ def replace_exact(
                 visit(value.lower, bound),
                 visit(value.upper, bound),
             )
+        if isinstance(value, Let):
+            return Let(
+                value.name,
+                visit(value.value, bound),
+                visit(value.body, bound | {value.name}),
+            )
         if isinstance(value, BinaryExpression):
             return BinaryExpression(
                 value.operator, visit(value.left, bound), visit(value.right, bound)
@@ -914,6 +925,8 @@ def _expression_children(expression: Expression) -> tuple[Expression, ...]:
         return expression.arguments
     if isinstance(expression, Sum):
         return (expression.lower, expression.upper, expression.body)
+    if isinstance(expression, Let):
+        return (expression.value, expression.body)
     return ()
 
 
@@ -948,6 +961,12 @@ def expand_function_values(
             expression.index,
             expand_function_values(expression.lower, definitions),
             expand_function_values(expression.upper, definitions),
+        )
+    elif isinstance(expression, Let):
+        result = Let(
+            expression.name,
+            expand_function_values(expression.value, definitions),
+            expand_function_values(expression.body, definitions),
         )
     elif isinstance(expression, BinaryExpression):
         result = BinaryExpression(
@@ -984,6 +1003,12 @@ def simplify_constants(expression: Expression) -> Expression:
         if lower_value is not None and upper_value is not None and upper_value < lower_value:
             return _ZERO
         return Sum(body, expression.index, lower, upper)
+    if isinstance(expression, Let):
+        return Let(
+            expression.name,
+            simplify_constants(expression.value),
+            simplify_constants(expression.body),
+        )
     if not isinstance(expression, BinaryExpression):
         return expression
     left = simplify_constants(expression.left)

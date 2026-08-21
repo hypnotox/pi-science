@@ -16,6 +16,7 @@ from py_science.formula import (
 from py_science.formula.exact_values import ExactRational, parse_exact_scalar, render_exact
 from py_science.formula.expressions import (
     BinaryExpression,
+    BinaryOperator,
     InfinityLiteral,
     IntegerLiteral,
     Let,
@@ -85,9 +86,47 @@ def test_let_binding_normalized_rendering_preserves_binary_grouping() -> None:
     assert replay.interpretation.normalized_latex == outcome.interpretation.normalized_latex
 
 
+@pytest.mark.parametrize(
+    ("source", "normalized"),
+    (
+        ("Let(t, 0.5**x, t)", "Let(t, (1/2)**x, t)"),
+        ("Let(t, x**0.5, t)", "Let(t, x**(1/2), t)"),
+        ("Let(t, (-oo)**x, t)", "Let(t, (-oo)**x, t)"),
+    ),
+)
+def test_let_binding_normalized_power_operands_replay(
+    source: str,
+    normalized: str,
+) -> None:
+    outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=source))
+
+    assert isinstance(outcome, AnalysisSuccess)
+    assert outcome.interpretation.normalized_sympy == normalized
+    replay = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression=outcome.interpretation.normalized_sympy,
+        )
+    )
+    assert isinstance(replay, AnalysisSuccess)
+    assert replay.interpretation.normalized_latex == outcome.interpretation.normalized_latex
+
+
 def test_let_binding_substitution_alpha_renames_to_avoid_capture() -> None:
     substituted = substitute(
         Let("t", IntegerLiteral(0), Symbol("x")),
+        {"x": Symbol("t")},
+    )
+    nested = substitute(
+        Let(
+            "t",
+            IntegerLiteral(0),
+            Let(
+                "t_let",
+                IntegerLiteral(1),
+                BinaryExpression(BinaryOperator.ADD, Symbol("x"), Symbol("t")),
+            ),
+        ),
         {"x": Symbol("t")},
     )
 
@@ -95,6 +134,10 @@ def test_let_binding_substitution_alpha_renames_to_avoid_capture() -> None:
     assert substituted.name != "t"
     assert substituted.value == IntegerLiteral(0)
     assert substituted.body == Symbol("t")
+    assert isinstance(nested, Let)
+    assert nested.name not in {"t", "t_let"}
+    assert isinstance(nested.body, Let)
+    assert nested.body.name == "t_let"
 
 
 @pytest.mark.parametrize(

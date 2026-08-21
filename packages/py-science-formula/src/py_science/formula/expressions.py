@@ -272,15 +272,28 @@ def _free_names(value: Expression, bound: frozenset[str] = frozenset()) -> set[s
 
 
 def _fresh_name(base: str, body: Expression, replacements: dict[str, Expression]) -> str:
-    occupied = _free_names(body) | set(replacements)
+    occupied = _all_names(body) | set(replacements)
     for item in replacements.values():
-        occupied.update(_free_names(item))
+        occupied.update(_all_names(item))
     candidate = f"{base}_let"
     suffix = 1
     while candidate in occupied:
         suffix += 1
         candidate = f"{base}_let_{suffix}"
     return candidate
+
+
+def _all_names(value: Expression) -> set[str]:
+    result: set[str] = set()
+    if isinstance(value, (Symbol, IndexedValue, Call)):
+        result.add(value.name)
+    if isinstance(value, Sum):
+        result.add(value.index)
+    if isinstance(value, Let):
+        result.add(value.name)
+    for child in expression_children(value):
+        result.update(_all_names(child))
+    return result
 
 
 def _rename_bound(value: Expression, old: str, new: str) -> Expression:

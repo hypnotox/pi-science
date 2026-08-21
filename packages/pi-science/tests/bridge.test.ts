@@ -599,6 +599,16 @@ describe("private formula bridge", () => {
       interpretation: { normalized_sympy: "Let(t, x*x, t + t)" },
       abstract_work: 2,
     });
+    await expect(
+      invokeAdapter("uv", args, request("Let(t, t + 1, t)")),
+    ).resolves.toMatchObject({
+      status: "failure",
+      error: {
+        code: "unsupported_construct",
+        message: "Let value cannot reference its own name",
+        source: { path: "expression" },
+      },
+    });
     const comparison = await invokeAdapter("uv", args, comparisonRequest());
     expect(comparison).toMatchObject({
       kind: "candidate_comparison",

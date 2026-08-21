@@ -1560,14 +1560,24 @@ def _render_lexical(value: Expression | Equation) -> str:
             left = f"({left})"
         if isinstance(value.right, BinaryExpression):
             right = f"({right})"
-        if value.operator is BinaryOperator.POWER and isinstance(
-            value.left, (IntegerLiteral, RationalLiteral)
-        ) and (
-            value.left.value < 0
-            if isinstance(value.left, IntegerLiteral)
-            else value.left.numerator < 0
-        ):
-            left = f"({left})"
+        if value.operator is BinaryOperator.POWER:
+            if (
+                (isinstance(value.left, IntegerLiteral) and value.left.value < 0)
+                or (
+                    isinstance(value.left, RationalLiteral)
+                    and (
+                        value.left.numerator < 0
+                        or value.left.positive_denominator != 1
+                    )
+                )
+                or (isinstance(value.left, InfinityLiteral) and value.left.sign < 0)
+            ):
+                left = f"({left})"
+            if (
+                isinstance(value.right, RationalLiteral)
+                and value.right.positive_denominator != 1
+            ) or (isinstance(value.right, InfinityLiteral) and value.right.sign < 0):
+                right = f"({right})"
         return f"{left}{token}{right}"
     if isinstance(value, Call):
         return f"{value.name}({', '.join(_render_lexical(item) for item in value.arguments)})"

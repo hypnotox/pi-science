@@ -42,6 +42,45 @@ def variables(*names: str) -> dict[str, VariableDeclaration]:
     }
 
 
+def test_lexical_binding_system_preserves_scope_multiplicity_and_rendering() -> None:
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=(
+                EquationRequest(
+                    name="out",
+                    expression="Eq(y[i], Let(t, x[i]*x[i], t + t))",
+                    domains={"i": IndexDomain(lower="0", upper="2")},
+                ),
+            ),
+            variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
+        )
+    )
+
+    assert isinstance(outcome, AnalysisSuccess) and outcome.system is not None
+    assert outcome.interpretation.normalized_sympy == (
+        "(Eq(y[i], Let(t, x[i]*x[i], t + t)),)"
+    )
+    assert outcome.system.equations[0].aggregate_work == "6"
+
+
+def test_lexical_binding_primitive_work_expands_declared_functions() -> None:
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="p(x)",
+            functions=(FunctionDefinition(name="g", parameters=("a",), body="a + 1"),),
+            primitive_costs=(
+                PrimitiveCost(name="p", parameters=("a",), work="Let(t, g(a), t)"),
+            ),
+        )
+    )
+
+    assert isinstance(outcome, AnalysisSuccess) and outcome.system is not None
+    assert outcome.system.total_work == "Let(t, x + 1, t)"
+    assert outcome.system.equations[0].aggregate_work == "Let(t, x + 1, t)"
+
+
 def test_bounded_named_affine_constraints_produce_effective_minimum_domain() -> None:
     outcome = analyze(
         AnalysisRequest(

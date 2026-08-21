@@ -135,6 +135,28 @@ describe("formula adapter protocol boundary", () => {
         abstract_work: 2,
       },
     });
+
+    const malformed = invoke(
+      JSON.stringify({
+        version: 12,
+        request: {
+          syntax: "sympy",
+          expression: "Let(t, t + 1, t)",
+        },
+      }),
+    );
+    expect(malformed.status).toBe(0);
+    expect(JSON.parse(malformed.stdout)).toMatchObject({
+      version: 12,
+      result: {
+        status: "failure",
+        error: {
+          code: "unsupported_construct",
+          message: "Let value cannot reference its own name",
+          source: { path: "expression" },
+        },
+      },
+    });
   });
 
   it("round trips local, sharing, Horner, and incomplete optimization reports", () => {
