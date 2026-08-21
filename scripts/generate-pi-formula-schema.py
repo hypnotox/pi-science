@@ -206,6 +206,10 @@ def generate_schema() -> JsonObject:
     if not isinstance(optimization_limit, dict):
         raise ValueError("AnalysisRequest optimization limit schema is unavailable")
     optimization_limit["default"] = 3
+    outputs = metadata.get("outputs")
+    if not isinstance(outputs, dict):
+        raise ValueError("AnalysisRequest output identities schema is unavailable")
+    outputs["uniqueItems"] = True
     query_schema = properties["queries"]
     expression_queries = {
         "items": {"anyOf": _query_variants(definitions, query_schema, system=False)},

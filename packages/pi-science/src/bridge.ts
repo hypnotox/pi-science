@@ -173,11 +173,13 @@ export type ExpressionAnalysisRequest =
     syntax: "sympy";
     expression: string;
     equations?: never;
+    outputs?: ["expression"];
   };
 export type SystemAnalysisRequest = RequestMetadata<SystemQueryRequest> & {
   syntax: "sympy";
   equations: EquationRequest[];
   expression?: never;
+  outputs?: string[];
 };
 export type AnalysisRequest = ExpressionAnalysisRequest | SystemAnalysisRequest;
 export type CandidateComputation =
@@ -368,15 +370,16 @@ export type OptimizationSuggestion = {
   finite_precision_qualification: "exact_symbolic_only";
 };
 export type OptimizationCandidate = {
-  expression: string | null;
-  equations: EquationRequest[];
   variables: Record<string, VariableDeclaration>;
   functions: FunctionDefinition[];
   primitive_costs: PrimitiveCost[];
   assumptions: Assumption[];
   definitions: DirectedDefinition[];
   outputs: string[];
-};
+} & (
+  | { expression: string; equations?: never }
+  | { equations: EquationRequest[]; expression?: never }
+);
 export type OptimizationPlan = {
   identity: string;
   candidate: OptimizationCandidate;
@@ -2964,19 +2967,27 @@ function validOptimizationCandidate(
 ): value is OptimizationCandidate {
   if (
     !isRecord(value) ||
-    !exactKeys(value, [
-      "expression",
-      "equations",
-      "variables",
-      "functions",
-      "primitive_costs",
-      "assumptions",
-      "definitions",
-      "outputs",
-    ]) ||
-    !(value.expression === null || typeof value.expression === "string") ||
-    !Array.isArray(value.equations) ||
-    !value.equations.every(validCandidateEquation) ||
+    !(typeof value.expression === "string"
+      ? exactKeys(value, [
+          "expression",
+          "variables",
+          "functions",
+          "primitive_costs",
+          "assumptions",
+          "definitions",
+          "outputs",
+        ])
+      : exactKeys(value, [
+          "equations",
+          "variables",
+          "functions",
+          "primitive_costs",
+          "assumptions",
+          "definitions",
+          "outputs",
+        ])) ||
+    !(value.equations === undefined || Array.isArray(value.equations)) ||
+    !(value.equations ?? []).every(validCandidateEquation) ||
     !isRecord(value.variables) ||
     !Array.isArray(value.functions) ||
     !Array.isArray(value.primitive_costs) ||
@@ -2995,11 +3006,12 @@ function validOptimizationCandidate(
   if ("expression" in request) {
     return (
       typeof value.expression === "string" &&
-      value.equations.length === 0 &&
+      value.equations === undefined &&
       sameJson(value.outputs, ["expression"])
     );
   }
-  if (value.expression !== null || value.equations.length === 0) return false;
+  if (!Array.isArray(value.equations) || value.equations.length === 0)
+    return false;
   const equations = value.equations as EquationRequest[];
   const equationNames = equations.map((equation) => equation.name);
   const expectedOutputs = request.equations.map((equation) => equation.name);
@@ -3042,8 +3054,7 @@ function validOptimizationPlan(
     return false;
   }
   const identityCandidate: Record<string, unknown> = { ...value.candidate };
-  if (identityCandidate.expression === null)
-    delete identityCandidate.expression;
+  if ("expression" in value.candidate) identityCandidate.equations = [];
   if (
     JSON.stringify(identity) !== value.identity ||
     !isRecord(identity) ||

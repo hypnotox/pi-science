@@ -159,6 +159,68 @@ describe("formula adapter protocol boundary", () => {
     });
   });
 
+  it("replays a projected optimization candidate unchanged", () => {
+    const optimized = invoke(
+      JSON.stringify({
+        version: 13,
+        request: {
+          syntax: "sympy",
+          operation: "optimize",
+          expression: "x*x + x*x",
+        },
+      }),
+    );
+    expect(optimized.status).toBe(0);
+    const candidate = JSON.parse(optimized.stdout).result.plans[0].candidate;
+    expect(candidate).toMatchObject({
+      expression: expect.any(String),
+      outputs: ["expression"],
+    });
+    expect(candidate).not.toHaveProperty("equations");
+
+    const replayed = invoke(
+      JSON.stringify({
+        version: 13,
+        request: { syntax: "sympy", ...candidate },
+      }),
+    );
+
+    expect(replayed.status).toBe(0);
+    expect(JSON.parse(replayed.stdout).result.status).toBe("success");
+
+    const optimizedSystem = invoke(
+      JSON.stringify({
+        version: 13,
+        request: {
+          syntax: "sympy",
+          operation: "optimize",
+          equations: [
+            { name: "a", expression: "Eq(a, x*x + 1)" },
+            { name: "b", expression: "Eq(b, x*x - 1)" },
+          ],
+          variables: { x: { domain: "real" } },
+          max_plans: 16,
+        },
+      }),
+    );
+    expect(optimizedSystem.status).toBe(0);
+    const systemPlan = JSON.parse(optimizedSystem.stdout).result.plans.find(
+      (plan: { suggestion: { kind: string } }) =>
+        plan.suggestion.kind === "cross_equation_sharing",
+    );
+    expect(systemPlan.candidate.outputs).toEqual(["a", "b"]);
+    expect(systemPlan.candidate).not.toHaveProperty("expression");
+
+    const replayedSystem = invoke(
+      JSON.stringify({
+        version: 13,
+        request: { syntax: "sympy", ...systemPlan.candidate },
+      }),
+    );
+    expect(replayedSystem.status).toBe(0);
+    expect(JSON.parse(replayedSystem.stdout).result.status).toBe("success");
+  });
+
   it("round trips local, sharing, Horner, and incomplete optimization reports", () => {
     const requests = [
       { syntax: "sympy", expression: "x" },

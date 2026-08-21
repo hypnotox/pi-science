@@ -108,11 +108,14 @@ def test_generated_pi_schema_has_public_expression_and_system_branches() -> None
     assert "syntax" not in expression["properties"]
     assert "equations" not in expression["properties"]
     assert expression["properties"]["expression"] == {"type": "string"}
+    assert expression["properties"]["outputs"]["maxItems"] == 128
+    assert expression["properties"]["outputs"]["uniqueItems"] is True
     assert system["required"] == ["equations"]
     assert "syntax" not in system["properties"]
     assert "expression" not in system["properties"]
     assert system["properties"]["equations"]["minItems"] == 1
     assert system["properties"]["equations"]["maxItems"] == 128
+    assert system["properties"]["outputs"] == expression["properties"]["outputs"]
     assert comparison["properties"]["operation"]["enum"] == ["compare_candidates"]
     assert "syntax" not in comparison["properties"]
     candidates = comparison["properties"]["candidates"]

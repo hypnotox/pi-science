@@ -80,6 +80,10 @@ def _project_plan_candidates(plans: object) -> None:
         if isinstance(raw_candidate, dict):
             candidate = cast(dict[str, object], raw_candidate)
             candidate.pop("syntax", None)
+            if candidate.get("expression") is None:
+                candidate.pop("expression", None)
+            elif candidate.get("equations") == []:
+                candidate.pop("equations", None)
 
 
 def _request_error(error: Exception) -> int:

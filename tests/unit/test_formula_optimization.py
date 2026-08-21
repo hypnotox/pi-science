@@ -1814,18 +1814,43 @@ def test_optimize_operation_returns_replayable_complete_plans() -> None:
     assert plan.candidate.syntax == FormulaSyntax.SYMPY
     assert plan.candidate.expression is not None
     assert plan.candidate.outputs == ("expression",)
-    replay = analyze(AnalysisRequest.model_validate(plan.candidate.model_dump(exclude={"outputs"})))
+    replay = analyze(AnalysisRequest.model_validate(plan.candidate.model_dump()))
     assert replay.status == "success"
+
+
+def test_analysis_replay_rejects_invalid_output_identities() -> None:
+    from py_science.formula import AnalysisRequest, EquationRequest, FormulaSyntax
+    from pydantic import ValidationError
+
+    equation = EquationRequest(name="a", expression="Eq(a, x)")
+    payloads = (
+        {"syntax": FormulaSyntax.SYMPY, "expression": "x", "outputs": ("wrong",)},
+        {
+            "syntax": FormulaSyntax.SYMPY,
+            "equations": (equation,),
+            "outputs": ("missing",),
+        },
+        {
+            "syntax": FormulaSyntax.SYMPY,
+            "equations": (equation,),
+            "outputs": ("a", "a"),
+        },
+    )
+    for payload in payloads:
+        with pytest.raises(ValidationError, match="output identit"):
+            AnalysisRequest.model_validate(payload)
 
 
 def test_optimize_system_plan_outputs_exclude_generated_producers() -> None:
     from py_science.formula import (
+        AnalysisRequest,
         EquationRequest,
         FormulaSyntax,
         MathematicalDomain,
         OptimizationSuccess,
         OptimizeRequest,
         VariableDeclaration,
+        analyze,
         optimize,
     )
 
@@ -1851,6 +1876,90 @@ def test_optimize_system_plan_outputs_exclude_generated_producers() -> None:
         "a",
         "b",
     }
+    replay = analyze(AnalysisRequest.model_validate(sharing.candidate.model_dump()))
+    assert replay.status == "success"
+
+
+def test_optimize_result_bound_keeps_every_plan_that_fits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from py_science.formula import (
+        FormulaSyntax,
+        OptimizationSuccess,
+        OptimizeRequest,
+        optimize,
+        service,
+    )
+
+    result = optimize(
+        OptimizeRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="(alpha + beta)*(alpha + beta) + 0",
+            max_plans=16,
+        )
+    )
+    assert isinstance(result, OptimizationSuccess)
+    assert len(result.plans) == 2
+    oversized = result.model_copy(
+        update={"search_status": "incomplete", "qualifications": ("x" * 10_000,)}
+    )
+    monkeypatch.setattr(service, "MAX_OPTIMIZATION_BYTES", 3_000)
+
+    bounded = service._bound_optimization_result(oversized)
+
+    assert bounded.search_status == "incomplete"
+    assert len(bounded.plans) == len(result.plans)
+    assert len(bounded.model_dump_json().encode("utf-8")) <= service.MAX_OPTIMIZATION_BYTES
+
+
+def test_optimize_result_bound_keeps_largest_fitting_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from py_science.formula import (
+        FormulaSyntax,
+        OptimizationSuccess,
+        OptimizeRequest,
+        optimize,
+        service,
+    )
+
+    result = optimize(
+        OptimizeRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="(alpha + beta)*(alpha + beta) + 0",
+            max_plans=16,
+        )
+    )
+    assert isinstance(result, OptimizationSuccess)
+    assert len(result.plans) == 2
+    oversized = result.model_copy(
+        update={"search_status": "incomplete", "qualifications": ("x" * 10_000,)}
+    )
+    monkeypatch.setattr(service, "MAX_OPTIMIZATION_BYTES", 1_500)
+
+    bounded = service._bound_optimization_result(oversized)
+
+    assert len(bounded.plans) == 1
+    assert len(bounded.model_dump_json().encode("utf-8")) <= service.MAX_OPTIMIZATION_BYTES
+
+
+def test_optimize_result_bound_handles_oversized_empty_population(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from py_science.formula import OptimizationSuccess, service
+
+    oversized = OptimizationSuccess(
+        requested_limit=3,
+        search_status="incomplete",
+        qualifications=("x" * 4_000,),
+    )
+    monkeypatch.setattr(service, "MAX_OPTIMIZATION_BYTES", 300)
+
+    bounded = service._bound_optimization_result(oversized)
+
+    assert bounded.plans == ()
+    assert bounded.search_status == "incomplete"
+    assert len(bounded.model_dump_json().encode("utf-8")) <= service.MAX_OPTIMIZATION_BYTES
 
 
 def test_optimize_operation_bounds_duplicated_plan_output(

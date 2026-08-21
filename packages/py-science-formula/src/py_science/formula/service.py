@@ -213,7 +213,7 @@ def _bound_optimization_result(outcome: OptimizationSuccess) -> OptimizationSucc
         "optimization result bytes budget exhausted "
         f"(measured {measured}, configured {MAX_OPTIMIZATION_BYTES})"
     )
-    for retained in range(len(outcome.plans) - 1, -1, -1):
+    for retained in range(len(outcome.plans), -1, -1):
         bounded = outcome.model_copy(
             update={
                 "search_status": "incomplete",

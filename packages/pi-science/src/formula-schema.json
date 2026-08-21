@@ -96,6 +96,14 @@
           },
           "type": "object"
         },
+        "outputs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 128,
+          "type": "array",
+          "uniqueItems": true
+        },
         "primitive_costs": {
           "items": {
             "additionalProperties": false,
@@ -775,6 +783,14 @@
             }
           },
           "type": "object"
+        },
+        "outputs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 128,
+          "type": "array",
+          "uniqueItems": true
         },
         "primitive_costs": {
           "items": {

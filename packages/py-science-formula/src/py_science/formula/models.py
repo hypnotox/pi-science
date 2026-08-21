@@ -663,6 +663,28 @@ class OptimizationConfig(StructuredModel):
     max_suggestions: int = Field(default=3, ge=0, le=16)
 
 
+def _validate_output_identities(
+    expression: str | None,
+    equations: tuple[EquationRequest, ...],
+    outputs: tuple[str, ...],
+    *,
+    required: bool,
+) -> None:
+    if required and not outputs:
+        raise ValueError("output identities must be nonempty")
+    if not outputs:
+        return
+    if len(set(outputs)) != len(outputs):
+        raise ValueError("output identities must be unique")
+    if expression is not None:
+        if outputs != ("expression",):
+            raise ValueError("expression output identity must be expression")
+        return
+    equation_names = {item.name for item in equations}
+    if not set(outputs) <= equation_names:
+        raise ValueError("output identities must name transformed equations")
+
+
 class AnalysisRequest(StructuredModel):
     syntax: FormulaSyntax
     expression: str | None = None
@@ -672,6 +694,7 @@ class AnalysisRequest(StructuredModel):
     primitive_costs: tuple[PrimitiveCost, ...] = Field(default=(), max_length=MAX_PRIMITIVE_COSTS)
     assumptions: tuple[Assumption, ...] = Field(default=(), max_length=MAX_ASSUMPTIONS)
     definitions: tuple[DirectedDefinition, ...] = Field(default=(), max_length=MAX_DEFINITIONS)
+    outputs: tuple[str, ...] = Field(default=(), max_length=MAX_EQUATIONS)
     scenarios: tuple[Scenario, ...] = Field(default=(), max_length=MAX_SCENARIOS)
     queries: tuple[QueryRequest, ...] = Field(default=(), max_length=32)
     optimization: OptimizationConfig = Field(default_factory=OptimizationConfig)
@@ -688,6 +711,9 @@ class AnalysisRequest(StructuredModel):
         ):
             raise ValueError("variable names must be ordinary identifiers")
         _require_unique((equation.name for equation in self.equations), "equation names")
+        _validate_output_identities(
+            self.expression, self.equations, self.outputs, required=False
+        )
         _require_unique((function.name for function in self.functions), "function names")
         _require_unique((cost.name for cost in self.primitive_costs), "primitive cost names")
         definition_names = {function.name for function in self.functions}
@@ -782,13 +808,9 @@ class OptimizationCandidate(StructuredModel):
     def complete_shape(self) -> "OptimizationCandidate":
         if (self.expression is None) != bool(self.equations):
             raise ValueError("candidate requires exactly one expression or nonempty equation list")
-        if self.expression is not None:
-            if self.outputs != ("expression",):
-                raise ValueError("expression candidate output identity must be expression")
-        else:
-            equation_names = {item.name for item in self.equations}
-            if len(set(self.outputs)) != len(self.outputs) or not set(self.outputs) <= equation_names:
-                raise ValueError("candidate output identities must name unique transformed equations")
+        _validate_output_identities(
+            self.expression, self.equations, self.outputs, required=True
+        )
         return self
 
 

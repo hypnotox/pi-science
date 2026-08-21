@@ -97,7 +97,6 @@ function optimizationPlan(
 ) {
   const candidate = {
     expression: options.expression ?? "x",
-    equations: [],
     variables: options.variables ?? {},
     functions: [],
     primitive_costs: [],
@@ -106,7 +105,7 @@ function optimizationPlan(
     outputs: ["expression"],
   };
   return {
-    identity: JSON.stringify({ syntax: "sympy", ...candidate }),
+    identity: JSON.stringify({ syntax: "sympy", ...candidate, equations: [] }),
     candidate,
     suggestion,
   };
