@@ -88,9 +88,7 @@ def build_output_domains(
         for expression, path in ((lower, lower_path), (upper, upper_path)):
             references = free_symbols(expression) & indices
             if index in references:
-                return DomainDiagnostic(
-                    f"output domain {index} cannot depend on itself", path
-                )
+                return DomainDiagnostic(f"output domain {index} cannot depend on itself", path)
             form = affine_form(expression) if references else None
             generated_extrema = _generated_extrema(expression)
             if references and form is None and not generated_extrema:
@@ -231,6 +229,12 @@ def free_symbols(expression: Expression, bound: frozenset[str] = frozenset()) ->
     if isinstance(expression, Sum):
         result = free_symbols(expression.lower, bound) | free_symbols(expression.upper, bound)
         return result | free_symbols(expression.body, bound | {expression.index})
+    from py_science.formula.expressions import Let
+
+    if isinstance(expression, Let):
+        return free_symbols(expression.value, bound) | free_symbols(
+            expression.body, bound | {expression.name}
+        )
     result: set[str] = set()
     for child in expression_children(expression):
         result.update(free_symbols(child, bound))

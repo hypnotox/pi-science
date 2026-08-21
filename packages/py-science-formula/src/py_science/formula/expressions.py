@@ -73,6 +73,19 @@ class Sum:
 
 
 @dataclass(frozen=True, slots=True)
+class Let:
+    """A bounded nonrecursive lexical binding.
+
+    ``value`` is evaluated in the enclosing scope; ``name`` is visible only in
+    ``body``.  It is deliberately not a generic callable expression.
+    """
+
+    name: str
+    value: Expression
+    body: Expression
+
+
+@dataclass(frozen=True, slots=True)
 class BinaryExpression:
     operator: BinaryOperator
     left: Expression
@@ -92,7 +105,17 @@ class Relationship:
     right: Expression
 
 
-type Expression = IntegerLiteral | RationalLiteral | InfinityLiteral | Symbol | IndexedValue | Call | Sum | BinaryExpression  # noqa: E501
+type Expression = (
+    IntegerLiteral
+    | RationalLiteral
+    | InfinityLiteral
+    | Symbol
+    | IndexedValue
+    | Call
+    | Sum
+    | Let
+    | BinaryExpression
+)
 type Formula = Expression | Equation | Relationship
 
 
@@ -113,6 +136,8 @@ def expression_children(expression: Expression) -> tuple[Expression, ...]:
         return expression.arguments
     if isinstance(expression, Sum):
         return (expression.lower, expression.upper, expression.body)
+    if isinstance(expression, Let):
+        return (expression.value, expression.body)
     return ()
 
 
@@ -146,12 +171,24 @@ def substitute(
             return Call(value.name, tuple(visit(argument, scoped) for argument in value.arguments))
         if isinstance(value, Sum):
             inner = {name: item for name, item in scoped.items() if name != value.index}
+            index = value.index
+            body = value.body
+            # A replacement introduced into the body must not become captured
+            # by this aggregate's binder.
+            if index in set().union(*(_free_names(item) for item in inner.values())):
+                index = _fresh_name(index, body, inner)
+                body = _rename_bound(body, value.index, index)
             return Sum(
-                visit(value.body, inner),
-                value.index,
+                visit(body, inner),
+                index,
                 visit(value.lower, scoped),
                 visit(value.upper, scoped),
             )
+        if isinstance(value, Let):
+            # The binding is nonrecursive: its value sees the enclosing
+            # replacement scope while its body hides its own name.
+            inner = {name: item for name, item in scoped.items() if name != value.name}
+            return Let(value.name, visit(value.value, scoped), visit(value.body, inner))
         if isinstance(value, BinaryExpression):
             return BinaryExpression(
                 value.operator,
@@ -169,3 +206,60 @@ def substitute(
             raise ExpressionTooComplex("substitution-expanded work exceeds its structural bound")
 
     return visit(expression, replacements)
+
+
+def _free_names(value: Expression, bound: frozenset[str] = frozenset()) -> set[str]:
+    if isinstance(value, Symbol):
+        return set() if value.name in bound else {value.name}
+    if isinstance(value, Sum):
+        return (
+            _free_names(value.lower, bound)
+            | _free_names(value.upper, bound)
+            | _free_names(value.body, bound | {value.index})
+        )
+    if isinstance(value, Let):
+        return _free_names(value.value, bound) | _free_names(value.body, bound | {value.name})
+    result: set[str] = set()
+    for child in expression_children(value):
+        result.update(_free_names(child, bound))
+    return result
+
+
+def _fresh_name(base: str, body: Expression, replacements: dict[str, Expression]) -> str:
+    occupied = _free_names(body) | set(replacements)
+    candidate = f"{base}_let"
+    suffix = 1
+    while candidate in occupied:
+        suffix += 1
+        candidate = f"{base}_let_{suffix}"
+    return candidate
+
+
+def _rename_bound(value: Expression, old: str, new: str) -> Expression:
+    if isinstance(value, Symbol):
+        return Symbol(new) if value.name == old else value
+    if isinstance(value, IndexedValue):
+        return IndexedValue(
+            value.name, tuple(_rename_bound(item, old, new) for item in value.indices)
+        )
+    if isinstance(value, Call):
+        return Call(value.name, tuple(_rename_bound(item, old, new) for item in value.arguments))
+    if isinstance(value, Sum):
+        if value.index == old:
+            return value
+        return Sum(
+            _rename_bound(value.body, old, new),
+            value.index,
+            _rename_bound(value.lower, old, new),
+            _rename_bound(value.upper, old, new),
+        )
+    if isinstance(value, Let):
+        body = value.body if value.name == old else _rename_bound(value.body, old, new)
+        return Let(value.name, _rename_bound(value.value, old, new), body)
+    if isinstance(value, BinaryExpression):
+        return BinaryExpression(
+            value.operator,
+            _rename_bound(value.left, old, new),
+            _rename_bound(value.right, old, new),
+        )
+    return value

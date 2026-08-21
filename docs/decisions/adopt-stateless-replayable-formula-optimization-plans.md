@@ -1,7 +1,7 @@
 ---
 format: current-state-v4
 slug: adopt-stateless-replayable-formula-optimization-plans
-status: Proposed
+status: Implementing
 date: 2026-08-21
 ---
 # ADR-adopt-stateless-replayable-formula-optimization-plans: Adopt stateless replayable formula optimization plans
@@ -61,3 +61,5 @@ The public union and computation language require protocol v13. Its atomic imple
 ## Status history
 
 - 2026-08-21: Proposed
+- 2026-08-21: Implementing; content-sha256: 1d3cf3094f32b66de36db3a7cbe967612c782e562202d26d3e4c8453429cb00f
+- 2026-08-21: Applied; operations: update `product/mathematical-input-contract:safe-familiar-inputs`, update `product/mathematical-input-contract:compositional-indexed-equation-requests`

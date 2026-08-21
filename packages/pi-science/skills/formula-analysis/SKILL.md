@@ -23,6 +23,7 @@ The parser accepts:
 - arithmetic `+`, `-`, `*`, `/`, and `**`, including signed integers and negative decimal literals;
 - indexed scalars such as `x[i]` and `A[i, j]`;
 - ordinary named calls with positional arguments, such as `basis(k, x[i])`;
+- bounded nonrecursive lexical bindings spelled exactly `Let(name, value, body)`; the value does not see its own name, the body does, and value work is charged once at lexical placement;
 - one-limit inclusive sums spelled exactly `Sum(body, (index, lower, upper))`;
 - equations spelled `Eq(lhs, rhs)`, with a scalar or indexed scalar on the left;
 - one unchained relationship using `==`, `<`, `<=`, `>`, or `>=` where that request field permits a relationship.

@@ -18,11 +18,13 @@ from py_science.formula.expressions import (
     IndexedValue,
     InfinityLiteral,
     IntegerLiteral,
+    Let,
     RationalLiteral,
     Relationship,
     RelationshipOperator,
     Sum,
     Symbol,
+    expression_children,
 )
 
 
@@ -75,9 +77,7 @@ def parse_expression(source: str) -> ParseResult:
         return _convert(root, numeric_lexemes)
     except SyntaxError as error:
         column = _syntax_error_byte_column(source, error.lineno, error.offset)
-        end_column = _syntax_error_byte_column(
-            source, error.end_lineno, error.end_offset
-        )
+        end_column = _syntax_error_byte_column(source, error.end_lineno, error.end_offset)
         return ParseFailure(
             ParseFailureKind.MALFORMED,
             error.msg,
@@ -133,9 +133,7 @@ def _validate_numeric_tokens(
             line, character_column = token.start
             byte_column = len(source_lines[line - 1][:character_column].encode("utf-8"))
             end_line, end_character_column = token.end
-            end_byte_column = len(
-                source_lines[end_line - 1][:end_character_column].encode("utf-8")
-            )
+            end_byte_column = len(source_lines[end_line - 1][:end_character_column].encode("utf-8"))
             lexemes[(line, byte_column)] = token.string
             digits = sum(character.isdigit() for character in token.string)
             if digits > MAX_DECIMAL_INTEGER_DIGITS:
@@ -241,7 +239,9 @@ def _convert(node: ast.expr, numeric_lexemes: dict[tuple[int, int], str]) -> Par
     if isinstance(node, ast.Constant) and type(node.value) is float:
         value = parse_exact_scalar(numeric_lexemes.get((node.lineno, node.col_offset), ""))
         if value is None:
-            return _failure(ParseFailureKind.TOO_COMPLEX, "decimal literal exceeds exact-value bounds", node)  # noqa: E501
+            return _failure(
+                ParseFailureKind.TOO_COMPLEX, "decimal literal exceeds exact-value bounds", node
+            )
         return RationalLiteral(value.numerator, value.denominator)
     if (
         isinstance(node, ast.UnaryOp)
@@ -261,8 +261,12 @@ def _convert(node: ast.expr, numeric_lexemes: dict[tuple[int, int], str]) -> Par
         if isinstance(converted, RationalLiteral):
             return RationalLiteral(-converted.numerator, converted.positive_denominator)
         return converted
-    if (isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub)
-            and isinstance(node.operand, ast.Name) and node.operand.id == "oo"):
+    if (
+        isinstance(node, ast.UnaryOp)
+        and isinstance(node.op, ast.USub)
+        and isinstance(node.operand, ast.Name)
+        and node.operand.id == "oo"
+    ):
         return InfinityLiteral(-1)
     if (
         isinstance(node, ast.UnaryOp)
@@ -341,9 +345,7 @@ def _convert_relationship(
     return Relationship(operator, left, right)
 
 
-def _convert_binary(
-    node: ast.BinOp, numeric_lexemes: dict[tuple[int, int], str]
-) -> ParseResult:
+def _convert_binary(node: ast.BinOp, numeric_lexemes: dict[tuple[int, int], str]) -> ParseResult:
     operator = _binary_operator(node.op)
     if operator is None:
         return _failure(
@@ -402,9 +404,7 @@ def _convert_indexed(
     return IndexedValue(base.name, tuple(indices))
 
 
-def _convert_call(
-    node: ast.Call, numeric_lexemes: dict[tuple[int, int], str]
-) -> ParseResult:
+def _convert_call(node: ast.Call, numeric_lexemes: dict[tuple[int, int], str]) -> ParseResult:
     if not isinstance(node.func, ast.Name):
         return _failure(
             ParseFailureKind.UNSUPPORTED,
@@ -422,6 +422,8 @@ def _convert_call(
         )
     if function.name == "Sum":
         return _convert_sum(node, numeric_lexemes)
+    if function.name == "Let":
+        return _convert_let(node, numeric_lexemes)
     if function.name == "Eq":
         return _convert_equation(node, numeric_lexemes)
     if function.name == "Max":
@@ -446,9 +448,7 @@ def _convert_call(
     return Call(function.name, tuple(arguments))
 
 
-def _convert_sum(
-    node: ast.Call, numeric_lexemes: dict[tuple[int, int], str]
-) -> ParseResult:
+def _convert_sum(node: ast.Call, numeric_lexemes: dict[tuple[int, int], str]) -> ParseResult:
     if (
         len(node.args) != 2
         or not isinstance(node.args[1], ast.Tuple)
@@ -479,9 +479,48 @@ def _convert_sum(
     return Sum(body, index_symbol.name, lower, upper)
 
 
-def _convert_equation(
-    node: ast.Call, numeric_lexemes: dict[tuple[int, int], str]
-) -> ParseResult:
+def _convert_let(node: ast.Call, numeric_lexemes: dict[tuple[int, int], str]) -> ParseResult:
+    if len(node.args) != 3 or not isinstance(node.args[0], ast.Name):
+        return _failure(
+            ParseFailureKind.UNSUPPORTED,
+            "Let requires Let(name, value, body) with a bare symbol name",
+            node,
+        )
+    name = _symbol(node.args[0])
+    if isinstance(name, ParseFailure):
+        return name
+    value = _convert(node.args[1], numeric_lexemes)
+    body = _convert(node.args[2], numeric_lexemes)
+    if isinstance(value, ParseFailure):
+        return value
+    if isinstance(body, ParseFailure):
+        return body
+    if isinstance(value, (Equation, Relationship)) or isinstance(body, (Equation, Relationship)):
+        return _failure(ParseFailureKind.UNSUPPORTED, "relationships cannot be used in Let", node)
+    if _has_free_name(value, name.name):
+        return _failure(
+            ParseFailureKind.UNSUPPORTED, "Let value cannot reference its own name", node.args[1]
+        )
+    return Let(name.name, value, body)
+
+
+def _has_free_name(expression: Expression, name: str, bound: frozenset[str] = frozenset()) -> bool:
+    if isinstance(expression, Symbol):
+        return expression.name == name and expression.name not in bound
+    if isinstance(expression, Sum):
+        return (
+            _has_free_name(expression.lower, name, bound)
+            or _has_free_name(expression.upper, name, bound)
+            or _has_free_name(expression.body, name, bound | {expression.index})
+        )
+    if isinstance(expression, Let):
+        return _has_free_name(expression.value, name, bound) or _has_free_name(
+            expression.body, name, bound | {expression.name}
+        )
+    return any(_has_free_name(child, name, bound) for child in expression_children(expression))
+
+
+def _convert_equation(node: ast.Call, numeric_lexemes: dict[tuple[int, int], str]) -> ParseResult:
     if len(node.args) != 2:
         return _failure(
             ParseFailureKind.UNSUPPORTED,

@@ -18,6 +18,7 @@ from py_science.formula.expressions import (
     IndexedValue,
     InfinityLiteral,
     IntegerLiteral,
+    Let,
     RationalLiteral,
     Sum,
     Symbol,
@@ -215,6 +216,12 @@ def analyze_work(expression: Expression, context: WorkContext) -> WorkAnalysis:
         return _analyze_call(expression, context)
     if isinstance(expression, Sum):
         return _analyze_sum(expression, context)
+    if isinstance(expression, Let):
+        # The value runs once at the lexical placement; references in the body
+        # are ordinary symbols and therefore add no repeated direct work.
+        return analyze_work(expression.value, context).combine(
+            analyze_work(expression.body, context)
+        )
     if isinstance(expression, IndexedValue):
         # Indexing and index-expression evaluation are outside mathematical work,
         # but infinity in an index still prevents finite direct evaluation.
@@ -373,9 +380,10 @@ def is_nonnegative_expression(expression: Expression, context: WorkContext) -> b
             ) and is_nonnegative_expression(expression.right, context)
         if expression.operator is BinaryOperator.POWER:
             exponent = exact_integer_value(expression.right)
-            return exponent is not None and exponent >= 0 and (
-                exponent % 2 == 0
-                or is_nonnegative_expression(expression.left, context)
+            return (
+                exponent is not None
+                and exponent >= 0
+                and (exponent % 2 == 0 or is_nonnegative_expression(expression.left, context))
             )
     return False
 
@@ -410,13 +418,12 @@ def is_positive_expression(expression: Expression, context: WorkContext) -> bool
         return is_positive_expression(expression.left, context) and is_positive_expression(
             expression.right, context
         )
-    if (
-        isinstance(expression, BinaryExpression)
-        and expression.operator is BinaryOperator.POWER
-    ):
+    if isinstance(expression, BinaryExpression) and expression.operator is BinaryOperator.POWER:
         exponent = exact_integer_value(expression.right)
-        return exponent is not None and exponent > 0 and is_positive_expression(
-            expression.left, context
+        return (
+            exponent is not None
+            and exponent > 0
+            and is_positive_expression(expression.left, context)
         )
     return False
 
@@ -456,8 +463,7 @@ def is_integer_expression(expression: Expression, context: WorkContext) -> bool:
         # They preserve integrality when every candidate bound is integral.
         if expression.name in {"Min", "Max"}:
             return bool(expression.arguments) and all(
-                is_integer_expression(argument, context)
-                for argument in expression.arguments
+                is_integer_expression(argument, context) for argument in expression.arguments
             )
         definition = context.definitions.get(expression.name)
         if definition is None or len(definition.parameters) != len(expression.arguments):
@@ -570,9 +576,8 @@ def compare_aggregate_work(
         )
 
     sign_answer = property_answer(delta, SignPropertyCheck(), reasoning)
-    if (
-        sign_answer.conclusion not in {"proved", "proved_under_assumptions"}
-        or not isinstance(sign_answer.evidence, PropertyEvidence)
+    if sign_answer.conclusion not in {"proved", "proved_under_assumptions"} or not isinstance(
+        sign_answer.evidence, PropertyEvidence
     ):
         return AggregateWorkRelation(
             delta=delta,
@@ -688,6 +693,13 @@ def _rendered_size_upper_bound(expression: Expression) -> int:
     if isinstance(expression, Sum):
         parts = (expression.body, expression.lower, expression.upper)
         return 16 + len(expression.index) + sum(_rendered_size_upper_bound(part) for part in parts)
+    if isinstance(expression, Let):
+        return (
+            12
+            + len(expression.name)
+            + _rendered_size_upper_bound(expression.value)
+            + _rendered_size_upper_bound(expression.body)
+        )
     return (
         3
         + _rendered_size_upper_bound(expression.left)
@@ -754,14 +766,10 @@ def aggregate_analysis(
         clamped_upper = _subtract(_add(lower, count), _ONE)
         return map_analysis(
             analysis,
-            lambda value: _aggregate_unresolved_value(
-                value, index, lower, clamped_upper, count
-            ),
+            lambda value: _aggregate_unresolved_value(value, index, lower, clamped_upper, count),
         ), ordering_unresolved
     count_is_clamped = isinstance(count, Call) and count.name == "Max"
-    aggregate_upper = (
-        _subtract(_add(lower, count), _ONE) if count_is_clamped else upper
-    )
+    aggregate_upper = _subtract(_add(lower, count), _ONE) if count_is_clamped else upper
     return map_analysis(
         analysis,
         lambda value: _aggregate_value(
@@ -805,11 +813,13 @@ def _aggregate_unresolved_value(
 def _close_affine_sum(expression: Expression) -> Expression:
     """Close only bounded polynomial direct-work sums; retain all other sums exactly."""
     if isinstance(expression, BinaryExpression):
-        return simplify_constants(BinaryExpression(
-            expression.operator,
-            _close_affine_sum(expression.left),
-            _close_affine_sum(expression.right),
-        ))
+        return simplify_constants(
+            BinaryExpression(
+                expression.operator,
+                _close_affine_sum(expression.left),
+                _close_affine_sum(expression.right),
+            )
+        )
     if not isinstance(expression, Sum):
         return expression
     try:
@@ -849,9 +859,7 @@ def factor_independent(expression: Expression, index: str) -> Expression:
     return _multiply(independent, Sum(dependent, index, expression.lower, expression.upper))
 
 
-def _free_symbol_names(
-    expression: Expression, bound: frozenset[str] = frozenset()
-) -> set[str]:
+def _free_symbol_names(expression: Expression, bound: frozenset[str] = frozenset()) -> set[str]:
     if isinstance(expression, Symbol):
         return set() if expression.name in bound else {expression.name}
     if isinstance(expression, Sum):
@@ -878,9 +886,7 @@ def replace_exact(
             changed = True
             return replacement
         if isinstance(value, IndexedValue):
-            return IndexedValue(
-                value.name, tuple(visit(item, bound) for item in value.indices)
-            )
+            return IndexedValue(value.name, tuple(visit(item, bound) for item in value.indices))
         if isinstance(value, Call):
             return Call(value.name, tuple(visit(item, bound) for item in value.arguments))
         if isinstance(value, Sum):
@@ -975,11 +981,7 @@ def simplify_constants(expression: Expression) -> Expression:
         upper = simplify_constants(expression.upper)
         lower_value = exact_integer_value(lower)
         upper_value = exact_integer_value(upper)
-        if (
-            lower_value is not None
-            and upper_value is not None
-            and upper_value < lower_value
-        ):
+        if lower_value is not None and upper_value is not None and upper_value < lower_value:
             return _ZERO
         return Sum(body, expression.index, lower, upper)
     if not isinstance(expression, BinaryExpression):
@@ -1003,18 +1005,14 @@ def substitute_analysis(
     replacements: dict[str, Expression],
 ) -> WorkAnalysis:
     operations = SymbolicTally(
-        additions=substitute(
-            analysis.operations.additions, replacements, max_nodes=MAX_WORK_NODES
-        ),
+        additions=substitute(analysis.operations.additions, replacements, max_nodes=MAX_WORK_NODES),
         subtractions=substitute(
             analysis.operations.subtractions, replacements, max_nodes=MAX_WORK_NODES
         ),
         multiplications=substitute(
             analysis.operations.multiplications, replacements, max_nodes=MAX_WORK_NODES
         ),
-        divisions=substitute(
-            analysis.operations.divisions, replacements, max_nodes=MAX_WORK_NODES
-        ),
+        divisions=substitute(analysis.operations.divisions, replacements, max_nodes=MAX_WORK_NODES),
         powers=substitute(analysis.operations.powers, replacements, max_nodes=MAX_WORK_NODES),
     )
     opaque_work = substitute(analysis.opaque_work, replacements, max_nodes=MAX_WORK_NODES)
@@ -1058,9 +1056,7 @@ def _analyze_sum(expression: Sum, context: WorkContext) -> WorkAnalysis:
     )
     count_is_clamped = isinstance(count, Call) and count.name == "Max"
     aggregate_upper = (
-        _subtract(_add(expression.lower, count), _ONE)
-        if count_is_clamped
-        else expression.upper
+        _subtract(_add(expression.lower, count), _ONE) if count_is_clamped else expression.upper
     )
     result = map_analysis(
         body,
@@ -1184,4 +1180,7 @@ def _is_zero(expression: Expression) -> bool:
 
 
 def _is_one(expression: Expression) -> bool:
-    return (isinstance(expression, IntegerLiteral) and expression.value == 1) or (isinstance(expression, RationalLiteral) and expression.numerator == expression.positive_denominator)  # noqa: E501
+    return (isinstance(expression, IntegerLiteral) and expression.value == 1) or (
+        isinstance(expression, RationalLiteral)
+        and expression.numerator == expression.positive_denominator
+    )

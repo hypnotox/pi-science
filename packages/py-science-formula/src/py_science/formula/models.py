@@ -258,8 +258,8 @@ class FunctionDefinition(StructuredModel):
 
     @model_validator(mode="after")
     def validate_parameters(self) -> "FunctionDefinition":
-        if self.name == "oo":
-            raise ValueError("oo is reserved for mathematical infinity")
+        if self.name in {"oo", "Let"}:
+            raise ValueError(f"{self.name} is reserved for mathematical syntax")
         _validate_parameters(self.parameters)
         return self
 
@@ -271,8 +271,8 @@ class PrimitiveCost(StructuredModel):
 
     @model_validator(mode="after")
     def validate_parameters(self) -> "PrimitiveCost":
-        if self.name == "oo":
-            raise ValueError("oo is reserved for mathematical infinity")
+        if self.name in {"oo", "Let"}:
+            raise ValueError(f"{self.name} is reserved for mathematical syntax")
         _validate_parameters(self.parameters)
         return self
 

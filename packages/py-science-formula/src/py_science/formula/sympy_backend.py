@@ -17,6 +17,7 @@ from py_science.formula.expressions import (
     IndexedValue,
     InfinityLiteral,
     IntegerLiteral,
+    Let,
     RationalLiteral,
     Sum,
     Symbol,
@@ -1478,14 +1479,10 @@ def bounded_horner_candidate(
         return BoundedHornerRefusal("backend refusal")
     generated_nodes = sum(1 for _ in sympy.preorder_traversal(candidate))
     if generated_nodes > max_generated_nodes:
-        return BoundedHornerRefusal(
-            "generated nodes", generated_nodes, max_generated_nodes
-        )
+        return BoundedHornerRefusal("generated nodes", generated_nodes, max_generated_nodes)
     rendered = sympy.sstr(candidate)
     if len(rendered.encode("utf-8")) > max_render_bytes:
-        return BoundedHornerRefusal(
-            "render bytes", len(rendered.encode("utf-8")), max_render_bytes
-        )
+        return BoundedHornerRefusal("render bytes", len(rendered.encode("utf-8")), max_render_bytes)
     if candidate == value:
         return BoundedHornerNoMatch()
     return BoundedHornerCandidate(
@@ -1522,9 +1519,57 @@ def bounded_factor_candidate(
 
 def render(formula: Expression | Equation) -> NormalizedRendering:
     try:
+        if _contains_let(formula):
+            # Preserve lexical structure in the public normalized spelling;
+            # backend conversion below intentionally lowers only mathematics.
+            return NormalizedRendering(_render_lexical(formula), sympy.latex(_to_sympy(formula)))
         return _render_value(_to_sympy(formula))
     except Exception as error:
         raise NormalizationError("SymPy normalization failed") from error
+
+
+def _contains_let(value: Expression | Equation) -> bool:
+    if isinstance(value, Let):
+        return True
+    if isinstance(value, Equation):
+        return _contains_let(value.left) or _contains_let(value.right)
+    return any(_contains_let(child) for child in expression_children(value))
+
+
+def _render_lexical(value: Expression | Equation) -> str:
+    if isinstance(value, Let):
+        return f"Let({value.name}, {_render_lexical(value.value)}, {_render_lexical(value.body)})"
+    if isinstance(value, Sum):
+        body = _render_lexical(value.body)
+        lower = _render_lexical(value.lower)
+        upper = _render_lexical(value.upper)
+        return f"Sum({body}, ({value.index}, {lower}, {upper}))"
+    if isinstance(value, Equation):
+        return f"Eq({_render_lexical(value.left)}, {_render_lexical(value.right)})"
+    if isinstance(value, BinaryExpression):
+        token = {
+            BinaryOperator.ADD: " + ",
+            BinaryOperator.SUBTRACT: " - ",
+            BinaryOperator.MULTIPLY: "*",
+            BinaryOperator.DIVIDE: "/",
+            BinaryOperator.POWER: "**",
+        }[value.operator]
+        return f"{_render_lexical(value.left)}{token}{_render_lexical(value.right)}"
+    if isinstance(value, Call):
+        return f"{value.name}({', '.join(_render_lexical(item) for item in value.arguments)})"
+    if isinstance(value, IndexedValue):
+        return f"{value.name}[{', '.join(_render_lexical(item) for item in value.indices)}]"
+    if isinstance(value, InfinityLiteral):
+        return "oo" if value.sign > 0 else "-oo"
+    if isinstance(value, RationalLiteral):
+        return (
+            str(value.numerator)
+            if value.positive_denominator == 1
+            else f"{value.numerator}/{value.positive_denominator}"
+        )
+    if isinstance(value, IntegerLiteral):
+        return str(value.value)
+    return value.name
 
 
 def polynomial_degree(expression: Expression, variable: str) -> int | None:
@@ -1659,6 +1704,10 @@ def _to_sympy(formula: Expression | Equation) -> SympyExpression:
             function_factory = cast(Callable[[str], Callable[..., SympyExpression]], sympy.Function)
             constructor = function_factory(formula.name)
         return constructor(*arguments)
+    if isinstance(formula, Let):
+        # Let is not a SymPy callable: lower capture-safely only at the
+        # represented-value boundary.  Its direct work is owned by work.py.
+        return _to_sympy(substitute(formula.body, {formula.name: formula.value}, max_nodes=4096))
     if isinstance(formula, Sum):
         constructor = cast(Callable[..., SympyExpression], sympy.Sum)
         symbol_constructor = cast(Callable[[str], SympyExpression], sympy.Symbol)

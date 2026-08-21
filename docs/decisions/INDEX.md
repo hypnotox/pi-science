@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-- [ADR-adopt-stateless-replayable-formula-optimization-plans: Adopt stateless replayable formula optimization plans](adopt-stateless-replayable-formula-optimization-plans.md) (Proposed)
+- [ADR-adopt-stateless-replayable-formula-optimization-plans: Adopt stateless replayable formula optimization plans](adopt-stateless-replayable-formula-optimization-plans.md) (Implementing)
 
 ## History
 

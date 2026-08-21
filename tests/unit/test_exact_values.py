@@ -31,6 +31,31 @@ def test_exact_scalars_reduce_render_and_bound() -> None:
     assert parse_exact_scalar(f"-{maximum_fraction}") is not None
 
 
+def test_let_binding_parses_preserves_structure_and_charges_value_once() -> None:
+    parsed = parse_expression("Let(t, x*x, t + t)")
+    assert type(parsed).__name__ == "Let"
+    outcome = analyze(
+        AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="Let(t, x*x, t + t)")
+    )
+    assert outcome.status == "success"
+    assert outcome.interpretation.normalized_sympy == "Let(t, x*x, t + t)"
+    assert outcome.abstract_work == 2
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "Let(t, x)",
+        "Let(t, x, t, x)",
+        "Let(x + 1, x, x)",
+        "Let(t, t + 1, t)",
+    ),
+)
+def test_let_binding_rejects_malformed_name_and_self_reference(source: str) -> None:
+    parsed = parse_expression(source)
+    assert isinstance(parsed, ParseFailure)
+
+
 def test_formula_decimals_and_infinities_are_exact_values() -> None:
     assert parse_expression("1.50") == RationalLiteral(3, 2)
     assert parse_expression("0.12345678901234567890123456789") == RationalLiteral(

@@ -8,6 +8,7 @@ from py_science.formula.expressions import (
     Call,
     Expression,
     IndexedValue,
+    Let,
     Sum,
 )
 
@@ -51,6 +52,8 @@ def count_operations(expression: Expression) -> OperationTally:
         return _combine(expression.arguments)
     if isinstance(expression, IndexedValue):
         return _combine(expression.indices)
+    if isinstance(expression, Let):
+        return count_operations(expression.value).combine(count_operations(expression.body))
     if isinstance(expression, Sum):
         return (
             count_operations(expression.body)

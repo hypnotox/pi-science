@@ -14,7 +14,9 @@ SymPy is the bounded backend for normalized algebra, rendering, and verification
 
 ## Restricted expression dialect
 
-The parser accepts integer and exact decimal literals, ordinary symbols, `oo` and `-oo`, arithmetic `+`, `-`, `*`, `/`, and `**`, indexed scalar values, and ordinary named calls with positional arguments. It accepts one-limit inclusive sums spelled `Sum(body, (index, lower, upper))`, equations spelled `Eq(lhs, rhs)` with a scalar or indexed result on the left, and one unchained `==`, `<`, `<=`, `>`, or `>=` relationship.
+The parser accepts integer and exact decimal literals, ordinary symbols, `oo` and `-oo`, arithmetic `+`, `-`, `*`, `/`, and `**`, indexed scalar values, bounded nonrecursive lexical bindings spelled `Let(name, value, body)`, and ordinary named calls with positional arguments. It accepts one-limit inclusive sums spelled `Sum(body, (index, lower, upper))`, equations spelled `Eq(lhs, rhs)` with a scalar or indexed result on the left, and one unchained `==`, `<`, `<=`, `>`, or `>=` relationship.
+
+`Let` has one meaning: its bare-symbol name is not visible in `value`, is visible only in `body`, and `value` contributes work once per evaluation at that lexical placement. It is preserved in normalized syntax and lowered capture-safely only for represented-value mathematics; it is not a generic call, scheduling construct, mutation, or code generation feature.
 
 The submitted language is not unrestricted Python or SymPy. It rejects attributes, keyword and starred call arguments, chained relationships, implicit vector operations, products, submitted aggregate `Max`, and multiple limits in one sum. An ordinary spelling such as `sqrt(x)`, `exp(x)`, or `f(x)` is a generic call unless the request supplies a function body or primitive cost; parser acceptance does not imply evaluator semantics. Parser acceptance, validity in the containing request field, and bounded query applicability are separate Python-owned checks.
 

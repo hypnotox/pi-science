@@ -30,6 +30,7 @@ from py_science.formula.expressions import (
     IndexedValue,
     InfinityLiteral,
     IntegerLiteral,
+    Let,
     RationalLiteral,
     Relationship,
     RelationshipOperator,
@@ -870,6 +871,8 @@ def _is_real_expression(expression: Expression, context: WorkContext) -> bool:
             and is_integer_expression(expression.lower, context)
             and is_integer_expression(expression.upper, context)
         )
+    if isinstance(expression, Let):
+        return _is_real_expression(expression.value, context) and _is_real_expression(expression.body, context)
     if not _is_real_expression(expression.left, context) or not _is_real_expression(
         expression.right, context
     ):
@@ -1848,6 +1851,12 @@ def _validate_index_scopes(
                 unresolved.add(
                     f"index expression for {expression.name} is not known to be integral"
                 )
+    if isinstance(expression, Let):
+        error, nested = _validate_index_scopes(expression.value, scope, context)
+        unresolved.update(nested)
+        if error is not None:
+            return error, unresolved
+        return _validate_index_scopes(expression.body, scope, context)
     if isinstance(expression, Sum):
         if expression.index in scope:
             return f"sum index {expression.index} shadows an existing index", unresolved
@@ -1902,6 +1911,10 @@ def _external_value_names(
         external: set[str] = set()
         for argument in expression.arguments:
             external.update(_external_value_names(argument, scope, producer_names))
+        return external
+    if isinstance(expression, Let):
+        external = _external_value_names(expression.value, scope, producer_names)
+        external.update(_external_value_names(expression.body, scope | {expression.name}, producer_names))
         return external
     if isinstance(expression, Sum):
         external = _external_value_names(expression.lower, scope, producer_names)
@@ -1990,6 +2003,8 @@ def _symbol_names(expression: Expression) -> set[str]:
     def collect(value: Expression, bound: frozenset[str]) -> set[str]:
         if isinstance(value, Symbol):
             return set() if value.name in bound else {value.name}
+        if isinstance(value, Let):
+            return collect(value.value, bound) | collect(value.body, bound | {value.name})
         if isinstance(value, Sum):
             return (
                 collect(value.lower, bound)
@@ -2027,7 +2042,7 @@ def _contains_infinity(expression: Expression) -> bool:
 
 
 def _contains_advanced(expression: Expression) -> bool:
-    if isinstance(expression, (IndexedValue, Call, Sum, InfinityLiteral)):
+    if isinstance(expression, (IndexedValue, Call, Sum, Let, InfinityLiteral)):
         return True
     return any(_contains_advanced(child) for child in expression_children(expression))
 
