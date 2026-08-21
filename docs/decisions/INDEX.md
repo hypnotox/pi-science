@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-_No decisions are in flight._
+- [ADR-adopt-exact-weighted-optimization-objectives: Adopt exact weighted optimization objectives](adopt-exact-weighted-optimization-objectives.md) (Proposed)
 
 ## History
 
