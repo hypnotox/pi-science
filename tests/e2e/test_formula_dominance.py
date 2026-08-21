@@ -337,6 +337,9 @@ def test_nested_analysis_disables_optimization() -> None:
     ordinary = analyze(request.analysis_request())
     assert isinstance(ordinary, AnalysisSuccess)
     assert ordinary.optimization.requested_limit == 3
+    assert result.analysis.model_copy(
+        update={"optimization": ordinary.optimization}
+    ) == ordinary
     assert any(
         suggestion.kind == "redundant_operation_removal"
         for suggestion in ordinary.optimization.suggestions

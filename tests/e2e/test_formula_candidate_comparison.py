@@ -131,22 +131,29 @@ def test_nested_analysis_disables_optimization() -> None:
         "x/d",
         "x/d",
     )
-    for candidate in result.candidates:
+    ordinary_analyses: list[AnalysisSuccess] = []
+    for candidate_request, candidate in zip(
+        request.candidates, result.candidates, strict=True
+    ):
         assert candidate.analysis.optimization.model_dump() == {
             "requested_limit": 0,
             "status": "disabled",
             "suggestions": (),
             "qualifications": (),
         }
+        ordinary = analyze(request.analysis_request(candidate_request))
+        assert isinstance(ordinary, AnalysisSuccess)
+        ordinary_analyses.append(ordinary)
+        assert candidate.analysis.model_copy(
+            update={"optimization": ordinary.optimization}
+        ) == ordinary
     optimizable = compare_candidates(_expression_request("x + 0", "x + 0"))
     assert isinstance(optimizable, CandidateComparisonSuccess)
     assert all(
         candidate.analysis.optimization.status == "disabled"
         for candidate in optimizable.candidates
     )
-    ordinary = analyze(request.analysis_request(request.candidates[0]))
-    assert isinstance(ordinary, AnalysisSuccess)
-    assert ordinary.optimization.requested_limit == 3
+    assert ordinary_analyses[0].optimization.requested_limit == 3
     assert result.candidates[0].aggregate_work != result.candidates[1].aggregate_work
     assert result.work_comparison.delta == "-1"
     assert result.work_comparison.status == "second_lower"
