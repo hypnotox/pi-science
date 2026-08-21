@@ -495,7 +495,7 @@ describe("readiness gate", () => {
     });
     const text = result.content[0]!.text;
     expect(text).toContain(longReplacement);
-    expect(text).not.toContain(`${longReplacement.slice(0, 512)}…`);
+    expect(text).not.toContain(`${longReplacement.slice(0, 512)}...`);
     expect(text).toContain("assumptions used: known (x > 0)");
     expect(text).toContain("1 additional proved suggestion in details");
     expect(text).toContain(
