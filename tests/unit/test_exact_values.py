@@ -1,6 +1,7 @@
 import pytest
 from py_science.formula import (
     AnalysisRequest,
+    AnalysisSuccess,
     Assumption,
     DirectedDefinition,
     EquationRequest,
@@ -13,7 +14,15 @@ from py_science.formula import (
     analyze,
 )
 from py_science.formula.exact_values import ExactRational, parse_exact_scalar, render_exact
-from py_science.formula.expressions import BinaryExpression, InfinityLiteral, RationalLiteral
+from py_science.formula.expressions import (
+    BinaryExpression,
+    InfinityLiteral,
+    IntegerLiteral,
+    Let,
+    RationalLiteral,
+    Symbol,
+    substitute,
+)
 from py_science.formula.parser import ParseFailure, parse_expression
 from pydantic import ValidationError
 
@@ -54,6 +63,131 @@ def test_let_binding_parses_preserves_structure_and_charges_value_once() -> None
 def test_let_binding_rejects_malformed_name_and_self_reference(source: str) -> None:
     parsed = parse_expression(source)
     assert isinstance(parsed, ParseFailure)
+
+
+def test_let_binding_normalized_rendering_preserves_binary_grouping() -> None:
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="Let(t, (x + 1)*2, t/(x - 1))",
+        )
+    )
+
+    assert outcome.status == "success"
+    assert outcome.interpretation.normalized_sympy == "Let(t, (x + 1)*2, t/(x - 1))"
+    replay = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression=outcome.interpretation.normalized_sympy,
+        )
+    )
+    assert replay.status == "success"
+    assert replay.interpretation.normalized_latex == outcome.interpretation.normalized_latex
+
+
+def test_let_binding_substitution_alpha_renames_to_avoid_capture() -> None:
+    substituted = substitute(
+        Let("t", IntegerLiteral(0), Symbol("x")),
+        {"x": Symbol("t")},
+    )
+
+    assert isinstance(substituted, Let)
+    assert substituted.name != "t"
+    assert substituted.value == IntegerLiteral(0)
+    assert substituted.body == Symbol("t")
+
+
+@pytest.mark.parametrize(
+    ("expression", "variables"),
+    (
+        ("Let(x, 1, x)", {"x": VariableDeclaration(domain=MathematicalDomain.REAL)}),
+        (
+            "Sum(Let(i, x*x, i + i), (i, 0, n))",
+            {
+                "x": VariableDeclaration(domain=MathematicalDomain.REAL),
+                "n": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER),
+            },
+        ),
+        (
+            "Let(t, 1, Let(t, 2, t))",
+            {},
+        ),
+    ),
+)
+def test_let_binding_rejects_nonfresh_names(
+    expression: str,
+    variables: dict[str, VariableDeclaration],
+) -> None:
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression=expression,
+            variables=variables,
+        )
+    )
+
+    assert outcome.status == "failure"
+    assert "binding name" in outcome.error.message
+
+
+def test_let_binding_scope_changes_aggregate_multiplicity() -> None:
+    inside = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="Sum(Let(t, x*x, t + t), (i, 0, 2))",
+        )
+    )
+    outside = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="Let(t, x*x, Sum(t + t, (i, 0, 2)))",
+        )
+    )
+
+    assert isinstance(inside, AnalysisSuccess)
+    assert isinstance(outside, AnalysisSuccess)
+    assert inside.system is not None and outside.system is not None
+    assert inside.system.total_work == "8"
+    assert outside.system.total_work == "6"
+
+
+def test_let_binding_system_normalization_and_output_multiplicity_are_preserved() -> None:
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=(
+                EquationRequest(
+                    name="out",
+                    expression="Eq(y[i], Let(t, x[i]*x[i], t + t))",
+                    domains={"i": IndexDomain(lower="0", upper="2")},
+                ),
+            ),
+            variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
+        )
+    )
+
+    assert outcome.status == "success"
+    assert outcome.interpretation.normalized_sympy == (
+        "(Eq(y[i], Let(t, x[i]*x[i], t + t)),)"
+    )
+    assert outcome.system is not None
+    assert outcome.system.equations[0].interpretation.normalized_sympy == (
+        "Eq(y[i], Let(t, x[i]*x[i], t + t))"
+    )
+    assert outcome.system.total_work == "6"
+
+
+def test_let_binding_retains_nonfinite_aggregate_work() -> None:
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="Let(t, x*x, Sum(t, (i, 0, oo)))",
+        )
+    )
+
+    assert outcome.status == "success"
+    assert outcome.abstract_work is None
+    assert outcome.direct_work_applicability == "not_finite"
 
 
 def test_formula_decimals_and_infinities_are_exact_values() -> None:

@@ -29,6 +29,17 @@ def query(expression, *queries, domain=MathematicalDomain.REAL):
     )
 
 
+def test_lexical_binding_property_query_uses_represented_value():
+    outcome = query(
+        "Let(t, x + 1, t*t)",
+        {"name": "p", "kind": "properties", "checks": ({"kind": "sign"},)},
+    )
+
+    assert outcome.status == "success"
+    assert outcome.interpretation.normalized_sympy == "Let(t, x + 1, t*t)"
+    assert outcome.queries[0].answers[0].conclusion == "proved"
+
+
 def test_explicit_axis_structural_chart_retains_roots_poles_points_and_provenance():
     expression = parse_expression("(x + 1) / (x - 1)")
     lower = parse_expression("x > -2")

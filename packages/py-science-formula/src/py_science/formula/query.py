@@ -10,9 +10,11 @@ from py_science.formula.equivalence import equivalence_answer
 from py_science.formula.expressions import (
     Equation,
     Expression,
+    ExpressionTooComplex,
     Relationship,
     Sum,
     expression_children,
+    lower_let_bindings,
 )
 from py_science.formula.models import (
     AnalysisError,
@@ -57,11 +59,15 @@ def evaluate_queries(
     reasoning: ReasoningContext | None,
 ) -> tuple[QueryResult, ...] | AnalysisFailure:
     results: list[QueryResult] = []
+    try:
+        represented_expression = lower_let_bindings(target.expression)
+    except ExpressionTooComplex:
+        represented_expression = target.expression
     for position, query in enumerate(queries):
         if query.target is not None and query.target != target.target:
             return _failure("query target is unknown", f"queries[{position}].target")
         if isinstance(query, EquivalenceQuery):
-            answer = _equivalence(query, target.expression, reasoning, position)
+            answer = _equivalence(query, represented_expression, reasoning, position)
             if isinstance(answer, AnalysisFailure):
                 return answer
             result: QueryResult = EquivalenceResult(
@@ -72,9 +78,9 @@ def evaluate_queries(
                 answers=(answer,),
             )
         elif isinstance(query, PropertiesQuery):
-            expression, qualification = _property_expression(target.expression, reasoning)
+            expression, qualification = _property_expression(represented_expression, reasoning)
             answers = tuple(
-                afmm_tail_property_answer(target.expression, item, reasoning)
+                afmm_tail_property_answer(represented_expression, item, reasoning)
                 or property_answer(expression, item, reasoning)
                 for item in query.checks
             )
@@ -87,20 +93,20 @@ def evaluate_queries(
                 answers=answers,
             )
         elif isinstance(query, ClosedFormQuery):
-            answer = derive_closed_form(target.expression, reasoning)
+            answer = derive_closed_form(represented_expression, reasoning)
             result = ClosedFormResult(name=query.name, target=target.target, normalized_target=target.interpretation, summary="qualified bounded series closed form", answers=(answer,))
         elif isinstance(query, LimitQuery):
-            expression, qualification = _property_expression(target.expression, reasoning)
+            expression, qualification = _property_expression(represented_expression, reasoning)
             answer = _with_closed_form_qualification(limit_answer(expression, query, reasoning), qualification)
             result = LimitResult(name=query.name, target=target.target, normalized_target=target.interpretation, summary="bounded exact directional limit", answers=(answer,))
         else:
-            expression, qualification = _property_expression(target.expression, reasoning)
+            expression, qualification = _property_expression(represented_expression, reasoning)
             answer = _with_closed_form_qualification(
                 asymptotic_answer(
                     expression,
                     query,
                     reasoning,
-                    original_expression=target.expression,
+                    original_expression=represented_expression,
                 ),
                 qualification,
             )

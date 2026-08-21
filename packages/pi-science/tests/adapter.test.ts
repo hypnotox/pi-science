@@ -113,6 +113,30 @@ const systemRequest = {
 };
 
 describe("formula adapter protocol boundary", () => {
+  it("round trips a lexical Let binding under protocol v12", () => {
+    const result = invoke(
+      JSON.stringify({
+        version: 12,
+        request: {
+          syntax: "sympy",
+          expression: "Let(t, x*x, t + t)",
+        },
+      }),
+    );
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      version: 12,
+      result: {
+        status: "success",
+        interpretation: {
+          normalized_sympy: "Let(t, x*x, t + t)",
+        },
+        abstract_work: 2,
+      },
+    });
+  });
+
   it("round trips local, sharing, Horner, and incomplete optimization reports", () => {
     const requests = [
       { syntax: "sympy", expression: "x" },

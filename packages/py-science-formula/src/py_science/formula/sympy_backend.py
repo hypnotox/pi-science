@@ -1554,7 +1554,21 @@ def _render_lexical(value: Expression | Equation) -> str:
             BinaryOperator.DIVIDE: "/",
             BinaryOperator.POWER: "**",
         }[value.operator]
-        return f"{_render_lexical(value.left)}{token}{_render_lexical(value.right)}"
+        left = _render_lexical(value.left)
+        right = _render_lexical(value.right)
+        if isinstance(value.left, BinaryExpression):
+            left = f"({left})"
+        if isinstance(value.right, BinaryExpression):
+            right = f"({right})"
+        if value.operator is BinaryOperator.POWER and isinstance(
+            value.left, (IntegerLiteral, RationalLiteral)
+        ) and (
+            value.left.value < 0
+            if isinstance(value.left, IntegerLiteral)
+            else value.left.numerator < 0
+        ):
+            left = f"({left})"
+        return f"{left}{token}{right}"
     if isinstance(value, Call):
         return f"{value.name}({', '.join(_render_lexical(item) for item in value.arguments)})"
     if isinstance(value, IndexedValue):
@@ -1608,7 +1622,13 @@ def is_nondecreasing_polynomial(expression: Expression, variable: str) -> bool:
 def render_system(equations: tuple[Equation, ...]) -> NormalizedRendering:
     try:
         constructor = cast(Callable[..., SympyExpression], sympy.Tuple)
-        return _render_value(constructor(*(_to_sympy(equation) for equation in equations)))
+        lowered = constructor(*(_to_sympy(equation) for equation in equations))
+        if any(_contains_let(equation) for equation in equations):
+            rendered = ", ".join(_render_lexical(equation) for equation in equations)
+            if len(equations) == 1:
+                rendered += ","
+            return NormalizedRendering(f"({rendered})", cast(str, sympy.latex(lowered)))
+        return _render_value(lowered)
     except Exception as error:
         raise NormalizationError("SymPy normalization failed") from error
 

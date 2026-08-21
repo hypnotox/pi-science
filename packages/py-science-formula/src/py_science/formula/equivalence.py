@@ -8,7 +8,14 @@ from typing import Any
 
 import sympy
 from py_science.formula.exact_values import ExactRational, render_exact
-from py_science.formula.expressions import Expression, IntegerLiteral, Symbol, expression_children
+from py_science.formula.expressions import (
+    Expression,
+    ExpressionTooComplex,
+    IntegerLiteral,
+    Symbol,
+    expression_children,
+    lower_let_bindings,
+)
 from py_science.formula.models import CounterexampleEvidence, IdentityEvidence, QueryAnswer
 from py_science.formula.query_diagnostics import RATIONAL_FAILURE_REASONS, QueryDiagnostic
 from py_science.formula.reasoning import ReasoningContext, collect_denominators
@@ -28,6 +35,11 @@ def equivalence_answer(
     """Compare two already-parsed operands under bounded rational reasoning."""
     if reasoning is None:
         return _unresolved_with("query reasoning exceeds its bound")
+    try:
+        expression = lower_let_bindings(expression)
+        comparison = lower_let_bindings(comparison)
+    except ExpressionTooComplex:
+        return _unresolved_with("lexical binding expansion exceeds its bound")
     original_symbols = _symbol_names(expression) | _symbol_names(comparison)
     try:
         left, right = reasoning.apply(expression), reasoning.apply(comparison)

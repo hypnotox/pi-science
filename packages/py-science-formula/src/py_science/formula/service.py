@@ -715,6 +715,12 @@ def _parse_knowledge(
                 f"assumption {item.name} must be an equality or inequality",
                 source=SourceReference(path=f"assumptions[{position}].relationship"),
             )
+        reserved_names = set(request.variables) | {item.variable for item in request.definitions}
+        let_error = _validate_let_names(parsed.left, reserved_names) or _validate_let_names(
+            parsed.right, reserved_names
+        )
+        if let_error is not None:
+            return _invalid(let_error)
         assumptions.append(NamedRelationship(item.name, item.relationship, parsed))
     parsed_definitions: list[tuple[int, str, str, Expression]] = []
     for position, item in enumerate(request.definitions):
@@ -726,6 +732,12 @@ def _parse_knowledge(
                 f"definition {item.variable} must be an expression",
                 source=SourceReference(path=f"definitions[{position}].expression"),
             )
+        let_error = _validate_let_names(
+            parsed,
+            set(request.variables) | {item.variable for item in request.definitions},
+        )
+        if let_error is not None:
+            return _invalid(let_error)
         parsed_definitions.append((position, item.variable, item.expression, parsed))
     graph = {
         name: _symbol_names(expression) & {other[1] for other in parsed_definitions}
@@ -776,6 +788,14 @@ def _parse_knowledge(
                     source=SourceReference(path=definition_path),
                     supported_alternative="use a finite scenario work definition",
                 )
+            let_error = _validate_let_names(
+                parsed,
+                set(request.variables)
+                | {item.variable for item in request.definitions}
+                | {item.variable for item in scenario.definitions},
+            )
+            if let_error is not None:
+                return _invalid(let_error)
             scenario_expressions[definition.variable] = parsed
         globally_defined = set(resolved_definitions)
         overlapping_treatments = (
@@ -1120,6 +1140,9 @@ def _parse_definitions(
             return parsed
         if isinstance(parsed, (Equation, Relationship)):
             return _invalid(f"function {definition.name} body cannot contain a relationship")
+        let_error = _validate_let_names(parsed, set(definition.parameters))
+        if let_error is not None:
+            return _invalid(f"function {definition.name}: {let_error}")
         index_error, _ = _validate_index_scopes(
             parsed,
             set(definition.parameters),
@@ -1152,6 +1175,9 @@ def _parse_definitions(
                 source=SourceReference(path=primitive_path),
                 supported_alternative="use a finite symbolic work expression",
             )
+        let_error = _validate_let_names(parsed, set(primitive.parameters))
+        if let_error is not None:
+            return _invalid(f"primitive cost {primitive.name}: {let_error}")
         index_error, _ = _validate_index_scopes(
             parsed,
             set(primitive.parameters),
@@ -1213,6 +1239,12 @@ def _analyze_single(
         return parsed
     if isinstance(parsed, (Equation, Relationship)):
         return _unsupported("relationships are supported only in assumption fields")
+    let_error = _validate_let_names(
+        parsed,
+        set(request.variables) | {item.variable for item in request.definitions},
+    )
+    if let_error is not None:
+        return _invalid(let_error)
     call_failure = _check_call_arities(
         parsed,
         {
@@ -1716,6 +1748,15 @@ def _validate_system(
     for equation_position, equation in enumerate(equations):
         name = equation.name
         scope = set(equation.domains)
+        let_error = _validate_let_names(
+            equation.formula.right,
+            set(request.variables)
+            | {item.variable for item in request.definitions}
+            | producer_names
+            | scope,
+        )
+        if let_error is not None:
+            return _invalid(f"equation {name}: {let_error}")
         index_error, index_unknown = _validate_index_scopes(
             equation.formula.right,
             scope,
@@ -1735,6 +1776,15 @@ def _validate_system(
                 call_failure = _check_call_arities(bound, known_arities, unknown_arities)
                 if call_failure is not None:
                     return call_failure
+                let_error = _validate_let_names(
+                    bound,
+                    set(request.variables)
+                    | {item.variable for item in request.definitions}
+                    | producer_names
+                    | scope,
+                )
+                if let_error is not None:
+                    return _invalid(f"equation {name} domain: {let_error}")
                 bound_error, bound_unknown = _validate_index_scopes(bound, scope, context)
                 if bound_error is not None:
                     return _invalid(
@@ -1819,6 +1869,27 @@ def _resolve_references(
         failure = _resolve_references(child, consumer, producers, edges, references)
         if failure is not None:
             return failure
+    return None
+
+
+def _validate_let_names(expression: Expression, reserved: set[str]) -> str | None:
+    if isinstance(expression, Let):
+        if expression.name in reserved:
+            return f"lexical binding name {expression.name} must be fresh"
+        error = _validate_let_names(expression.value, reserved)
+        if error is not None:
+            return error
+        return _validate_let_names(expression.body, reserved | {expression.name})
+    if isinstance(expression, Sum):
+        for bound in (expression.lower, expression.upper):
+            error = _validate_let_names(bound, reserved)
+            if error is not None:
+                return error
+        return _validate_let_names(expression.body, reserved | {expression.index})
+    for child in expression_children(expression):
+        error = _validate_let_names(child, reserved)
+        if error is not None:
+            return error
     return None
 
 

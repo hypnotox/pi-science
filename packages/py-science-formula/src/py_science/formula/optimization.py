@@ -21,6 +21,7 @@ from py_science.formula.expressions import (
     ExpressionTooComplex,
     IndexedValue,
     IntegerLiteral,
+    Let,
     Relationship,
     Sum,
     Symbol,
@@ -236,6 +237,7 @@ def _detect_occurrences(
         node: Expression,
         path: tuple[int, ...],
         bound: tuple[_ScopeBinding, ...],
+        lexical_bound: frozenset[str],
     ) -> None:
         nonlocal remaining
         remaining -= 1
@@ -245,17 +247,20 @@ def _detect_occurrences(
         if is_named_reference:
             if isinstance(node, IndexedValue):
                 for index, child in enumerate(node.indices):
-                    visit(child, (*path, index), bound)
+                    visit(child, (*path, index), bound, lexical_bound)
             return
         binder_names = tuple(item.name for item in bound)
-        if isinstance(node, (BinaryExpression, Call, Sum)):
+        if isinstance(node, (BinaryExpression, Call, Sum, Let)):
             occurrences.append(
                 _Occurrence(
                     target=target,
                     path=path,
                     expression=node,
                     free_symbols=frozenset(
-                        _free_symbols(node, frozenset((*output_indices, *binder_names)))
+                        _free_symbols(
+                            node,
+                            frozenset((*output_indices, *binder_names)) | lexical_bound,
+                        )
                     ),
                     binders=binder_names,
                     scope=_EvaluationScope(output_indices, output_bindings, bound),
@@ -263,15 +268,19 @@ def _detect_occurrences(
             )
         if isinstance(node, Sum):
             # Bounds are evaluated outside the new binder; only the body owns it.
-            visit(node.lower, (*path, 0), bound)
-            visit(node.upper, (*path, 1), bound)
+            visit(node.lower, (*path, 0), bound, lexical_bound)
+            visit(node.upper, (*path, 1), bound, lexical_bound)
             binding = _ScopeBinding(node.index, path, node.lower, node.upper)
-            visit(node.body, (*path, 2), (*bound, binding))
+            visit(node.body, (*path, 2), (*bound, binding), lexical_bound)
+            return
+        if isinstance(node, Let):
+            visit(node.value, (*path, 0), bound, lexical_bound)
+            visit(node.body, (*path, 1), bound, lexical_bound | {node.name})
             return
         for index, child in enumerate(expression_children(node)):
-            visit(child, (*path, index), bound)
+            visit(child, (*path, index), bound, lexical_bound)
 
-    visit(expression, (), ())
+    visit(expression, (), (), frozenset())
     return tuple(occurrences)
 
 
@@ -323,6 +332,10 @@ def _free_symbols(expression: Expression, bound: frozenset[str] = frozenset()) -
             | _free_symbols(expression.upper, bound)
             | _free_symbols(expression.body, bound | {expression.index})
         )
+    if isinstance(expression, Let):
+        return _free_symbols(expression.value, bound) | _free_symbols(
+            expression.body, bound | {expression.name}
+        )
     result: set[str] = set()
     for child in expression_children(expression):
         result.update(_free_symbols(child, bound))
@@ -335,6 +348,8 @@ def _all_symbol_names(expression: Expression) -> set[str]:
         result.add(expression.name)
     if isinstance(expression, Sum):
         result.add(expression.index)
+    if isinstance(expression, Let):
+        result.add(expression.name)
     for child in expression_children(expression):
         result.update(_all_symbol_names(child))
     return result
@@ -368,6 +383,12 @@ def _replace_paths(
                 node.index,
                 visit(node.lower, (*path, 0)),
                 visit(node.upper, (*path, 1)),
+            )
+        if isinstance(node, Let):
+            return Let(
+                node.name,
+                visit(node.value, (*path, 0)),
+                visit(node.body, (*path, 1)),
             )
         return node
 
@@ -483,6 +504,15 @@ def _canonical_output_expression(
                 canonical,
                 visit(value.lower, names, (*path, 0)),
                 visit(value.upper, names, (*path, 1)),
+            )
+        if isinstance(value, Let):
+            canonical = "optimization_let_" + "_".join(str(item) for item in path or (0,))
+            inner = dict(names)
+            inner[value.name] = canonical
+            return Let(
+                canonical,
+                visit(value.value, names, (*path, 0)),
+                visit(value.body, inner, (*path, 1)),
             )
         return value
 

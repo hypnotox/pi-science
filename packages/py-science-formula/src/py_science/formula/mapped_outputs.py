@@ -15,10 +15,13 @@ from py_science.formula.expressions import (
     Expression,
     ExpressionTooComplex,
     IndexedValue,
+    Let,
     Relationship,
     RelationshipOperator,
     Sum,
     Symbol,
+    expression_node_count,
+    substitute,
 )
 from py_science.formula.models import (
     EquationTarget,
@@ -144,7 +147,7 @@ class MappedOutputExpander:
         if isinstance(value, Sum):
             lower = self._visit(value.lower, replacements, bound, producer_stack)
             upper = self._visit(value.upper, replacements, bound, producer_stack)
-            fresh = self._fresh_sum_name()
+            fresh = self._fresh_name("comparison_sum")
             renamed_body = _rename_bound(value.body, value.index, fresh)
             inner_replacements = {
                 name: replacement
@@ -158,14 +161,36 @@ class MappedOutputExpander:
                 producer_stack,
             )
             return Sum(body, fresh, lower, upper)
+        if isinstance(value, Let):
+            expanded_value = self._visit(value.value, replacements, bound, producer_stack)
+            fresh = self._fresh_name("comparison_let")
+            renamed_body = _rename_bound(value.body, value.name, fresh)
+            inner_replacements = {
+                name: replacement
+                for name, replacement in replacements.items()
+                if name != value.name
+            }
+            body = self._visit(
+                renamed_body,
+                inner_replacements,
+                bound | {fresh},
+                producer_stack,
+            )
+            expanded = substitute(
+                body,
+                {fresh: expanded_value},
+                max_nodes=self.budget.remaining,
+            )
+            self.budget.consume(expression_node_count(expanded))
+            return expanded
         return value
 
     def _producer_equation(self, name: str):
         return next(equation for equation in self.analyzed.equations if equation.name == name)
 
-    def _fresh_sum_name(self) -> str:
+    def _fresh_name(self, prefix: str) -> str:
         while True:
-            name = f"comparison_sum_{self.fresh_position}"
+            name = f"{prefix}_{self.fresh_position}"
             self.fresh_position += 1
             if name not in self.reserved_names:
                 self.reserved_names.add(name)
@@ -487,4 +512,8 @@ def _rename_bound(value: Expression, old: str, new: str) -> Expression:
         upper = _rename_bound(value.upper, old, new)
         body = value.body if value.index == old else _rename_bound(value.body, old, new)
         return Sum(body, value.index, lower, upper)
+    if isinstance(value, Let):
+        renamed_value = _rename_bound(value.value, old, new)
+        body = value.body if value.name == old else _rename_bound(value.body, old, new)
+        return Let(value.name, renamed_value, body)
     return value

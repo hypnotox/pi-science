@@ -575,7 +575,7 @@ describe("private formula bridge", () => {
     ).rejects.toMatchObject({ kind: "protocol" });
   });
 
-  it("round trips the actual adapter for success and analysis failure", async () => {
+  it("round trips the actual adapter for success, lexical Let, and analysis failure", async () => {
     const adapter = fileURLToPath(
       new URL("../bridge/formula_adapter.py", import.meta.url),
     );
@@ -591,6 +591,13 @@ describe("private formula bridge", () => {
     ).resolves.toMatchObject({
       status: "failure",
       error: { code: "malformed_syntax" },
+    });
+    await expect(
+      invokeAdapter("uv", args, request("Let(t, x*x, t + t)")),
+    ).resolves.toMatchObject({
+      status: "success",
+      interpretation: { normalized_sympy: "Let(t, x*x, t + t)" },
+      abstract_work: 2,
     });
     const comparison = await invokeAdapter("uv", args, comparisonRequest());
     expect(comparison).toMatchObject({

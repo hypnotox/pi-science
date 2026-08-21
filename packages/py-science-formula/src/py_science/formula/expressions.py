@@ -186,9 +186,19 @@ def substitute(
             )
         if isinstance(value, Let):
             # The binding is nonrecursive: its value sees the enclosing
-            # replacement scope while its body hides its own name.
+            # replacement scope while its body hides its own name.  Rename the
+            # binder before substituting when a replacement would otherwise be
+            # captured in the body.
             inner = {name: item for name, item in scoped.items() if name != value.name}
-            return Let(value.name, visit(value.value, scoped), visit(value.body, inner))
+            name = value.name
+            body = value.body
+            introduced: set[str] = set()
+            for item in inner.values():
+                introduced.update(_free_names(item))
+            if name in introduced:
+                name = _fresh_name(name, body, inner)
+                body = _rename_bound(body, value.name, name)
+            return Let(name, visit(value.value, scoped), visit(body, inner))
         if isinstance(value, BinaryExpression):
             return BinaryExpression(
                 value.operator,
@@ -206,6 +216,42 @@ def substitute(
             raise ExpressionTooComplex("substitution-expanded work exceeds its structural bound")
 
     return visit(expression, replacements)
+
+
+def lower_let_bindings(
+    expression: Expression,
+    *,
+    max_nodes: int = 4_096,
+) -> Expression:
+    """Lower lexical bindings only at a represented-value consumer boundary."""
+
+    def visit(value: Expression) -> Expression:
+        if isinstance(value, IndexedValue):
+            result: Expression = IndexedValue(
+                value.name,
+                tuple(visit(item) for item in value.indices),
+            )
+        elif isinstance(value, Call):
+            result = Call(value.name, tuple(visit(item) for item in value.arguments))
+        elif isinstance(value, Sum):
+            result = Sum(visit(value.body), value.index, visit(value.lower), visit(value.upper))
+        elif isinstance(value, Let):
+            lowered_value = visit(value.value)
+            lowered_body = visit(value.body)
+            result = substitute(
+                lowered_body,
+                {value.name: lowered_value},
+                max_nodes=max_nodes,
+            )
+        elif isinstance(value, BinaryExpression):
+            result = BinaryExpression(value.operator, visit(value.left), visit(value.right))
+        else:
+            result = value
+        if expression_node_count(result) > max_nodes:
+            raise ExpressionTooComplex("lexical binding expansion exceeds its structural bound")
+        return result
+
+    return visit(expression)
 
 
 def _free_names(value: Expression, bound: frozenset[str] = frozenset()) -> set[str]:
@@ -227,6 +273,8 @@ def _free_names(value: Expression, bound: frozenset[str] = frozenset()) -> set[s
 
 def _fresh_name(base: str, body: Expression, replacements: dict[str, Expression]) -> str:
     occupied = _free_names(body) | set(replacements)
+    for item in replacements.values():
+        occupied.update(_free_names(item))
     candidate = f"{base}_let"
     suffix = 1
     while candidate in occupied:

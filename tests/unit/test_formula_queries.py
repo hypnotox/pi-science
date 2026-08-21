@@ -43,6 +43,23 @@ def request(**extra):
     return AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x", **extra)
 
 
+def test_lexical_binding_equivalence_uses_represented_value() -> None:
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="Let(t, x + 1, t*t)",
+            variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
+            queries=(
+                {"name": "q", "kind": "equivalence", "comparison": "(x + 1)**2"},
+            ),
+        )
+    )
+
+    assert outcome.status == "success"
+    assert outcome.interpretation.normalized_sympy == "Let(t, x + 1, t*t)"
+    assert outcome.queries[0].answers[0].conclusion == "proved"
+
+
 @pytest.mark.parametrize(
     ("analysis_request", "submitted_source"),
     (

@@ -159,6 +159,39 @@ def test_nested_analysis_disables_optimization() -> None:
     assert result.work_comparison.status == "second_lower"
 
 
+def test_lexical_binding_mapped_output_expands_named_producers() -> None:
+    request = CandidateComparisonRequest(
+        syntax=FormulaSyntax.SYMPY,
+        variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
+        candidates=(
+            CandidateComputation(
+                name="first",
+                equations=(
+                    EquationRequest(name="producer", expression="Eq(p, x)"),
+                    EquationRequest(name="out", expression="Eq(y, Let(t, 1, p + t))"),
+                ),
+            ),
+            CandidateComputation(name="second", expression="x + 1"),
+        ),
+        outputs=(
+            CandidateOutputMapping(
+                name="value",
+                targets=(
+                    _reference("first", "out"),
+                    _reference("second"),
+                ),
+            ),
+        ),
+    )
+
+    result = compare_candidates(request)
+
+    assert isinstance(result, CandidateComparisonSuccess)
+    assert result.semantic_status == "proved_equal"
+    assert result.outputs[0].interface_status == "compatible"
+    assert result.outputs[0].answer.conclusion == "proved"
+
+
 def test_mapping_entries_are_correlated_by_candidate_not_tuple_position() -> None:
     request = _expression_request()
     reversed_request = request.model_copy(

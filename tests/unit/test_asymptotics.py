@@ -21,6 +21,13 @@ def _answer(expression: str, point: str, *, order: int = 1, variable: str = "x",
     return result.queries[0].answers[0]
 
 
+def test_lexical_binding_asymptotic_query_uses_represented_value():
+    answer = _answer("Let(t, x + 1, t*t)", "oo", order=2)
+
+    assert answer.conclusion == "proved_under_assumptions"
+    assert answer.blockers == ()
+
+
 def test_identically_zero_rational_expands_at_every_supported_approach():
     for point in ("0", "oo", "-oo"):
         answer = _answer("0/(y + 1)", point, variable="y", order=8)

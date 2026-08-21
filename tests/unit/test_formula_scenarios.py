@@ -50,6 +50,21 @@ def assert_iterators_are_lexically_bound(rendered: str) -> None:
     visit(parsed)
 
 
+def test_lexical_binding_scenario_substitution_preserves_work_once() -> None:
+    result = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="Let(t, x*x, t + t)",
+            variables={"x": declared(MathematicalDomain.REAL)},
+            scenarios=(Scenario(name="fixed", fixed={"x": 2}),),
+        )
+    )
+
+    assert isinstance(result, AnalysisSuccess)
+    assert result.interpretation.normalized_sympy == "Let(t, x*x, t + t)"
+    assert result.scenarios[0].substituted_work == "2"
+
+
 def test_nested_sum_scenarios_eliminate_free_bound_indices() -> None:
     result = analyze(
         AnalysisRequest(

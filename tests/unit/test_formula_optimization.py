@@ -36,6 +36,23 @@ def test_typed_occurrences_keep_paths_free_symbols_and_sum_scope() -> None:
         repeated[0].path = ()  # type: ignore[misc]
 
 
+def test_lexical_binding_occurrences_keep_value_and_body_scopes_distinct() -> None:
+    occurrences = _detect_occurrences(
+        "out",
+        _expression("Let(t, x[i]*x[i], t + t)"),
+        {},
+        output_indices=("i",),
+    )
+
+    binding = next(item for item in occurrences if item.path == ())
+    value = next(item for item in occurrences if item.path == (0,))
+    body = next(item for item in occurrences if item.path == (1,))
+    assert binding.free_symbols == frozenset({"x"})
+    assert value.free_symbols == frozenset({"x"})
+    assert body.free_symbols == frozenset()
+    assert binding.binders == value.binders == body.binders == ()
+
+
 def test_output_indices_are_bound_and_domains_distinguish_evaluation_scopes() -> None:
     expression = _expression("x[i] + 1")
     lower, upper_n, upper_m = _expression("0"), _expression("N"), _expression("M")
