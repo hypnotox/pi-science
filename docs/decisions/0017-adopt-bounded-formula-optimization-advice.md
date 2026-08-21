@@ -4,7 +4,7 @@ slug: adopt-bounded-formula-optimization-advice
 status: Implementing
 date: 2026-08-20
 ---
-# ADR-adopt-bounded-formula-optimization-advice: Adopt bounded formula optimization advice
+# ADR-0017: Adopt bounded formula optimization advice
 
 ## Context
 

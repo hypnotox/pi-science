@@ -28,4 +28,4 @@ Origin: ADR-0016
 
 ### `rule: bounded-optimization-advice-requests`
 Ordinary expression and equation-system requests may carry only `optimization.max_suggestions`, which defaults to 3 and accepts integers from 0 through 16; zero disables advice. Candidate comparison and dominance requests do not carry optimization configuration.
-Origin: ADR-adopt-bounded-formula-optimization-advice
+Origin: ADR-0017
