@@ -759,7 +759,7 @@ def test_lexical_binding_lowers_for_dependent_output_domain_math() -> None:
             equations=(
                 EquationRequest(
                     name="bound",
-                    expression="Eq(A[i, j], x)",
+                    expression="Eq(A[i, j], x + 1)",
                     domains={
                         "i": IndexDomain(lower="0", upper="2"),
                         "j": IndexDomain(lower="0", upper="Let(t, i, t + 1)"),
@@ -772,7 +772,10 @@ def test_lexical_binding_lowers_for_dependent_output_domain_math() -> None:
 
     assert outcome.status == "success"
     assert outcome.system is not None
-    assert outcome.system.equations[0].effective_domains[1].upper == "Let(t, i, t + 1)"
+    equation = outcome.system.equations[0]
+    assert equation.effective_domains[1].upper == "Let(t, i, t + 1)"
+    assert equation.aggregate_work == "9"
+    assert equation.unresolved == ()
 
 
 def test_dependent_output_domains_preserve_lhs_order_and_close_triangular_work() -> None:

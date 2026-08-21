@@ -405,7 +405,23 @@ def _replace_paths(
 
 def _smallest_scope(expression: Expression, scope: _EvaluationScope) -> _EvaluationScope:
     raw = _free_symbols(expression)
-    binders = tuple(binding for binding in scope.binders if binding.name in raw)
+    selected_binders = {binding.name for binding in scope.binders if binding.name in raw}
+    changed = True
+    while changed:
+        changed = False
+        for binding in scope.binders:
+            if binding.name not in selected_binders:
+                continue
+            dependencies: set[str] = set()
+            for value in (binding.lower, binding.upper, binding.value):
+                if value is not None:
+                    dependencies.update(_free_symbols(value))
+            before = len(selected_binders)
+            selected_binders.update(
+                item.name for item in scope.binders if item.name in dependencies
+            )
+            changed = changed or len(selected_binders) != before
+    binders = tuple(binding for binding in scope.binders if binding.name in selected_binders)
     selected_outputs = {binding.name for binding in scope.output_bindings if binding.name in raw}
     # A predecessor used by a selected output bound is part of the evaluation
     # interface even when it does not occur in the intermediate expression.
@@ -904,32 +920,32 @@ def _aggregate_scope(
     sum_binders = tuple(
         item for item in scope.binders if item.lower is not None and item.upper is not None
     )
-    lexical_values = {
-        item.name: item.value for item in scope.binders if item.value is not None
-    }
     scoped = WorkContext(
         definitions=context.definitions,
         primitives=context.primitives,
         variable_domains=context.variable_domains,
-        integer_symbols=frozenset(
-            (
-                *context.integer_symbols,
-                *scope.output_indices,
-                *(item.name for item in sum_binders),
-            )
-        ),
+        integer_symbols=context.integer_symbols | frozenset(scope.output_indices),
         nonnegative_symbols=context.nonnegative_symbols,
         call_stack=context.call_stack,
-        lexical_values={**context.lexical_values, **lexical_values},
+        lexical_values=context.lexical_values,
     )
-    result = substitute_analysis(analysis, lexical_values) if lexical_values else analysis
+    for binding in scope.binders:
+        if binding.value is not None:
+            scoped = scoped.with_lexical_value(binding.name, binding.value)
+        elif binding.lower is not None and binding.upper is not None:
+            scoped = scoped.with_integer_symbol(binding.name)
+    result = (
+        substitute_analysis(analysis, scoped.lexical_values)
+        if scoped.lexical_values
+        else analysis
+    )
     for binding in reversed(sum_binders):
         assert binding.lower is not None and binding.upper is not None
         result, unresolved = aggregate_analysis(
             result,
             binding.name,
-            binding.lower,
-            binding.upper,
+            scoped.resolve_lexical(binding.lower),
+            scoped.resolve_lexical(binding.upper),
             scoped,
             f"optimization intermediate binder {binding.name}",
         )

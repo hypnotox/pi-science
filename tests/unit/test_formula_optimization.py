@@ -84,6 +84,49 @@ def test_lexical_binding_reuse_candidate_stays_inside_its_scope() -> None:
     assert suggestion.work_after == "12"
 
 
+@pytest.mark.parametrize(
+    ("expression", "expected_scope", "work_before", "work_after"),
+    (
+        (
+            "Let(a, 2, Let(b, a + 1, f(b) + f(b)))",
+            ("a", "b"),
+            "8",
+            "5",
+        ),
+        (
+            "Let(n, 2, Sum(f(i) + f(i), (i, 0, n)))",
+            ("n", "i"),
+            "11",
+            "8",
+        ),
+    ),
+)
+def test_lexical_binding_reuse_resolves_nested_values_and_multiplicity(
+    expression: str,
+    expected_scope: tuple[str, ...],
+    work_before: str,
+    work_after: str,
+) -> None:
+    from py_science.formula import AnalysisRequest, FormulaSyntax, PrimitiveCost, analyze
+
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression=expression,
+            primitive_costs=(PrimitiveCost(name="f", parameters=("z",), work="z"),),
+        )
+    )
+
+    assert outcome.status == "success"
+    suggestion = next(
+        item for item in outcome.optimization.suggestions if item.kind == "repeated_call"
+    )
+    assert suggestion.intermediate is not None
+    assert suggestion.intermediate.scope_binders == expected_scope
+    assert suggestion.work_before == work_before
+    assert suggestion.work_after == work_after
+
+
 def test_output_indices_are_bound_and_domains_distinguish_evaluation_scopes() -> None:
     expression = _expression("x[i] + 1")
     lower, upper_n, upper_m = _expression("0"), _expression("N"), _expression("M")

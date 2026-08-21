@@ -294,9 +294,13 @@ def extent(
 ) -> tuple[Expression, bool, tuple[RelationshipUse, ...]]:
     """Return inclusive extent and bounded evidence that it is nonnegative."""
     value = _add(_subtract(domain.upper, domain.lower), IntegerLiteral(1))
-    reduced = _minimum_from_predecessor_bounds(value, predecessors, set())
+    try:
+        represented = lower_let_bindings(value)
+    except ExpressionTooComplex:
+        represented = value
+    reduced = _minimum_from_predecessor_bounds(represented, predecessors, set())
     proved, uses = reasoner.prove_nonnegative(reduced)
-    return value, proved, uses
+    return represented, proved, uses
 
 
 def _minimum_from_predecessor_bounds(
