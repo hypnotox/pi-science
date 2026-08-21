@@ -60,6 +60,44 @@ def test_lexical_binding_equivalence_uses_represented_value() -> None:
     assert outcome.queries[0].answers[0].conclusion == "proved"
 
 
+def test_lexical_binding_introduced_by_definition_is_lowered_after_reasoning() -> None:
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="y",
+            variables={
+                "x": VariableDeclaration(domain=MathematicalDomain.REAL),
+                "y": VariableDeclaration(domain=MathematicalDomain.REAL),
+            },
+            definitions=(DirectedDefinition(variable="y", expression="Let(t, x + 1, t*t)"),),
+            queries=(
+                {"name": "q", "kind": "equivalence", "comparison": "(x + 1)**2"},
+            ),
+        )
+    )
+
+    assert outcome.status == "success"
+    assert outcome.queries[0].answers[0].conclusion == "proved_under_assumptions"
+
+
+def test_equivalence_comparison_rejects_nonfresh_lexical_binding_name() -> None:
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="x",
+            variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
+            queries=(
+                {"name": "q", "kind": "equivalence", "comparison": "Let(x, 1, x)"},
+            ),
+        )
+    )
+
+    assert outcome.status == "failure"
+    assert "lexical binding name x must be fresh" in outcome.error.message
+    assert outcome.error.source is not None
+    assert outcome.error.source.path == "queries[0].comparison"
+
+
 @pytest.mark.parametrize(
     ("analysis_request", "submitted_source"),
     (

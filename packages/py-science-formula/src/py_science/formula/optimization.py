@@ -64,6 +64,7 @@ from py_science.formula.work import (
     compare_aggregate_work,
     exact_work_sign,
     render_work,
+    substitute_analysis,
 )
 
 MAX_OPTIMIZATION_INSPECTIONS = 16_384
@@ -88,6 +89,7 @@ class _ScopeBinding:
     path: tuple[int, ...]
     lower: Expression | None = None
     upper: Expression | None = None
+    value: Expression | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -275,7 +277,13 @@ def _detect_occurrences(
             return
         if isinstance(node, Let):
             visit(node.value, (*path, 0), bound, lexical_bound)
-            visit(node.body, (*path, 1), bound, lexical_bound | {node.name})
+            binding = _ScopeBinding(node.name, path, value=node.value)
+            visit(
+                node.body,
+                (*path, 1),
+                (*bound, binding),
+                lexical_bound | {node.name},
+            )
             return
         for index, child in enumerate(expression_children(node)):
             visit(child, (*path, index), bound, lexical_bound)
@@ -893,6 +901,12 @@ def _aggregate_scope(
     output_domains: tuple[OutputDomain, ...] = (),
     reasoning: ReasoningContext | None = None,
 ) -> WorkAnalysis | None:
+    sum_binders = tuple(
+        item for item in scope.binders if item.lower is not None and item.upper is not None
+    )
+    lexical_values = {
+        item.name: item.value for item in scope.binders if item.value is not None
+    }
     scoped = WorkContext(
         definitions=context.definitions,
         primitives=context.primitives,
@@ -901,16 +915,16 @@ def _aggregate_scope(
             (
                 *context.integer_symbols,
                 *scope.output_indices,
-                *(item.name for item in scope.binders),
+                *(item.name for item in sum_binders),
             )
         ),
         nonnegative_symbols=context.nonnegative_symbols,
         call_stack=context.call_stack,
+        lexical_values={**context.lexical_values, **lexical_values},
     )
-    result = analysis
-    for binding in reversed(scope.binders):
-        if binding.lower is None or binding.upper is None:
-            return None
+    result = substitute_analysis(analysis, lexical_values) if lexical_values else analysis
+    for binding in reversed(sum_binders):
+        assert binding.lower is not None and binding.upper is not None
         result, unresolved = aggregate_analysis(
             result,
             binding.name,
@@ -968,6 +982,7 @@ def _candidate_target_work(
         integer_symbols=context.integer_symbols | frozenset(indices),
         nonnegative_symbols=context.nonnegative_symbols,
         call_stack=context.call_stack,
+        lexical_values=context.lexical_values,
     )
     result = analyze_work(proposed, scoped)
     if equation is not None:
@@ -1091,6 +1106,12 @@ def _expand_generated_intermediate(
             expression.index,
             _expand_generated_intermediate(expression.lower, name, intermediate, formal_indices),
             _expand_generated_intermediate(expression.upper, name, intermediate, formal_indices),
+        )
+    if isinstance(expression, Let):
+        return Let(
+            expression.name,
+            _expand_generated_intermediate(expression.value, name, intermediate, formal_indices),
+            _expand_generated_intermediate(expression.body, name, intermediate, formal_indices),
         )
     return expression
 

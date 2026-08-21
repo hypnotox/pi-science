@@ -11,12 +11,14 @@ from py_science.formula.expressions import (
     BinaryOperator,
     Call,
     Expression,
+    ExpressionTooComplex,
     IntegerLiteral,
     RationalLiteral,
     Relationship,
     RelationshipOperator,
     Symbol,
     expression_children,
+    lower_let_bindings,
 )
 from py_science.formula.models import RelationshipUse
 
@@ -86,16 +88,23 @@ def build_output_domains(
         upper_path = f"equations[{equation_position}].domains.{index}.upper"
         dependencies: set[str] = set()
         for expression, path in ((lower, lower_path), (upper, upper_path)):
-            references = free_symbols(expression) & indices
+            try:
+                represented = lower_let_bindings(expression)
+            except ExpressionTooComplex:
+                return DomainDiagnostic(
+                    "dependent output-domain lexical expansion exceeds its structural bound",
+                    path,
+                )
+            references = free_symbols(represented) & indices
             if index in references:
                 return DomainDiagnostic(f"output domain {index} cannot depend on itself", path)
-            form = affine_form(expression) if references else None
-            generated_extrema = _generated_extrema(expression)
+            form = affine_form(represented) if references else None
+            generated_extrema = _generated_extrema(represented)
             if references and form is None and not generated_extrema:
                 return DomainDiagnostic(
                     "dependent output-domain bound must use the affine-integer grammar", path
                 )
-            names = free_symbols(expression)
+            names = free_symbols(represented)
             if form is not None or generated_extrema:
                 noninteger = names - indices - declared_integer_symbols
                 if noninteger:

@@ -50,7 +50,38 @@ def test_lexical_binding_occurrences_keep_value_and_body_scopes_distinct() -> No
     assert binding.free_symbols == frozenset({"x"})
     assert value.free_symbols == frozenset({"x"})
     assert body.free_symbols == frozenset()
-    assert binding.binders == value.binders == body.binders == ()
+    assert binding.binders == value.binders == ()
+    assert body.binders == ("t",)
+    assert tuple(item.name for item in body.scope.binders) == ("t",)
+
+
+def test_lexical_binding_reuse_candidate_stays_inside_its_scope() -> None:
+    from py_science.formula import (
+        AnalysisRequest,
+        FormulaSyntax,
+        MathematicalDomain,
+        PrimitiveCost,
+        VariableDeclaration,
+        analyze,
+    )
+
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="Let(t, x + 1, f(t) + f(t))",
+            variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
+            primitive_costs=(PrimitiveCost(name="f", parameters=("z",), work="10"),),
+        )
+    )
+
+    assert outcome.status == "success"
+    suggestion = next(
+        item for item in outcome.optimization.suggestions if item.kind == "repeated_call"
+    )
+    assert suggestion.intermediate is not None
+    assert suggestion.intermediate.scope_binders == ("t",)
+    assert suggestion.work_before == "22"
+    assert suggestion.work_after == "12"
 
 
 def test_output_indices_are_bound_and_domains_distinguish_evaluation_scopes() -> None:

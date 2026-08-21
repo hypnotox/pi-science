@@ -26,6 +26,7 @@ from py_science.formula.expressions import (
     exact_integer_value,
     expression_children,
     expression_node_count,
+    lower_let_bindings,
     substitute,
 )
 from py_science.formula.models import MathematicalDomain, RelationshipUse
@@ -88,7 +89,10 @@ class ReasoningContext:
         replacement_uses: list[RelationshipUse] = []
         steps = 0
         for item in definitions:
-            expression = substitute(item.expression, replacements, max_nodes=MAX_INTERMEDIATE_NODES)
+            expression = lower_let_bindings(
+                substitute(item.expression, replacements, max_nodes=MAX_INTERMEDIATE_NODES),
+                max_nodes=MAX_INTERMEDIATE_NODES,
+            )
             replacements[item.name] = expression
             replacement_uses.append(RelationshipUse(name=item.name, relationship=item.source))
             steps += 1
@@ -100,13 +104,20 @@ class ReasoningContext:
                 unsupported.append((item.name, frozenset(_symbols_relationship(item.value))))
                 continue
             relationship: Relationship = item.value
-            left = substitute(relationship.left, replacements, max_nodes=MAX_INTERMEDIATE_NODES)
-            right = substitute(relationship.right, replacements, max_nodes=MAX_INTERMEDIATE_NODES)
+            left = lower_let_bindings(
+                substitute(relationship.left, replacements, max_nodes=MAX_INTERMEDIATE_NODES),
+                max_nodes=MAX_INTERMEDIATE_NODES,
+            )
+            right = lower_let_bindings(
+                substitute(relationship.right, replacements, max_nodes=MAX_INTERMEDIATE_NODES),
+                max_nodes=MAX_INTERMEDIATE_NODES,
+            )
             oriented = _oriented_equality(relationship.operator, left, right)
             if oriented is not None:
                 name, expression = oriented
-                replacements[name] = substitute(
-                    expression, replacements, max_nodes=MAX_INTERMEDIATE_NODES
+                replacements[name] = lower_let_bindings(
+                    substitute(expression, replacements, max_nodes=MAX_INTERMEDIATE_NODES),
+                    max_nodes=MAX_INTERMEDIATE_NODES,
                 )
                 replacement_uses.append(RelationshipUse(name=item.name, relationship=item.source))
             elif relationship.operator is not RelationshipOperator.EQUAL:
@@ -133,9 +144,12 @@ class ReasoningContext:
         )
 
     def apply(self, expression: Expression) -> Expression:
-        resolved = expression
+        resolved = lower_let_bindings(expression, max_nodes=MAX_INTERMEDIATE_NODES)
         for _ in range(len(self.replacements) + 1):
-            updated = substitute(resolved, self.replacements, max_nodes=MAX_INTERMEDIATE_NODES)
+            updated = lower_let_bindings(
+                substitute(resolved, self.replacements, max_nodes=MAX_INTERMEDIATE_NODES),
+                max_nodes=MAX_INTERMEDIATE_NODES,
+            )
             if updated == resolved:
                 return resolved
             resolved = updated

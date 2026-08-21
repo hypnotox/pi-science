@@ -444,7 +444,15 @@ def _attach_queries(request: AnalysisRequest, analyzed: RetainedComputation) -> 
             # submitted equation or its explicit verified derived operand. They
             # never become request-wide solver facts or leak to another equation.
             query_reasoning = _equation_query_reasoning(request, knowledge, owning, report)
-        evaluated = evaluate_queries((query,), target, query_reasoning)
+        query_reserved_names = frozenset(
+            set(request.variables)
+            | {item.variable for item in request.definitions}
+            | set(analyzed.producers)
+            | {index for item in request.equations for index in item.domains}
+        )
+        evaluated = evaluate_queries(
+            (query,), target, query_reasoning, query_reserved_names
+        )
         if isinstance(evaluated, AnalysisFailure):
             return evaluated
         result = evaluated[0]
@@ -1909,13 +1917,15 @@ def _validate_index_scopes(
         primitives=context.primitives,
         variable_domains=context.variable_domains,
         integer_symbols=context.integer_symbols | frozenset(scope),
+        nonnegative_symbols=context.nonnegative_symbols,
         call_stack=context.call_stack,
+        lexical_values=context.lexical_values,
     )
     unresolved: set[str] = set()
     if isinstance(expression, IndexedValue):
         for index in expression.indices:
             used = _symbol_names(index)
-            out_of_scope = used - scope
+            out_of_scope = used - scope - set(context.lexical_values)
             if out_of_scope:
                 return (
                     "index expression uses out-of-scope indices: "
@@ -1931,7 +1941,13 @@ def _validate_index_scopes(
         unresolved.update(nested)
         if error is not None:
             return error, unresolved
-        return _validate_index_scopes(expression.body, scope, context)
+        error, nested = _validate_index_scopes(
+            expression.body,
+            scope,
+            context.with_lexical_value(expression.name, expression.value),
+        )
+        unresolved.update(nested)
+        return error, unresolved
     if isinstance(expression, Sum):
         if expression.index in scope:
             return f"sum index {expression.index} shadows an existing index", unresolved

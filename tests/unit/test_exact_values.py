@@ -255,6 +255,54 @@ def test_let_binding_sum_bounds_retain_sign_and_integrality() -> None:
     assert outcome.system.unresolved == ()
 
 
+def test_let_binding_body_resolves_value_for_aggregate_and_primitive_work() -> None:
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="Let(t, 2, Sum(p(t), (i, 0, t)))",
+            primitive_costs=(PrimitiveCost(name="p", parameters=("z",), work="z"),),
+        )
+    )
+
+    assert isinstance(outcome, AnalysisSuccess)
+    assert outcome.system is not None
+    assert outcome.system.total_work == "8"
+    assert outcome.system.primitive_invocations == {"p": "3"}
+    assert outcome.system.unresolved == ()
+
+
+def test_let_binding_body_index_scope_uses_value_integrality() -> None:
+    integral = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="Let(t, 1, x[t])",
+            variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
+        )
+    )
+    nonintegral = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="Let(t, 1/2, x[t])",
+            variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
+        )
+    )
+    enclosing = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="Sum(Let(t, i, x[t]), (i, 0, 2))",
+            variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
+        )
+    )
+
+    assert isinstance(integral, AnalysisSuccess)
+    assert integral.system is not None and integral.system.unresolved == ()
+    assert isinstance(nonintegral, AnalysisSuccess)
+    assert nonintegral.system is not None
+    assert any("not known to be integral" in item for item in nonintegral.system.unresolved)
+    assert isinstance(enclosing, AnalysisSuccess)
+    assert enclosing.system is not None and enclosing.system.unresolved == ()
+
+
 def test_let_binding_definition_preserves_real_domain() -> None:
     outcome = analyze(
         AnalysisRequest(

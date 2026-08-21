@@ -752,6 +752,29 @@ def test_system_validation_rejects_duplicate_results_cycles_and_bad_indices() ->
         assert outcome.status == "failure"
 
 
+def test_lexical_binding_lowers_for_dependent_output_domain_math() -> None:
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=(
+                EquationRequest(
+                    name="bound",
+                    expression="Eq(A[i, j], x)",
+                    domains={
+                        "i": IndexDomain(lower="0", upper="2"),
+                        "j": IndexDomain(lower="0", upper="Let(t, i, t + 1)"),
+                    },
+                ),
+            ),
+            variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
+        )
+    )
+
+    assert outcome.status == "success"
+    assert outcome.system is not None
+    assert outcome.system.equations[0].effective_domains[1].upper == "Let(t, i, t + 1)"
+
+
 def test_dependent_output_domains_preserve_lhs_order_and_close_triangular_work() -> None:
     triangular = analyze(
         AnalysisRequest(

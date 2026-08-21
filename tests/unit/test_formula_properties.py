@@ -11,6 +11,7 @@ from py_science.formula.reasoning import ReasoningContext
 from py_science.formula.sign_chart import ExplicitAxis, explicit_axis_sign_chart
 from py_science.formula import (
     AnalysisRequest,
+    DirectedDefinition,
     FormulaSyntax,
     MathematicalDomain,
     VariableDeclaration,
@@ -38,6 +39,26 @@ def test_lexical_binding_property_query_uses_represented_value():
     assert outcome.status == "success"
     assert outcome.interpretation.normalized_sympy == "Let(t, x + 1, t*t)"
     assert outcome.queries[0].answers[0].conclusion == "proved"
+
+
+def test_lexical_binding_definition_is_lowered_for_property_reasoning():
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="y",
+            variables={
+                "x": VariableDeclaration(domain=MathematicalDomain.REAL),
+                "y": VariableDeclaration(domain=MathematicalDomain.REAL),
+            },
+            definitions=(DirectedDefinition(variable="y", expression="Let(t, x*x, t)"),),
+            queries=(
+                {"name": "p", "kind": "properties", "checks": ({"kind": "sign"},)},
+            ),
+        )
+    )
+
+    assert outcome.status == "success"
+    assert outcome.queries[0].answers[0].conclusion == "proved_under_assumptions"
 
 
 def test_explicit_axis_structural_chart_retains_roots_poles_points_and_provenance():

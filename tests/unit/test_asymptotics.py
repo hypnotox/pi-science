@@ -5,6 +5,7 @@ import py_science.formula.sympy_backend as sympy_backend
 from py_science.formula import (
     AnalysisRequest,
     Assumption,
+    DirectedDefinition,
     FormulaSyntax,
     MathematicalDomain,
     VariableDeclaration,
@@ -26,6 +27,27 @@ def test_lexical_binding_asymptotic_query_uses_represented_value():
 
     assert answer.conclusion == "proved_under_assumptions"
     assert answer.blockers == ()
+
+
+def test_lexical_binding_definition_is_lowered_for_asymptotic_reasoning():
+    result = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="y",
+            variables={
+                "x": VariableDeclaration(domain=MathematicalDomain.REAL),
+                "y": VariableDeclaration(domain=MathematicalDomain.REAL),
+            },
+            definitions=(DirectedDefinition(variable="y", expression="Let(t, x + 1, t*t)"),),
+            queries=(
+                {"name": "a", "kind": "asymptotic", "variable": "x", "point": "oo", "order": 2},
+            ),
+        )
+    )
+
+    assert result.status == "success"
+    assert result.queries[0].answers[0].conclusion == "proved_under_assumptions"
+    assert result.queries[0].answers[0].blockers == ()
 
 
 def test_identically_zero_rational_expands_at_every_supported_approach():

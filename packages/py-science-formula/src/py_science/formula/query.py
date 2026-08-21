@@ -11,6 +11,7 @@ from py_science.formula.expressions import (
     Equation,
     Expression,
     ExpressionTooComplex,
+    Let,
     Relationship,
     Sum,
     expression_children,
@@ -57,6 +58,7 @@ def evaluate_queries(
     queries: tuple[QueryRequest, ...],
     target: QueryTarget,
     reasoning: ReasoningContext | None,
+    reserved_names: frozenset[str] = frozenset(),
 ) -> tuple[QueryResult, ...] | AnalysisFailure:
     results: list[QueryResult] = []
     try:
@@ -67,7 +69,9 @@ def evaluate_queries(
         if query.target is not None and query.target != target.target:
             return _failure("query target is unknown", f"queries[{position}].target")
         if isinstance(query, EquivalenceQuery):
-            answer = _equivalence(query, represented_expression, reasoning, position)
+            answer = _equivalence(
+                query, represented_expression, reasoning, position, reserved_names
+            )
             if isinstance(answer, AnalysisFailure):
                 return answer
             result: QueryResult = EquivalenceResult(
@@ -206,6 +210,7 @@ def _equivalence(
     expression: Expression,
     reasoning: ReasoningContext | None,
     position: int,
+    reserved_names: frozenset[str],
 ) -> QueryAnswer | AnalysisFailure:
     parsed = parse_expression(query.comparison)
     if isinstance(parsed, ParseFailure):
@@ -217,7 +222,35 @@ def _equivalence(
         )
     if isinstance(parsed, (Equation, Relationship)):
         return _failure("equivalence comparison must be an expression", f"queries[{position}].comparison", query.comparison)
+    let_error = _let_name_error(parsed, reserved_names)
+    if let_error is not None:
+        return _failure(
+            let_error,
+            f"queries[{position}].comparison",
+            query.comparison,
+        )
     return equivalence_answer(expression, parsed, reasoning)
+
+
+def _let_name_error(expression: Expression, reserved: frozenset[str]) -> str | None:
+    if isinstance(expression, Let):
+        if expression.name in reserved:
+            return f"lexical binding name {expression.name} must be fresh"
+        error = _let_name_error(expression.value, reserved)
+        if error is not None:
+            return error
+        return _let_name_error(expression.body, reserved | {expression.name})
+    if isinstance(expression, Sum):
+        for bound in (expression.lower, expression.upper):
+            error = _let_name_error(bound, reserved)
+            if error is not None:
+                return error
+        return _let_name_error(expression.body, reserved | {expression.index})
+    for child in expression_children(expression):
+        error = _let_name_error(child, reserved)
+        if error is not None:
+            return error
+    return None
 
 
 def _unique_uses(values: tuple[object, ...]) -> tuple[object, ...]:

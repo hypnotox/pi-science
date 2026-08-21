@@ -75,6 +75,10 @@ class PrimitiveRule:
     work: Expression
 
 
+def _empty_expressions() -> dict[str, Expression]:
+    return {}
+
+
 @dataclass(frozen=True, slots=True)
 class WorkContext:
     definitions: dict[str, FunctionRule]
@@ -83,6 +87,7 @@ class WorkContext:
     integer_symbols: frozenset[str] = frozenset()
     nonnegative_symbols: frozenset[str] = frozenset()
     call_stack: tuple[str, ...] = ()
+    lexical_values: dict[str, Expression] = field(default_factory=_empty_expressions)
 
     def with_integer_symbol(self, name: str, *, nonnegative: bool = False) -> WorkContext:
         return WorkContext(
@@ -94,7 +99,31 @@ class WorkContext:
                 self.nonnegative_symbols | {name} if nonnegative else self.nonnegative_symbols
             ),
             call_stack=self.call_stack,
+            lexical_values=self.lexical_values,
         )
+
+    def with_lexical_value(self, name: str, value: Expression) -> WorkContext:
+        resolved = substitute(value, self.lexical_values, max_nodes=MAX_WORK_NODES)
+        integer = is_integer_expression(resolved, self)
+        nonnegative = is_nonnegative_expression(resolved, self)
+        return WorkContext(
+            definitions=self.definitions,
+            primitives=self.primitives,
+            variable_domains=self.variable_domains,
+            integer_symbols=(
+                self.integer_symbols | frozenset((name,)) if integer else self.integer_symbols
+            ),
+            nonnegative_symbols=(
+                self.nonnegative_symbols | frozenset((name,))
+                if nonnegative
+                else self.nonnegative_symbols
+            ),
+            call_stack=self.call_stack,
+            lexical_values={**self.lexical_values, name: resolved},
+        )
+
+    def resolve_lexical(self, expression: Expression) -> Expression:
+        return substitute(expression, self.lexical_values, max_nodes=MAX_WORK_NODES)
 
     def for_call(
         self,
@@ -108,6 +137,7 @@ class WorkContext:
             integer_symbols=self.integer_symbols | extra_integer_symbols,
             nonnegative_symbols=self.nonnegative_symbols,
             call_stack=(*self.call_stack, name),
+            lexical_values=self.lexical_values,
         )
 
 
@@ -218,10 +248,12 @@ def analyze_work(expression: Expression, context: WorkContext) -> WorkAnalysis:
     if isinstance(expression, Sum):
         return _analyze_sum(expression, context)
     if isinstance(expression, Let):
-        # The value runs once at the lexical placement; references in the body
-        # are ordinary symbols and therefore add no repeated direct work.
+        # The value runs once at the lexical placement.  Body references remain
+        # zero-work symbols, but semantic work expressions (bounds and primitive
+        # costs) resolve them to the represented value.
+        body_context = context.with_lexical_value(expression.name, expression.value)
         return analyze_work(expression.value, context).combine(
-            analyze_work(expression.body, context)
+            analyze_work(expression.body, body_context)
         )
     if isinstance(expression, IndexedValue):
         # Indexing and index-expression evaluation are outside mathematical work,
@@ -1092,27 +1124,27 @@ def substitute_analysis(
 
 
 def _analyze_sum(expression: Sum, context: WorkContext) -> WorkAnalysis:
-    index_nonnegative = _is_zero(expression.lower) and is_nonnegative_expression(
-        expression.upper, context
-    )
+    lower = context.resolve_lexical(expression.lower)
+    upper = context.resolve_lexical(expression.upper)
+    index_nonnegative = _is_zero(lower) and is_nonnegative_expression(upper, context)
     scoped = context.with_integer_symbol(expression.index, nonnegative=index_nonnegative)
     body = analyze_work(expression.body, scoped)
     count, unresolved = cardinality(
-        expression.lower,
-        expression.upper,
+        lower,
+        upper,
         context,
         f"sum index {expression.index}",
     )
     count_is_clamped = isinstance(count, Call) and count.name == "Max"
     aggregate_upper = (
-        _subtract(_add(expression.lower, count), _ONE) if count_is_clamped else expression.upper
+        _subtract(_add(lower, count), _ONE) if count_is_clamped else upper
     )
     result = map_analysis(
         body,
         lambda value: _aggregate_value(
             value,
             expression.index,
-            expression.lower,
+            lower,
             aggregate_upper,
             count,
             close_sum=unresolved is None and not count_is_clamped,
@@ -1146,7 +1178,7 @@ def _analyze_call(expression: Call, context: WorkContext) -> WorkAnalysis:
         }
         placeholders: dict[str, Expression] = dict(placeholder_symbols)
         reverse: dict[str, Expression] = {
-            placeholder.name: argument
+            placeholder.name: context.resolve_lexical(argument)
             for placeholder, argument in zip(
                 placeholder_symbols.values(), expression.arguments, strict=True
             )
@@ -1171,7 +1203,13 @@ def _analyze_call(expression: Call, context: WorkContext) -> WorkAnalysis:
             result.invocations.get(expression.name, _ZERO),
             _ONE,
         )
-        replacements = dict(zip(primitive.parameters, expression.arguments, strict=True))
+        replacements = dict(
+            zip(
+                primitive.parameters,
+                (context.resolve_lexical(argument) for argument in expression.arguments),
+                strict=True,
+            )
+        )
         result.opaque_work = _add(
             result.opaque_work,
             substitute(primitive.work, replacements, max_nodes=MAX_WORK_NODES),
@@ -1183,7 +1221,10 @@ def _analyze_call(expression: Call, context: WorkContext) -> WorkAnalysis:
     result.unresolved.add(f"unknown cost for {expression.name}")
     result.opaque_work = _add(
         result.opaque_work,
-        Call(unknown_name, expression.arguments),
+        Call(
+            unknown_name,
+            tuple(context.resolve_lexical(argument) for argument in expression.arguments),
+        ),
     )
     return result
 
