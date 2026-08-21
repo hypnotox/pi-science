@@ -276,7 +276,7 @@ describe("private formula bridge", () => {
     expect(MAX_RESPONSE_BYTES).toBe(327_936);
   });
 
-  it("strictly transports correlated optimization reports without recomputing policy", async () => {
+  it("strictly transports zero-post-work correlated optimization reports without recomputing policy", async () => {
     const suggestion = {
       kind: "reciprocal_reuse",
       transformations: [
@@ -323,6 +323,19 @@ describe("private formula bridge", () => {
     await expect(
       invokeAdapter(node, responder(populated), request("1/x + 1/x")),
     ).resolves.toMatchObject({ optimization: populated.optimization });
+
+    const zeroPostWork = {
+      ...populated,
+      optimization: {
+        ...populated.optimization,
+        suggestions: [
+          { ...suggestion, work_before: "1", work_after: "0", savings: "1" },
+        ],
+      },
+    };
+    await expect(
+      invokeAdapter(node, responder(zeroPostWork), request("1/x + 1/x")),
+    ).resolves.toMatchObject({ optimization: zeroPostWork.optimization });
 
     const horner = {
       ...suggestion,

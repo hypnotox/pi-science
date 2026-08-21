@@ -234,6 +234,26 @@ describe("formula adapter protocol boundary", () => {
     expect(reports[6].suggestions.length).toBeGreaterThan(0);
   });
 
+  it("accepts zero-post-work suggestions from the real adapter", () => {
+    const result = invoke(
+      JSON.stringify({
+        version: 12,
+        request: { syntax: "sympy", expression: "x + 0" },
+      }),
+    );
+    expect(result.status).toBe(0);
+    const suggestion = JSON.parse(
+      result.stdout,
+    ).result.optimization.suggestions.find(
+      (item: { kind: string }) => item.kind === "redundant_operation_removal",
+    );
+    expect(suggestion).toMatchObject({
+      work_before: "1",
+      work_after: "0",
+      savings: "1",
+    });
+  });
+
   it.each([
     ["malformed request", "not json"],
     [

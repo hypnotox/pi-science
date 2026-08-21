@@ -2684,9 +2684,9 @@ function validOptimizationWorkClaims(
   const after = exactRational(afterValue);
   const savings = exactRational(savingsValue);
   if (
-    [before, after, savings].some(
-      (value) => value !== null && value.numerator <= 0n,
-    )
+    (before !== null && before.numerator <= 0n) ||
+    (after !== null && after.numerator < 0n) ||
+    (savings !== null && savings.numerator <= 0n)
   )
     return false;
   if (before === null || after === null || savings === null) return true;

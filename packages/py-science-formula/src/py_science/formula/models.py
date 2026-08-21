@@ -1293,9 +1293,13 @@ class OptimizationSuggestion(StructuredModel):
                 numeric_work.append(Fraction(value))
             except (ValueError, ZeroDivisionError):
                 numeric_work.append(None)
-        if any(value is not None and value <= 0 for value in numeric_work):
-            raise ValueError("optimization work and savings must be positive")
         before, after, savings = numeric_work
+        if (
+            (before is not None and before <= 0)
+            or (after is not None and after < 0)
+            or (savings is not None and savings <= 0)
+        ):
+            raise ValueError("optimization work before and savings must be positive; work after nonnegative")
         if (
             not self.savings
             or self.work_before == self.work_after

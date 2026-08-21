@@ -1169,11 +1169,8 @@ def _verify_candidate(
     )
     if relation.status != "first_lower" or relation.delta is None:
         return _Rejected("candidate has no proved positive aggregate-work reduction")
-    if exact_work_sign(before.total_work) in {-1, 0} or exact_work_sign(after.total_work) in {
-        -1,
-        0,
-    }:
-        return _Rejected("candidate before and after work must both be positive")
+    if exact_work_sign(before.total_work) in {-1, 0} or exact_work_sign(after.total_work) == -1:
+        return _Rejected("candidate work before must be positive and work after nonnegative")
 
     work_budget = WorkRenderBudget()
     try:

@@ -193,6 +193,96 @@ def test_local_optimization_families_publish_only_verified_savings() -> None:
         )
 
 
+def test_neutral_redundant_operations_can_reduce_work_to_zero() -> None:
+    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+
+    for expression in ("x + 0", "x * 1", "x / 1", "x**1"):
+        outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression))
+        assert outcome.status == "success" and outcome.optimization is not None
+        suggestion = next(
+            item
+            for item in outcome.optimization.suggestions
+            if item.kind == "redundant_operation_removal"
+        )
+        assert (suggestion.work_before, suggestion.work_after, suggestion.savings) == (
+            "1",
+            "0",
+            "1",
+        )
+        assert suggestion.conclusion in {"proved", "proved_under_assumptions"}
+        assert suggestion.evidence.kind == "identity"
+        assert not isinstance(
+            parse_expression(suggestion.transformations[0].proposed.normalized_sympy), ParseFailure
+        )
+        assert type(suggestion).model_validate_json(suggestion.model_dump_json()) == suggestion
+
+
+def test_zero_work_optimization_scales_equation_output_multiplicity() -> None:
+    from py_science.formula import (
+        AnalysisRequest,
+        EquationRequest,
+        FormulaSyntax,
+        IndexDomain,
+        MathematicalDomain,
+        VariableDeclaration,
+        analyze,
+    )
+
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=(
+                EquationRequest(
+                    name="value",
+                    expression="Eq(value[i], x + 0)",
+                    domains={"i": IndexDomain(lower="0", upper="3")},
+                ),
+            ),
+            variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
+        )
+    )
+    assert outcome.status == "success" and outcome.optimization is not None
+    assert outcome.system is not None and outcome.system.total_work == "4"
+    suggestion = next(
+        item
+        for item in outcome.optimization.suggestions
+        if item.kind == "redundant_operation_removal"
+    )
+    assert (suggestion.work_before, suggestion.work_after, suggestion.savings) == (
+        outcome.system.total_work,
+        "0",
+        outcome.system.total_work,
+    )
+    assert suggestion.transformations[0].target.name == "value"
+
+
+def test_optimization_suggestion_rejects_invalid_zero_or_negative_work() -> None:
+    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+    from pydantic import ValidationError
+
+    outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x * y + x * z"))
+    assert outcome.status == "success" and outcome.optimization is not None
+    suggestion = outcome.optimization.suggestions[0]
+    zero_post_work = type(suggestion).model_validate(
+        {
+            **suggestion.model_dump(),
+            "work_before": "1",
+            "work_after": "0",
+            "savings": "1",
+        }
+    )
+    assert type(suggestion).model_validate_json(zero_post_work.model_dump_json()) == zero_post_work
+    for invalid_work in (
+        {"work_before": "0", "work_after": "0", "savings": "0"},
+        {"work_before": "1", "work_after": "-1", "savings": "2"},
+        {"work_before": "1", "work_after": "0", "savings": "0"},
+        {"work_before": "1", "work_after": "0", "savings": "-1"},
+        {"work_before": "2", "work_after": "0", "savings": "1"},
+    ):
+        with pytest.raises(ValidationError):
+            type(suggestion).model_validate({**suggestion.model_dump(), **invalid_work})
+
+
 def test_repeated_defined_call_is_reused_but_unknown_call_is_omitted() -> None:
     from py_science.formula import AnalysisRequest, FormulaSyntax, FunctionDefinition, analyze
 
