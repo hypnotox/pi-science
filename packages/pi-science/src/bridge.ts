@@ -2645,12 +2645,34 @@ type ExactRational = { numerator: bigint; denominator: bigint };
 
 function exactRational(value: unknown): ExactRational | null {
   if (typeof value !== "string") return null;
-  const match = /^([+-]?\d+)(?:\/([1-9]\d*))?$/.exec(value);
-  if (match === null) return null;
-  return {
-    numerator: BigInt(match[1]),
-    denominator: match[2] === undefined ? 1n : BigInt(match[2]),
-  };
+  const fraction = /^([+-]?\d+)\/([1-9]\d*)$/.exec(value);
+  if (fraction !== null) {
+    return {
+      numerator: BigInt(fraction[1]),
+      denominator: BigInt(fraction[2]),
+    };
+  }
+  const decimal =
+    /^([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:[eE]([+-]?\d+))?$/.exec(value);
+  if (decimal === null) return null;
+  const fractionalDigits = decimal[3] ?? decimal[4] ?? "";
+  const exponent = Number(decimal[5] ?? "0");
+  if (!Number.isSafeInteger(exponent) || Math.abs(exponent) > 4_096) {
+    return { numerator: 0n, denominator: 1n };
+  }
+  const digits = `${decimal[2] ?? "0"}${fractionalDigits}`;
+  const sign = decimal[1] === "-" ? -1n : 1n;
+  const scale = fractionalDigits.length - exponent;
+  const magnitude = BigInt(digits);
+  return scale >= 0
+    ? {
+        numerator: sign * magnitude,
+        denominator: 10n ** BigInt(scale),
+      }
+    : {
+        numerator: sign * magnitude * 10n ** BigInt(-scale),
+        denominator: 1n,
+      };
 }
 
 function validOptimizationWorkClaims(

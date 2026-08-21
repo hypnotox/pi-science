@@ -445,9 +445,11 @@ describe("private formula bridge", () => {
       },
       ...[
         { work_before: "0" },
+        { work_before: "0.0" },
         { work_after: "-1" },
         { savings: "0" },
         { work_before: "2", work_after: "3", savings: "1" },
+        { work_before: "2e0", work_after: "3e0", savings: "1e0" },
         { work_before: "3", work_after: "2", savings: "2" },
       ].map((invalidWork) => ({
         ...populated,
@@ -461,6 +463,24 @@ describe("private formula bridge", () => {
         invokeAdapter(node, responder(malformed), request("1/x + 1/x")),
       ).rejects.toMatchObject({ kind: "protocol" });
     }
+
+    const symbolicWork = {
+      ...populated,
+      optimization: {
+        ...populated.optimization,
+        suggestions: [
+          {
+            ...suggestion,
+            work_before: "N + 1",
+            work_after: "N",
+            savings: "1",
+          },
+        ],
+      },
+    };
+    await expect(
+      invokeAdapter(node, responder(symbolicWork), request("1/x + 1/x")),
+    ).resolves.toMatchObject({ optimization: symbolicWork.optimization });
   });
 
   it("correlates indexed sharing transformations against one coherent intermediate interface", async () => {
