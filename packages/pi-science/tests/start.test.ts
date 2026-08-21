@@ -106,6 +106,7 @@ function optimizationPlan(
   };
   return {
     identity: JSON.stringify({ syntax: "sympy", ...candidate, equations: [] }),
+    objective: { kind: "unit_work_v1" },
     candidate,
     suggestion,
   };
@@ -145,7 +146,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 13, result: response }),
+            JSON.stringify({ version: 14, result: response }),
           )}))`,
         ],
       }),
@@ -428,7 +429,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 13, result: failure }),
+            JSON.stringify({ version: 14, result: failure }),
           )}))`,
         ],
       }),
@@ -461,7 +462,7 @@ describe("readiness gate", () => {
     });
     const text = result.content[0]!.text;
     expect(text).toContain("Optimization advice");
-    expect(text).toContain("first-ranked proved suggestion");
+    expect(text).toContain("optimization suggestion");
     expect(text).toContain("factoring: expression: x*y + x*z → x*(y + z)");
     expect(text).toContain("work 3 → 2; saves 1");
     expect(text).toContain("exact_symbolic_only");
@@ -472,9 +473,9 @@ describe("readiness gate", () => {
         suggestions: [
           {
             kind: "factoring",
-            work_before: "3",
-            work_after: "2",
-            savings: "1",
+            objective_before: "3",
+            objective_after: "2",
+            objective_savings: "1",
           },
         ],
       },
@@ -487,7 +488,7 @@ describe("readiness gate", () => {
       kind: "factoring" | "horner",
       proposed: string,
       workAfter: string,
-      savings: string,
+      objective_savings: string,
     ) => ({
       kind,
       transformations: [
@@ -503,9 +504,10 @@ describe("readiness gate", () => {
       evidence: { kind: "identity", statement: "verified" },
       conditions: [],
       assumptions_used: [],
-      work_before: "N + M + 4",
-      work_after: workAfter,
-      savings,
+      objective_before: "N + M + 4",
+      objective_after: workAfter,
+      objective_savings,
+      ordering: { position: 1, relation_to_previous: null },
       finite_precision_qualification: "exact_symbolic_only",
     });
     const suggestions = [
@@ -547,7 +549,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 13, result: response }),
+            JSON.stringify({ version: 14, result: response }),
           )}))`,
         ],
       }),
@@ -559,7 +561,7 @@ describe("readiness gate", () => {
     });
     const text = result.content[0]!.text;
     expect(text).toContain(
-      "first-ranked proved suggestion: factoring: expression: x → first_candidate",
+      "optimization suggestion: factoring: expression: x → first_candidate",
     );
     expect(text).toContain("1 additional proved suggestion in details");
     expect(text).not.toContain("second_candidate");
@@ -567,8 +569,8 @@ describe("readiness gate", () => {
     expect(result.details).toMatchObject({
       optimization: {
         suggestions: [
-          { kind: "factoring", savings: "N" },
-          { kind: "horner", savings: "M" },
+          { kind: "factoring", objective_savings: "N" },
+          { kind: "horner", objective_savings: "M" },
         ],
       },
     });
@@ -618,9 +620,10 @@ describe("readiness gate", () => {
       evidence: { kind: "identity", statement: "verified" },
       conditions: [],
       assumptions_used: [{ name: "known", relationship: "x > 0" }],
-      work_before: "3",
-      work_after: "2",
-      savings: "1",
+      objective_before: "3",
+      objective_after: "2",
+      objective_savings: "1",
+      ordering: { position: 1, relation_to_previous: null },
       finite_precision_qualification: "exact_symbolic_only",
     };
     const suggestions = [
@@ -669,7 +672,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 13, result: response }),
+            JSON.stringify({ version: 14, result: response }),
           )}))`,
         ],
       }),
@@ -680,7 +683,7 @@ describe("readiness gate", () => {
       assumptions: [{ name: "known", relationship: "x > 0" }],
     });
     const text = result.content[0]!.text;
-    expect(text).toContain("first-ranked proved suggestion");
+    expect(text).toContain("optimization suggestion");
     expect(text).toContain(longReplacement);
     expect(text).not.toContain(`${longReplacement.slice(0, 512)}...`);
     expect(text).toContain("assumptions used: known (x > 0)");
@@ -728,7 +731,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 13, result: response }),
+            JSON.stringify({ version: 14, result: response }),
           )}))`,
         ],
       }),
@@ -774,7 +777,7 @@ describe("readiness gate", () => {
       optimization: { max_suggestions: 16 },
     });
     const text = result.content[0]!.text;
-    expect(text).toContain("first-ranked proved suggestion");
+    expect(text).toContain("optimization suggestion");
     expect(text).toContain("cross_equation_sharing:");
     expect(text).toContain("equation left:");
     expect(text).toContain("equation right:");
@@ -1003,7 +1006,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 13, result: response }),
+            JSON.stringify({ version: 14, result: response }),
           )}))`,
         ],
       }),

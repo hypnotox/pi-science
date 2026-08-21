@@ -9,6 +9,7 @@ from py_science.formula.domains import OutputDomain
 from py_science.formula.domains import extent as output_domain_extent
 from py_science.formula.domains import free_symbols as domain_free_symbols
 from py_science.formula.equivalence import equivalence_answer
+from py_science.formula.exact_values import parse_exact_scalar
 from py_science.formula.expressions import (
     BinaryExpression,
     BinaryOperator,
@@ -31,10 +32,12 @@ from py_science.formula.expressions import (
 from py_science.formula.models import (
     IdentityEvidence,
     MathematicalDomain,
+    OptimizationObjective,
     PropertyEvidence,
     RelationshipUse,
     SignPropertyCheck,
     SymbolicOperationCounts,
+    UnitWorkObjective,
 )
 from py_science.formula.properties import property_answer
 from py_science.formula.reasoning import ReasoningContext
@@ -226,6 +229,30 @@ class WorkAnalysis:
     @property
     def total_work(self) -> Expression:
         return _add(self.operations.total, self.opaque_work)
+
+
+def project_optimization_objective(
+    analysis: WorkAnalysis, objective: OptimizationObjective
+) -> Expression:
+    """Project retained dimensional work for optimizer-only objective policy."""
+    if isinstance(objective, UnitWorkObjective):
+        return analysis.total_work
+    weights = objective.weights
+    result = analysis.opaque_work
+    for count, value in zip(
+        (analysis.operations.additions, analysis.operations.subtractions,
+         analysis.operations.multiplications, analysis.operations.divisions,
+         analysis.operations.powers),
+        (weights.additions, weights.subtractions, weights.multiplications,
+         weights.divisions, weights.powers),
+        strict=True,
+    ):
+        fraction = parse_exact_scalar(str(value))
+        assert fraction is not None
+        coefficient = (IntegerLiteral(fraction.numerator) if fraction.denominator == 1
+                       else RationalLiteral(fraction.numerator, fraction.denominator))
+        result = _add(result, _multiply(count, coefficient))
+    return result
 
 
 def analyze_work(expression: Expression, context: WorkContext) -> WorkAnalysis:

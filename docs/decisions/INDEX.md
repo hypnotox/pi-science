@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-- [ADR-adopt-exact-weighted-optimization-objectives: Adopt exact weighted optimization objectives](adopt-exact-weighted-optimization-objectives.md) (Proposed)
+- [ADR-adopt-exact-weighted-optimization-objectives: Adopt exact weighted optimization objectives](adopt-exact-weighted-optimization-objectives.md) (Implementing)
 
 ## History
 

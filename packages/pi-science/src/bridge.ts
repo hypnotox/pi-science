@@ -1,7 +1,7 @@
 import { TextDecoder } from "node:util";
 import { spawnIsolated, terminateTree } from "./process.js";
 
-export const PROTOCOL_VERSION = 13;
+export const PROTOCOL_VERSION = 14;
 export const MAX_FORMULA_BYTES = 65_536;
 export const MAX_ENVELOPE_BYTES = 2_097_152;
 export const MAX_RESPONSE_BYTES = 524_544;
@@ -364,9 +364,14 @@ export type OptimizationSuggestion = {
   evidence: { kind: "identity"; statement: string };
   conditions: string[];
   assumptions_used: RelationshipUse[];
-  work_before: string;
-  work_after: string;
-  savings: string;
+  objective_before: string;
+  objective_after: string;
+  objective_savings: string;
+  ordering: {
+    position: number;
+    relation_to_previous:
+      "previous_proved_superior" | "deterministic_non_superiority" | null;
+  };
   finite_precision_qualification: "exact_symbolic_only";
 };
 export type OptimizationCandidate = {
@@ -380,8 +385,22 @@ export type OptimizationCandidate = {
   | { expression: string; equations?: never }
   | { equations: EquationRequest[]; expression?: never }
 );
+export type OptimizationObjective =
+  | { kind: "unit_work_v1" }
+  | {
+      kind: "weighted_operations_v1";
+      weights: Record<
+        | "additions"
+        | "subtractions"
+        | "multiplications"
+        | "divisions"
+        | "powers",
+        string
+      >;
+    };
 export type OptimizationPlan = {
   identity: string;
+  objective: OptimizationObjective;
   candidate: OptimizationCandidate;
   suggestion: OptimizationSuggestion;
 };
@@ -2724,6 +2743,28 @@ function exactRational(value: unknown): ExactRational | null {
       };
 }
 
+function validOptimizationObjective(value: unknown): boolean {
+  if (!isRecord(value) || typeof value.kind !== "string") return false;
+  if (value.kind === "unit_work_v1") return exactKeys(value, ["kind"]);
+  if (
+    value.kind !== "weighted_operations_v1" ||
+    !exactKeys(value, ["kind", "weights"]) ||
+    !isRecord(value.weights) ||
+    !exactKeys(value.weights, [
+      "additions",
+      "subtractions",
+      "multiplications",
+      "divisions",
+      "powers",
+    ])
+  )
+    return false;
+  return Object.values(value.weights).every((weight) => {
+    const parsed = exactRational(weight);
+    return parsed !== null && parsed.numerator > 0n;
+  });
+}
+
 function validOptimizationWorkClaims(
   beforeValue: unknown,
   afterValue: unknown,
@@ -2763,9 +2804,10 @@ function validOptimizationSuggestion(
       "evidence",
       "conditions",
       "assumptions_used",
-      "work_before",
-      "work_after",
-      "savings",
+      "objective_before",
+      "objective_after",
+      "objective_savings",
+      "ordering",
       "finite_precision_qualification",
     ])
   )
@@ -2898,15 +2940,27 @@ function validOptimizationSuggestion(
     (value.conclusion === "proved_under_assumptions") ===
       (value.conditions.length > 0 ||
         (value.assumptions_used as unknown[]).length > 0) &&
-    [value.work_before, value.work_after, value.savings].every((item) =>
-      validBoundedDiagnosticText(item, 4_096),
-    ) &&
-    value.work_before !== value.work_after &&
+    [
+      value.objective_before,
+      value.objective_after,
+      value.objective_savings,
+    ].every((item) => validBoundedDiagnosticText(item, 4_096)) &&
+    value.objective_before !== value.objective_after &&
     validOptimizationWorkClaims(
-      value.work_before,
-      value.work_after,
-      value.savings,
+      value.objective_before,
+      value.objective_after,
+      value.objective_savings,
     ) &&
+    isRecord(value.ordering) &&
+    exactKeys(value.ordering, ["position", "relation_to_previous"]) &&
+    positiveInteger(value.ordering.position) &&
+    Number(value.ordering.position) <= 16 &&
+    ((Number(value.ordering.position) === 1 &&
+      value.ordering.relation_to_previous === null) ||
+      (Number(value.ordering.position) > 1 &&
+        ["previous_proved_superior", "deterministic_non_superiority"].includes(
+          String(value.ordering.relation_to_previous),
+        ))) &&
     value.finite_precision_qualification === "exact_symbolic_only"
   );
 }
@@ -3041,8 +3095,9 @@ function validOptimizationPlan(
 ): value is OptimizationPlan {
   if (
     !isRecord(value) ||
-    !exactKeys(value, ["identity", "candidate", "suggestion"]) ||
+    !exactKeys(value, ["identity", "objective", "candidate", "suggestion"]) ||
     typeof value.identity !== "string" ||
+    !validOptimizationObjective(value.objective) ||
     Buffer.byteLength(value.identity, "utf8") > MAX_RESPONSE_BYTES ||
     !validOptimizationCandidate(value.candidate, request)
   )
@@ -3070,7 +3125,10 @@ function validOptimizationPlan(
           max_plans: undefined,
         } as unknown as AnalysisRequest)
       : request;
-  return validOptimizationSuggestion(value.suggestion, analysisRequest);
+  return (
+    validOptimizationObjective(value.objective) &&
+    validOptimizationSuggestion(value.suggestion, analysisRequest)
+  );
 }
 
 function validOptimization(

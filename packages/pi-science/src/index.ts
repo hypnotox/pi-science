@@ -82,7 +82,7 @@ function compactToolText(result: BridgeResult): string {
       return [
         `- Plan ${index + 1}: ${plan.suggestion.kind}; outputs: ${plan.candidate.outputs.join(", ")}`,
         `  Candidate: ${compactExpression(computation)}`,
-        `  Savings: ${plan.suggestion.savings}; ${plan.suggestion.finite_precision_qualification}`,
+        `  Savings: ${plan.suggestion.objective_savings}; ${plan.suggestion.finite_precision_qualification}`,
       ];
     });
     return [
@@ -259,7 +259,7 @@ function compactToolText(result: BridgeResult): string {
     const additional = report.suggestions.length - 1;
     return [
       "Optimization advice",
-      `- first-ranked proved suggestion: ${suggestion.kind}: ${transformations}${intermediate}; work ${suggestion.work_before} → ${suggestion.work_after}; saves ${suggestion.savings}${conditions}${assumptions}; ${suggestion.finite_precision_qualification}`,
+      `- optimization suggestion: ${suggestion.kind}: ${transformations}${intermediate}; work ${suggestion.objective_before} → ${suggestion.objective_after}; saves ${suggestion.objective_savings}${conditions}${assumptions}; ${suggestion.finite_precision_qualification}`,
       ...(additional === 0
         ? []
         : [

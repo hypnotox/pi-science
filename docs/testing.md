@@ -14,15 +14,15 @@ Python tests cover the transport-free public formula API, qualified equation sys
 
 The Pi tier includes protocol-v13 analysis and candidate-comparison request/result parity, a query-bearing AFMM tail round trip, and partial nested finite-polynomial closed-form transport separate from preserved submitted-work fixtures. Comparison coverage proves strict result variants, correlation, syntax injection, and semantic-before-work presentation without duplicating Python mathematics.
 
-Derived query targets cross protocol v13 as strict correlation data only; Python owns earlier-only validation, verified-candidate eligibility, bounded qualification composition, and unavailable-target results.
+Derived query targets cross protocol v14 as strict correlation data only; Python owns earlier-only validation, verified-candidate eligibility, bounded qualification composition, and unavailable-target results.
 
 The Python and Pi tiers cover canonical dominance decomposition, poles, exact cells, bounded abstention, and strict dominance transport.
 
 
-Bounded aggregate-work dominance is available in Python and Pi protocol v13. Python owns its canonical rational decomposition and exact one-axis regions; Pi validates and presents the report without recomputing mathematical policy. It excludes multiple axes, exponentials, opaque aggregates, rewrites, resource vectors, scheduling, and empirical performance.
+Bounded aggregate-work dominance is available in Python and Pi protocol v14. Python owns its canonical rational decomposition and exact one-axis regions; Pi validates and presents the report without recomputing mathematical policy. It excludes multiple axes, exponentials, opaque aggregates, rewrites, resource vectors, scheduling, and empirical performance.
 
 
-Optimization coverage fixes the strict default/disabled/`0..16` truth table, report and suggestion correlations, every shipped family in expressions and systems, positional cross-equation interfaces and acyclic sharing, bounded Horner generation, scope/capture/cardinality/unknown-cost refusals, each independent search budget, deterministic repeated-process ordering, independent proof evidence, whole-work values, unchanged ordinary fields, schema generation, real-adapter and strict-bridge round trips, compact first-ranked non-superiority presentation with atomic target sets and disabled quietness, and the separate 262,144-byte base plus 65,536-byte advice limits. TypeScript tests validate shape and correlation without algebraic recomputation.
+Optimization coverage fixes the strict default/disabled/`0..16` truth table, report and suggestion correlations, every shipped family in expressions and systems, positional cross-equation interfaces and acyclic sharing, bounded Horner generation, scope/capture/cardinality/unknown-cost refusals, each independent search budget, deterministic repeated-process ordering, independent proof evidence, whole-work values, unchanged ordinary fields, schema generation, real-adapter and strict-bridge round trips, compact qualified ordering presentation with atomic target sets and disabled quietness, and the separate 262,144-byte base plus 65,536-byte advice limits. TypeScript tests validate shape and correlation without algebraic recomputation.
 
 
 <!-- awf:edit layout: from .awf/docs/parts/testing/layout.md -->
@@ -31,13 +31,13 @@ Python tests cover the transport-free public formula API and distribution. `pack
 
 Pi regressions also cover protocol-v13 analysis and candidate-comparison requests, exact discriminated result shapes, malformed transport, correlation, named constrained-domain reports, and registered-tool round trips. Candidate tests preserve mapped semantics, original aggregate work, second-minus-first delta, syntax injection, and semantic-before-work compact output without TypeScript mathematical recomputation.
 
-Derived query targets cross protocol v13 as strict correlation data only; Python owns earlier-only validation, verified-candidate eligibility, bounded qualification composition, and unavailable-target results. Focused regressions cover the partial direct nested finite-polynomial closed-form family and preserve submitted work separately from its informational candidate.
+Derived query targets cross protocol v14 as strict correlation data only; Python owns earlier-only validation, verified-candidate eligibility, bounded qualification composition, and unavailable-target results. Focused regressions cover the partial direct nested finite-polynomial closed-form family and preserve submitted work separately from its informational candidate.
 
 `tests/e2e/test_formula_dominance.py` covers the direct-Python dominance contract and preserves ordinary nested analysis.
 
 
-Bounded aggregate-work dominance is available in Python and Pi protocol v13. Python owns its canonical rational decomposition and exact one-axis regions; Pi validates and presents the report without recomputing mathematical policy. It excludes multiple axes, exponentials, opaque aggregates, rewrites, resource vectors, scheduling, and empirical performance.
+Bounded aggregate-work dominance is available in Python and Pi protocol v14. Python owns its canonical rational decomposition and exact one-axis regions; Pi validates and presents the report without recomputing mathematical policy. It excludes multiple axes, exponentials, opaque aggregates, rewrites, resource vectors, scheduling, and empirical performance.
 
 
-`tests/unit/test_formula_optimization.py` and the expression/system e2e suites cover strict controls, typed occurrence scope, every shipped family including compatible cross-equation sharing and bounded Horner reformulation, checked intermediate substitution, proof evidence, work correlation, deterministic selection, independent budget exhaustion, and conservative omission. Schema, adapter, bridge, provisioning, start, package, and documented-example tests cover protocol v13, mandatory default/disabled/populated/incomplete reports, strict correlation, atomic first-ranked non-superiority compact target-set presentation, disabled quietness, base/advice byte separation, and unchanged ordinary results.
+`tests/unit/test_formula_optimization.py` and the expression/system e2e suites cover strict controls, typed occurrence scope, every shipped family including compatible cross-equation sharing and bounded Horner reformulation, checked intermediate substitution, proof evidence, work correlation, deterministic selection, independent budget exhaustion, and conservative omission. Schema, adapter, bridge, provisioning, start, package, and documented-example tests cover protocol v14, mandatory default/disabled/populated/incomplete reports, strict correlation, atomic qualified ordering compact target-set presentation, disabled quietness, base/advice byte separation, and unchanged ordinary results.
 

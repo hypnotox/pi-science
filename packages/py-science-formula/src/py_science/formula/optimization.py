@@ -42,6 +42,7 @@ from py_science.formula.models import (
     OptimizationCandidate,
     OptimizationIntermediate,
     OptimizationOccurrence,
+    OptimizationOrdering,
     OptimizationPlan,
     OptimizationReport,
     OptimizationSuggestion,
@@ -70,6 +71,7 @@ from py_science.formula.work import (
     analyze_work,
     compare_aggregate_work,
     exact_work_sign,
+    project_optimization_objective,
     render_work,
     substitute_analysis,
 )
@@ -1403,14 +1405,16 @@ def _verify_candidate(
         )
     except _BudgetExhausted as error:
         return _Exhausted(str(error))
+    objective_before = project_optimization_objective(before, request.optimization.objective)
+    objective_after = project_optimization_objective(after, request.optimization.objective)
     relation = compare_aggregate_work(
         AggregateWorkComparisonInput(
-            work=after.total_work,
+            work=objective_after,
             unknown_costs=frozenset(after.unknown_costs),
             direct_work_blockers=frozenset(after.direct_work_blockers),
         ),
         AggregateWorkComparisonInput(
-            work=before.total_work,
+            work=objective_before,
             unknown_costs=frozenset(before.unknown_costs),
             direct_work_blockers=frozenset(before.direct_work_blockers),
         ),
@@ -1419,14 +1423,14 @@ def _verify_candidate(
     )
     if relation.status != "first_lower" or relation.delta is None:
         return _Rejected("candidate has no proved positive aggregate-work reduction")
-    if exact_work_sign(before.total_work) in {-1, 0} or exact_work_sign(after.total_work) == -1:
+    if exact_work_sign(objective_before) in {-1, 0} or exact_work_sign(objective_after) == -1:
         return _Rejected("candidate work before must be positive and work after nonnegative")
 
     work_budget = WorkRenderBudget()
     try:
-        work_before = render_work(before.total_work, work_budget)
-        work_after = render_work(after.total_work, work_budget)
-        savings = render_work(relation.delta, work_budget)
+        objective_before_rendered = render_work(objective_before, work_budget)
+        objective_after_rendered = render_work(objective_after, work_budget)
+        objective_savings = render_work(relation.delta, work_budget)
         intermediate = (
             OptimizationIntermediate(
                 name=candidate.intermediate_name,
@@ -1488,9 +1492,10 @@ def _verify_candidate(
         evidence=evidence,
         conditions=conditions,
         assumptions_used=assumptions,
-        work_before=work_before,
-        work_after=work_after,
-        savings=savings,
+        objective_before=objective_before_rendered,
+        objective_after=objective_after_rendered,
+        objective_savings=objective_savings,
+        ordering=OptimizationOrdering(position=1, relation_to_previous=None),
     )
     return _Accepted(suggestion, complete, relation.delta)
 
@@ -1499,8 +1504,8 @@ def _suggestion_order(left: OptimizationSuggestion, right: OptimizationSuggestio
     if (left.conclusion == "proved") != (right.conclusion == "proved"):
         return -1 if left.conclusion == "proved" else 1
     try:
-        left_savings = Fraction(left.savings)
-        right_savings = Fraction(right.savings)
+        left_savings = Fraction(left.objective_savings)
+        right_savings = Fraction(right.objective_savings)
     except (ValueError, ZeroDivisionError):
         left_savings = right_savings = None
     if left_savings is not None and right_savings is not None and left_savings != right_savings:
@@ -1532,8 +1537,8 @@ def _accepted_order(
     if (left.suggestion.conclusion == "proved") != (right.suggestion.conclusion == "proved"):
         return base
     try:
-        left_exact = Fraction(left.suggestion.savings)
-        right_exact = Fraction(right.suggestion.savings)
+        left_exact = Fraction(left.suggestion.objective_savings)
+        right_exact = Fraction(right.suggestion.objective_savings)
     except (ValueError, ZeroDivisionError):
         left_exact = right_exact = None
     if left_exact is not None and right_exact is not None:
@@ -1689,12 +1694,35 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
         )
         # This canonical JSON identity is stable across the direct and passive surfaces.
         identity = candidate.model_dump_json(exclude_none=True)
-        return OptimizationPlan(identity=identity, candidate=candidate, suggestion=item.suggestion)
-    plans = tuple(plan(item) for item in selected)
+        return OptimizationPlan(
+            identity=identity, objective=request.optimization.objective,
+            candidate=candidate, suggestion=item.suggestion,
+        )
+    ordered: list[_Accepted] = []
+    for position, item in enumerate(selected, start=1):
+        relation_to_previous = None
+        if position > 1:
+            relation_to_previous = "deterministic_non_superiority"
+            previous = ordered[-1]
+            try:
+                relation = compare_aggregate_work(
+                    AggregateWorkComparisonInput(work=previous.savings_expression),
+                    AggregateWorkComparisonInput(work=item.savings_expression), reasoning,
+                    semantic_established=True,
+                )
+                if relation.status == "second_lower":
+                    relation_to_previous = "previous_proved_superior"
+            except _BudgetExhausted:
+                pass
+        ordered.append(_Accepted(
+            item.suggestion.model_copy(update={"ordering": OptimizationOrdering(
+                position=position, relation_to_previous=relation_to_previous)}),
+            item.candidate, item.savings_expression))
+    plans = tuple(plan(item) for item in ordered)
     return OptimizationReport(
         requested_limit=limit,
         status="incomplete" if qualifications else "complete",
-        suggestions=tuple(item.suggestion for item in selected),
+        suggestions=tuple(item.suggestion for item in ordered),
         plans=plans,
         qualifications=_unique_qualifications(qualifications),
     )

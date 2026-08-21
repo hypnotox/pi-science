@@ -357,18 +357,18 @@ def test_optimization_suggestion_rejects_invalid_zero_or_negative_work() -> None
     zero_post_work = type(suggestion).model_validate(
         {
             **suggestion.model_dump(),
-            "work_before": "1",
-            "work_after": "0",
-            "savings": "1",
+            "objective_before": "1",
+            "objective_after": "0",
+            "objective_savings": "1",
         }
     )
     assert type(suggestion).model_validate_json(zero_post_work.model_dump_json()) == zero_post_work
     for invalid_work in (
-        {"work_before": "0", "work_after": "0", "savings": "0"},
-        {"work_before": "1", "work_after": "-1", "savings": "2"},
-        {"work_before": "1", "work_after": "0", "savings": "0"},
-        {"work_before": "1", "work_after": "0", "savings": "-1"},
-        {"work_before": "2", "work_after": "0", "savings": "1"},
+        {"objective_before": "0", "objective_after": "0", "objective_savings": "0"},
+        {"objective_before": "1", "objective_after": "-1", "objective_savings": "2"},
+        {"objective_before": "1", "objective_after": "0", "objective_savings": "0"},
+        {"objective_before": "1", "objective_after": "0", "objective_savings": "-1"},
+        {"objective_before": "2", "objective_after": "0", "objective_savings": "1"},
     ):
         with pytest.raises(ValidationError):
             type(suggestion).model_validate({**suggestion.model_dump(), **invalid_work})
@@ -1986,3 +1986,64 @@ def test_optimize_operation_bounds_duplicated_plan_output(
     assert result.search_status == "incomplete"
     assert result.qualifications
     assert len(result.model_dump_json().encode("utf-8")) <= service.MAX_OPTIMIZATION_BYTES
+
+
+# Objective-v1 regressions deliberately define the public optimizer-only boundary.
+def test_objective_v1_default_and_weighted_request_shapes() -> None:
+    from py_science.formula import AnalysisRequest, FormulaSyntax, OptimizeRequest
+
+    ordinary = AnalysisRequest.model_validate({
+        "syntax": FormulaSyntax.SYMPY,
+        "expression": "x + 1",
+        "optimization": {"objective": {"kind": "unit_work_v1"}},
+    })
+    direct = OptimizeRequest.model_validate({
+        "syntax": FormulaSyntax.SYMPY,
+        "expression": "x + 1",
+        "objective": {"kind": "weighted_operations_v1", "weights": {
+            "additions": "1", "subtractions": "1", "multiplications": "1",
+            "divisions": "1", "powers": "5/2",
+        }},
+    })
+    assert ordinary.optimization.objective.kind == "unit_work_v1"
+    assert direct.objective.kind == "weighted_operations_v1"
+    assert direct.objective.weights.powers == "5/2"
+
+
+@pytest.mark.parametrize("weight", ["0", "-1", True, "wat", "1/0"])
+def test_objective_v1_rejects_nonpositive_or_malformed_weights(weight: object) -> None:
+    from py_science.formula import AnalysisRequest, FormulaSyntax
+
+    with pytest.raises(ValueError):
+        AnalysisRequest.model_validate({
+            "syntax": FormulaSyntax.SYMPY, "expression": "x + 1",
+            "optimization": {"objective": {"kind": "weighted_operations_v1", "weights": {
+                "additions": weight, "subtractions": "1", "multiplications": "1",
+                "divisions": "1", "powers": "1",
+            }}},
+        })
+
+
+def test_objective_v1_plans_carry_canonical_provenance_and_evidence() -> None:
+    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+
+    outcome = analyze(AnalysisRequest.model_validate({
+        "syntax": FormulaSyntax.SYMPY,
+        "expression": "(x + 1)*(x + 1) + (y*z + y*w)",
+        "optimization": {"objective": {"kind": "weighted_operations_v1", "weights": {
+            "additions": "1", "subtractions": "1", "multiplications": "1",
+            "divisions": "1", "powers": "5/2",
+        }}},
+    }))
+    assert outcome.status == "success"
+    plan = outcome.optimization.plans[0]
+    assert plan.objective.model_dump() == {
+        "kind": "weighted_operations_v1",
+        "weights": {
+            "additions": "1", "subtractions": "1", "multiplications": "1",
+            "divisions": "1", "powers": "5/2",
+        },
+    }
+    assert plan.suggestion.objective_before
+    assert plan.suggestion.ordering.position == 1
+    assert plan.suggestion.ordering.relation_to_previous is None

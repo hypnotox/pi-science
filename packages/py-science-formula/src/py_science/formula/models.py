@@ -657,10 +657,43 @@ type QueryResult = Annotated[
 ]
 
 
+class UnitWorkObjective(StructuredModel):
+    kind: Literal["unit_work_v1"] = "unit_work_v1"
+
+
+class WeightedOperationWeights(StructuredModel):
+    additions: ExactScenarioScalar
+    subtractions: ExactScenarioScalar
+    multiplications: ExactScenarioScalar
+    divisions: ExactScenarioScalar
+    powers: ExactScenarioScalar
+
+    @field_validator("additions", "subtractions", "multiplications", "divisions", "powers", mode="before")
+    @classmethod
+    def canonical_positive_scalar(cls, value: object) -> str:
+        rendered = _exact_scenario_scalar(value)
+        parsed = parse_exact_scalar(rendered)
+        assert parsed is not None
+        if parsed.numerator <= 0:
+            raise ValueError("objective weights must be strictly positive")
+        return rendered
+
+
+class WeightedOperationsObjective(StructuredModel):
+    kind: Literal["weighted_operations_v1"] = "weighted_operations_v1"
+    weights: WeightedOperationWeights
+
+
+type OptimizationObjective = Annotated[
+    UnitWorkObjective | WeightedOperationsObjective, Field(discriminator="kind")
+]
+
+
 class OptimizationConfig(StructuredModel):
     """Bounded, informational advice requested only for ordinary analysis."""
 
     max_suggestions: int = Field(default=3, ge=0, le=16)
+    objective: OptimizationObjective = Field(default_factory=UnitWorkObjective)
 
 
 def _validate_output_identities(
@@ -827,6 +860,7 @@ class OptimizeRequest(StructuredModel):
     assumptions: tuple[Assumption, ...] = Field(default=(), max_length=MAX_ASSUMPTIONS)
     definitions: tuple[DirectedDefinition, ...] = Field(default=(), max_length=MAX_DEFINITIONS)
     max_plans: int = Field(default=3, ge=1, le=16)
+    objective: OptimizationObjective = Field(default_factory=UnitWorkObjective)
 
     @field_validator("max_plans")
     @classmethod
@@ -1354,9 +1388,10 @@ class OptimizationSuggestion(StructuredModel):
     evidence: IdentityEvidence
     conditions: tuple[BoundedQueryText, ...] = Field(default=(), max_length=128)
     assumptions_used: tuple[RelationshipUse, ...] = Field(default=(), max_length=128)
-    work_before: BoundedQueryText
-    work_after: BoundedQueryText
-    savings: BoundedQueryText
+    objective_before: BoundedQueryText
+    objective_after: BoundedQueryText
+    objective_savings: BoundedQueryText
+    ordering: "OptimizationOrdering"
     finite_precision_qualification: Literal["exact_symbolic_only"] = "exact_symbolic_only"
 
     @model_validator(mode="after")
@@ -1372,7 +1407,7 @@ class OptimizationSuggestion(StructuredModel):
         elif len(self.transformations) != 1:
             raise ValueError("single-target optimization families require one transformation")
         numeric_work: list[Fraction | None] = []
-        for value in (self.work_before, self.work_after, self.savings):
+        for value in (self.objective_before, self.objective_after, self.objective_savings):
             try:
                 numeric_work.append(Fraction(value))
             except (ValueError, ZeroDivisionError):
@@ -1383,10 +1418,10 @@ class OptimizationSuggestion(StructuredModel):
             or (after is not None and after < 0)
             or (savings is not None and savings <= 0)
         ):
-            raise ValueError("optimization work before and savings must be positive; work after nonnegative")
+            raise ValueError("optimization objective before and savings must be positive; objective after nonnegative")
         if (
-            not self.savings
-            or self.work_before == self.work_after
+            not self.objective_savings
+            or self.objective_before == self.objective_after
             or (
                 before is not None
                 and after is not None
@@ -1394,7 +1429,7 @@ class OptimizationSuggestion(StructuredModel):
                 and (before <= after or before - after != savings)
             )
         ):
-            raise ValueError("optimization suggestions require positive savings")
+            raise ValueError("optimization suggestions require positive objective savings")
         requires_intermediate = self.kind in {
             "repeated_subexpression",
             "repeated_call",
@@ -1409,11 +1444,36 @@ class OptimizationSuggestion(StructuredModel):
             raise ValueError("optimization proof conclusion must agree with its qualifications")
         return self
 
+    # Python attribute aliases preserve source compatibility; they are not serialized.
+    @property
+    def work_before(self) -> str:
+        return self.objective_before
+
+    @property
+    def work_after(self) -> str:
+        return self.objective_after
+
+    @property
+    def savings(self) -> str:
+        return self.objective_savings
+
+
+class OptimizationOrdering(StructuredModel):
+    position: int = Field(ge=1, le=16)
+    relation_to_previous: Literal["previous_proved_superior", "deterministic_non_superiority"] | None
+
+    @model_validator(mode="after")
+    def ordering_shape(self) -> "OptimizationOrdering":
+        if (self.position == 1) != (self.relation_to_previous is None):
+            raise ValueError("only the first optimization position has no previous relation")
+        return self
+
 
 class OptimizationPlan(StructuredModel):
     """One independently replayable, verified optimization result."""
 
     identity: str = Field(min_length=1, max_length=262_144)
+    objective: OptimizationObjective
     candidate: OptimizationCandidate
     suggestion: OptimizationSuggestion
 

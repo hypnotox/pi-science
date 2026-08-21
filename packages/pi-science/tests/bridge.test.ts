@@ -232,6 +232,7 @@ function optimizationPlan(
   };
   return {
     identity: JSON.stringify({ syntax: "sympy", ...candidate, equations: [] }),
+    objective: { kind: "unit_work_v1" },
     candidate,
     suggestion,
   };
@@ -328,9 +329,10 @@ describe("private formula bridge", () => {
       },
       conditions: ["x != 0"],
       assumptions_used: [],
-      work_before: "3",
-      work_after: "2",
-      savings: "1",
+      objective_before: "3",
+      objective_after: "2",
+      objective_savings: "1",
+      ordering: { position: 1, relation_to_previous: null },
       finite_precision_qualification: "exact_symbolic_only",
     };
     const populated = {
@@ -352,14 +354,19 @@ describe("private formula bridge", () => {
       optimization: {
         ...populated.optimization,
         suggestions: [
-          { ...suggestion, work_before: "1", work_after: "0", savings: "1" },
+          {
+            ...suggestion,
+            objective_before: "1",
+            objective_after: "0",
+            objective_savings: "1",
+          },
         ],
         plans: [
           optimizationPlan({
             ...suggestion,
-            work_before: "1",
-            work_after: "0",
-            savings: "1",
+            objective_before: "1",
+            objective_after: "0",
+            objective_savings: "1",
           }),
         ],
       },
@@ -388,9 +395,9 @@ describe("private formula bridge", () => {
       intermediate: null,
       conclusion: "proved",
       conditions: [],
-      work_before: "8",
-      work_after: "6",
-      savings: "2",
+      objective_before: "8",
+      objective_after: "6",
+      objective_savings: "2",
     };
     const hornerReport = {
       ...populated,
@@ -494,13 +501,17 @@ describe("private formula bridge", () => {
         },
       },
       ...[
-        { work_before: "0" },
-        { work_before: "0.0" },
-        { work_after: "-1" },
-        { savings: "0" },
-        { work_before: "2", work_after: "3", savings: "1" },
-        { work_before: "2e0", work_after: "3e0", savings: "1e0" },
-        { work_before: "3", work_after: "2", savings: "2" },
+        { objective_before: "0" },
+        { objective_before: "0.0" },
+        { objective_after: "-1" },
+        { objective_savings: "0" },
+        { objective_before: "2", objective_after: "3", objective_savings: "1" },
+        {
+          objective_before: "2e0",
+          objective_after: "3e0",
+          objective_savings: "1e0",
+        },
+        { objective_before: "3", objective_after: "2", objective_savings: "2" },
       ].map((invalidWork) => ({
         ...populated,
         optimization: {
@@ -521,17 +532,17 @@ describe("private formula bridge", () => {
         suggestions: [
           {
             ...suggestion,
-            work_before: "N + 1",
-            work_after: "N",
-            savings: "1",
+            objective_before: "N + 1",
+            objective_after: "N",
+            objective_savings: "1",
           },
         ],
         plans: [
           optimizationPlan({
             ...suggestion,
-            work_before: "N + 1",
-            work_after: "N",
-            savings: "1",
+            objective_before: "N + 1",
+            objective_after: "N",
+            objective_savings: "1",
           }),
         ],
       },
@@ -944,7 +955,7 @@ describe("private formula bridge", () => {
     identityDrift.plans[0]!.identity += " ";
     malformed.push(identityDrift);
     const suggestionDrift = structuredClone(result);
-    suggestionDrift.plans[0]!.suggestion.savings = "999";
+    suggestionDrift.plans[0]!.suggestion.objective_savings = "999";
     malformed.push(suggestionDrift);
     for (const invalid of malformed) {
       await expect(

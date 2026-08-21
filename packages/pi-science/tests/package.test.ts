@@ -28,7 +28,7 @@ describe("npm package boundary", () => {
     expect(skill).toContain("compact human-readable projection");
     expect(skill).toContain("complete canonical report in `details`");
     expect(skill).toContain("complete replayable plans");
-    expect(skill).toContain("first-ranked proved suggestion");
+    expect(skill).toContain("selected optimization suggestion");
     expect(skill).toContain(
       "Keep plans atomic and do not combine separate candidates",
     );
