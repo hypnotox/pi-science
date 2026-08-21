@@ -228,7 +228,13 @@ def test_optimization_config_truth_table_and_exact_error_paths() -> None:
 
 
 def test_report_and_suggestion_cross_field_truth_table() -> None:
-    from py_science.formula import AnalysisRequest, FormulaSyntax, OptimizationReport, analyze
+    from py_science.formula import (
+        AnalysisRequest,
+        FormulaSyntax,
+        OptimizationReport,
+        OptimizationTarget,
+        analyze,
+    )
     from pydantic import ValidationError
 
     populated = analyze(
@@ -266,9 +272,13 @@ def test_report_and_suggestion_cross_field_truth_table() -> None:
             OptimizationReport.model_validate(invalid)
     suggestion_data = suggestion.model_dump()
     transformation = suggestion.transformations[0]
+    second_target = transformation.model_copy(
+        update={"target": OptimizationTarget(kind="equation", name="other")}
+    )
     for invalid in (
         {**suggestion_data, "transformations": ()},
         {**suggestion_data, "transformations": (transformation, transformation)},
+        {**suggestion_data, "transformations": (transformation, second_target)},
         {**suggestion_data, "kind": "cross_equation_sharing"},
         {
             **suggestion_data,

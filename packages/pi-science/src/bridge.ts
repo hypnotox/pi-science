@@ -2736,8 +2736,9 @@ function validOptimizationSuggestion(
   };
   if (
     !value.transformations.every(validTransformation) ||
-    (value.kind === "cross_equation_sharing" &&
-      value.transformations.length < 2)
+    (value.kind === "cross_equation_sharing"
+      ? value.transformations.length < 2
+      : value.transformations.length !== 1)
   )
     return false;
   const requiresIntermediate = [

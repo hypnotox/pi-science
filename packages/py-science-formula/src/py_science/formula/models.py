@@ -1282,8 +1282,11 @@ class OptimizationSuggestion(StructuredModel):
         )
         if len(set(targets)) != len(targets):
             raise ValueError("optimization transformations require unique targets")
-        if self.kind == "cross_equation_sharing" and len(self.transformations) < 2:
-            raise ValueError("cross-equation sharing requires every affected target")
+        if self.kind == "cross_equation_sharing":
+            if len(self.transformations) < 2:
+                raise ValueError("cross-equation sharing requires every affected target")
+        elif len(self.transformations) != 1:
+            raise ValueError("single-target optimization families require one transformation")
         numeric_work: list[Fraction | None] = []
         for value in (self.work_before, self.work_after, self.savings):
             try:

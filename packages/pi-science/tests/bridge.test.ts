@@ -501,6 +501,18 @@ describe("private formula bridge", () => {
     await expect(
       invokeAdapter(node, responder(malformed), indexedRequest),
     ).rejects.toMatchObject({ kind: "protocol" });
+
+    const malformedLocal = structuredClone(indexed);
+    const multiTargetLocal = malformedLocal.optimization.suggestions.find(
+      (suggestion) => suggestion.kind === "cross_equation_sharing",
+    );
+    if (!multiTargetLocal) {
+      throw new Error("indexed sharing fixture requires a suggestion");
+    }
+    multiTargetLocal.kind = "repeated_subexpression";
+    await expect(
+      invokeAdapter(node, responder(malformedLocal), indexedRequest),
+    ).rejects.toMatchObject({ kind: "protocol" });
   });
 
   it("round trips the actual adapter for success and analysis failure", async () => {
