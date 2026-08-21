@@ -21,6 +21,7 @@ from py_science.formula.expressions import (
     IntegerLiteral,
     Let,
     RationalLiteral,
+    Sum,
     Symbol,
     substitute,
 )
@@ -129,6 +130,18 @@ def test_let_binding_substitution_alpha_renames_to_avoid_capture() -> None:
         ),
         {"x": Symbol("t")},
     )
+    sum_bounds = substitute(
+        Let(
+            "t",
+            IntegerLiteral(0),
+            BinaryExpression(
+                BinaryOperator.ADD,
+                Symbol("x"),
+                Sum(Symbol("t"), "t", Symbol("t"), Symbol("t")),
+            ),
+        ),
+        {"x": Symbol("t")},
+    )
 
     assert isinstance(substituted, Let)
     assert substituted.name != "t"
@@ -138,6 +151,13 @@ def test_let_binding_substitution_alpha_renames_to_avoid_capture() -> None:
     assert nested.name not in {"t", "t_let"}
     assert isinstance(nested.body, Let)
     assert nested.body.name == "t_let"
+    assert isinstance(sum_bounds, Let)
+    assert isinstance(sum_bounds.body, BinaryExpression)
+    assert isinstance(sum_bounds.body.right, Sum)
+    assert sum_bounds.body.right.index != sum_bounds.name
+    assert sum_bounds.body.right.body == Symbol(sum_bounds.body.right.index)
+    assert sum_bounds.body.right.lower == Symbol(sum_bounds.name)
+    assert sum_bounds.body.right.upper == Symbol(sum_bounds.name)
 
 
 @pytest.mark.parametrize(
@@ -218,6 +238,39 @@ def test_let_binding_system_normalization_and_output_multiplicity_are_preserved(
         "Eq(y[i], Let(t, x[i]*x[i], t + t))"
     )
     assert outcome.system.total_work == "6"
+
+
+def test_let_binding_sum_bounds_retain_sign_and_integrality() -> None:
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="Sum(x[i], (i, Let(t, 0, t), Let(u, 2, u)))",
+            variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
+        )
+    )
+
+    assert isinstance(outcome, AnalysisSuccess)
+    assert outcome.system is not None
+    assert outcome.system.total_work == "2"
+    assert outcome.system.unresolved == ()
+
+
+def test_let_binding_definition_preserves_real_domain() -> None:
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="y",
+            variables={
+                "x": VariableDeclaration(domain=MathematicalDomain.REAL),
+                "y": VariableDeclaration(domain=MathematicalDomain.REAL),
+            },
+            definitions=(DirectedDefinition(variable="y", expression="Let(t, x, t)"),),
+        )
+    )
+
+    assert isinstance(outcome, AnalysisSuccess)
+    assert outcome.system is not None
+    assert not any("domain preservation is unproved" in item for item in outcome.system.unresolved)
 
 
 def test_let_binding_retains_nonfinite_aggregate_work() -> None:

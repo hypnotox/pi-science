@@ -39,6 +39,7 @@ from py_science.formula.expressions import (
     exact_integer_value,
     expression_children,
     expression_node_count,
+    lower_let_bindings,
     substitute,
 )
 from py_science.formula.models import (
@@ -892,7 +893,10 @@ def _is_real_expression(expression: Expression, context: WorkContext) -> bool:
             and is_integer_expression(expression.upper, context)
         )
     if isinstance(expression, Let):
-        return _is_real_expression(expression.value, context) and _is_real_expression(expression.body, context)
+        try:
+            return _is_real_expression(lower_let_bindings(expression), context)
+        except ExpressionTooComplex:
+            return False
     if not _is_real_expression(expression.left, context) or not _is_real_expression(
         expression.right, context
     ):

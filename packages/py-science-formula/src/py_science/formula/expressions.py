@@ -158,7 +158,11 @@ def substitute(
     """Substitute without constructing an expansion that exceeds ``max_nodes``."""
     remaining = max_nodes
 
-    def visit(value: Expression, scoped: dict[str, Expression]) -> Expression:
+    def visit(
+        value: Expression,
+        scoped: dict[str, Expression],
+        enclosing_binders: frozenset[str],
+    ) -> Expression:
         nonlocal remaining
         if isinstance(value, Symbol) and value.name in scoped:
             replacement = scoped[value.name]
@@ -166,23 +170,32 @@ def substitute(
             return replacement
         _consume(1)
         if isinstance(value, IndexedValue):
-            return IndexedValue(value.name, tuple(visit(index, scoped) for index in value.indices))
+            return IndexedValue(
+                value.name,
+                tuple(visit(index, scoped, enclosing_binders) for index in value.indices),
+            )
         if isinstance(value, Call):
-            return Call(value.name, tuple(visit(argument, scoped) for argument in value.arguments))
+            return Call(
+                value.name,
+                tuple(visit(argument, scoped, enclosing_binders) for argument in value.arguments),
+            )
         if isinstance(value, Sum):
             inner = {name: item for name, item in scoped.items() if name != value.index}
             index = value.index
             body = value.body
+            introduced: set[str] = set()
+            for item in inner.values():
+                introduced.update(_free_names(item))
             # A replacement introduced into the body must not become captured
             # by this aggregate's binder.
-            if index in set().union(*(_free_names(item) for item in inner.values())):
-                index = _fresh_name(index, body, inner)
+            if index in introduced:
+                index = _fresh_name(index, body, inner, enclosing_binders)
                 body = _rename_bound(body, value.index, index)
             return Sum(
-                visit(body, inner),
+                visit(body, inner, enclosing_binders | {index}),
                 index,
-                visit(value.lower, scoped),
-                visit(value.upper, scoped),
+                visit(value.lower, scoped, enclosing_binders),
+                visit(value.upper, scoped, enclosing_binders),
             )
         if isinstance(value, Let):
             # The binding is nonrecursive: its value sees the enclosing
@@ -196,14 +209,18 @@ def substitute(
             for item in inner.values():
                 introduced.update(_free_names(item))
             if name in introduced:
-                name = _fresh_name(name, body, inner)
+                name = _fresh_name(name, body, inner, enclosing_binders)
                 body = _rename_bound(body, value.name, name)
-            return Let(name, visit(value.value, scoped), visit(body, inner))
+            return Let(
+                name,
+                visit(value.value, scoped, enclosing_binders),
+                visit(body, inner, enclosing_binders | {name}),
+            )
         if isinstance(value, BinaryExpression):
             return BinaryExpression(
                 value.operator,
-                visit(value.left, scoped),
-                visit(value.right, scoped),
+                visit(value.left, scoped, enclosing_binders),
+                visit(value.right, scoped, enclosing_binders),
             )
         return value
 
@@ -215,7 +232,7 @@ def substitute(
         if remaining < 0:
             raise ExpressionTooComplex("substitution-expanded work exceeds its structural bound")
 
-    return visit(expression, replacements)
+    return visit(expression, replacements, frozenset())
 
 
 def lower_let_bindings(
@@ -271,8 +288,13 @@ def _free_names(value: Expression, bound: frozenset[str] = frozenset()) -> set[s
     return result
 
 
-def _fresh_name(base: str, body: Expression, replacements: dict[str, Expression]) -> str:
-    occupied = _all_names(body) | set(replacements)
+def _fresh_name(
+    base: str,
+    body: Expression,
+    replacements: dict[str, Expression],
+    reserved: frozenset[str] = frozenset(),
+) -> str:
+    occupied = _all_names(body) | set(replacements) | set(reserved)
     for item in replacements.values():
         occupied.update(_all_names(item))
     candidate = f"{base}_let"
@@ -306,10 +328,9 @@ def _rename_bound(value: Expression, old: str, new: str) -> Expression:
     if isinstance(value, Call):
         return Call(value.name, tuple(_rename_bound(item, old, new) for item in value.arguments))
     if isinstance(value, Sum):
-        if value.index == old:
-            return value
+        body = value.body if value.index == old else _rename_bound(value.body, old, new)
         return Sum(
-            _rename_bound(value.body, old, new),
+            body,
             value.index,
             _rename_bound(value.lower, old, new),
             _rename_bound(value.upper, old, new),

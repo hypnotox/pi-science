@@ -25,6 +25,7 @@ from py_science.formula.expressions import (
     exact_integer_value,
     expression_children,
     expression_node_count,
+    lower_let_bindings,
     substitute,
 )
 from py_science.formula.models import (
@@ -290,6 +291,14 @@ def cardinality(
     context: WorkContext,
     label: str,
 ) -> tuple[Expression, str | None]:
+    try:
+        lower = lower_let_bindings(lower)
+        upper = lower_let_bindings(upper)
+    except ExpressionTooComplex:
+        return (
+            Call("cardinality", (lower, upper)),
+            f"{label} lexical bound expansion exceeds its structural bound",
+        )
     if _contains_infinity(lower) or _contains_infinity(upper):
         return IntegerLiteral(0), "infinite iterator has no finite direct-evaluation work"
     lower_value = exact_integer_value(lower)
@@ -351,6 +360,11 @@ def _zero_to_nonnegative_extent(
 
 
 def is_nonnegative_expression(expression: Expression, context: WorkContext) -> bool:
+    if isinstance(expression, Let):
+        try:
+            return is_nonnegative_expression(lower_let_bindings(expression), context)
+        except ExpressionTooComplex:
+            return False
     if isinstance(expression, IntegerLiteral):
         return expression.value >= 0
     if isinstance(expression, RationalLiteral):
@@ -389,6 +403,11 @@ def is_nonnegative_expression(expression: Expression, context: WorkContext) -> b
 
 
 def is_positive_expression(expression: Expression, context: WorkContext) -> bool:
+    if isinstance(expression, Let):
+        try:
+            return is_positive_expression(lower_let_bindings(expression), context)
+        except ExpressionTooComplex:
+            return False
     if isinstance(expression, IntegerLiteral):
         return expression.value > 0
     if isinstance(expression, RationalLiteral):
@@ -429,6 +448,11 @@ def is_positive_expression(expression: Expression, context: WorkContext) -> bool
 
 
 def is_integer_expression(expression: Expression, context: WorkContext) -> bool:
+    if isinstance(expression, Let):
+        try:
+            return is_integer_expression(lower_let_bindings(expression), context)
+        except ExpressionTooComplex:
+            return False
     if isinstance(expression, IntegerLiteral):
         return True
     if isinstance(expression, RationalLiteral):
