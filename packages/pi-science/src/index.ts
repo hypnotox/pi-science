@@ -208,16 +208,26 @@ function compactToolText(result: BridgeResult): string {
           transformation.target.kind === "expression"
             ? "expression"
             : `equation ${transformation.target.name}`;
-        return `${target}: ${compactExpression(transformation.original.normalized_sympy)} → ${compactExpression(transformation.proposed.normalized_sympy)}`;
+        return `${target}: ${transformation.original.normalized_sympy} → ${transformation.proposed.normalized_sympy}`;
       })
       .join("; ");
     const intermediate = suggestion.intermediate
-      ? `; shared intermediate ${suggestion.intermediate.name} = ${compactExpression(suggestion.intermediate.expression.normalized_sympy)}`
+      ? `; shared intermediate ${suggestion.intermediate.name} = ${suggestion.intermediate.expression.normalized_sympy}`
+      : "";
+    const conditions = suggestion.conditions.length
+      ? `; conditions: ${suggestion.conditions.join(", ")}`
+      : "";
+    const assumptions = suggestion.assumptions_used.length
+      ? `; assumptions used: ${suggestion.assumptions_used
+          .map(
+            (assumption) => `${assumption.name} (${assumption.relationship})`,
+          )
+          .join(", ")}`
       : "";
     const additional = report.suggestions.length - 1;
     return [
       "Optimization advice",
-      `- ${suggestion.kind}: ${transformations}${intermediate}; work ${suggestion.work_before} → ${suggestion.work_after}; saves ${suggestion.savings}${suggestion.conditions.length ? `; conditions: ${suggestion.conditions.join(", ")}` : ""}; ${suggestion.finite_precision_qualification}`,
+      `- ${suggestion.kind}: ${transformations}${intermediate}; work ${suggestion.work_before} → ${suggestion.work_after}; saves ${suggestion.savings}${conditions}${assumptions}; ${suggestion.finite_precision_qualification}`,
       ...(additional === 0
         ? []
         : [

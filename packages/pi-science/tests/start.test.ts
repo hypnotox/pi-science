@@ -417,6 +417,145 @@ describe("readiness gate", () => {
     });
   });
 
+  it("keeps complete compact transformations and every retained qualification visible", async () => {
+    const current = host();
+    const longReplacement = `x + ${"y".repeat(600)}`;
+    const suggestion = {
+      kind: "factoring",
+      transformations: [
+        {
+          target: { kind: "expression", name: null },
+          occurrences: [{ path: [], binders: [], output_indices: [] }],
+          original: { normalized_sympy: "x + y", normalized_latex: "x+y" },
+          proposed: {
+            normalized_sympy: longReplacement,
+            normalized_latex: "p",
+          },
+        },
+      ],
+      intermediate: null,
+      conclusion: "proved_under_assumptions",
+      evidence: { kind: "identity", statement: "verified" },
+      conditions: [],
+      assumptions_used: [{ name: "known", relationship: "x > 0" }],
+      work_before: "3",
+      work_after: "2",
+      savings: "1",
+      finite_precision_qualification: "exact_symbolic_only",
+    };
+    const response = {
+      status: "success",
+      interpretation: { normalized_sympy: "x", normalized_latex: "x" },
+      operation_counts: {
+        additions: 0,
+        subtractions: 0,
+        multiplications: 0,
+        divisions: 0,
+        powers: 0,
+      },
+      abstract_work: 0,
+      direct_work_applicability: "finite",
+      direct_work_blockers: [],
+      scenarios: [],
+      queries: [],
+      optimization: {
+        requested_limit: 3,
+        status: "incomplete",
+        suggestions: [
+          suggestion,
+          {
+            ...suggestion,
+            kind: "redundant_operation_removal",
+            conclusion: "proved",
+            assumptions_used: [],
+          },
+        ],
+        qualifications: [
+          "optimization inspected nodes budget exhausted (measured 4, configured 3)",
+        ],
+      },
+    };
+    await start(
+      current.api,
+      Promise.resolve({
+        ready: true,
+        command: process.execPath,
+        args: [
+          "-e",
+          `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
+            JSON.stringify({ version: 12, result: response }),
+          )}))`,
+        ],
+      }),
+    );
+
+    const result = await current.tools[0]!.execute("id", {
+      expression: "x",
+      assumptions: [{ name: "known", relationship: "x > 0" }],
+    });
+    const text = result.content[0]!.text;
+    expect(text).toContain(longReplacement);
+    expect(text).not.toContain(`${longReplacement.slice(0, 512)}…`);
+    expect(text).toContain("assumptions used: known (x > 0)");
+    expect(text).toContain("1 additional proved suggestion in details");
+    expect(text).toContain(
+      "search incomplete; inspect details for the local bound",
+    );
+    expect(text).toContain(
+      "qualification: optimization inspected nodes budget exhausted (measured 4, configured 3)",
+    );
+  });
+
+  it("keeps empty incomplete-search qualifications visible", async () => {
+    const current = host();
+    const response = {
+      status: "success",
+      interpretation: { normalized_sympy: "x", normalized_latex: "x" },
+      operation_counts: {
+        additions: 0,
+        subtractions: 0,
+        multiplications: 0,
+        divisions: 0,
+        powers: 0,
+      },
+      abstract_work: 0,
+      direct_work_applicability: "finite",
+      direct_work_blockers: [],
+      scenarios: [],
+      queries: [],
+      optimization: {
+        requested_limit: 3,
+        status: "incomplete",
+        suggestions: [],
+        qualifications: [
+          "optimization proof nodes budget exhausted (measured 4, configured 3)",
+        ],
+      },
+    };
+    await start(
+      current.api,
+      Promise.resolve({
+        ready: true,
+        command: process.execPath,
+        args: [
+          "-e",
+          `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
+            JSON.stringify({ version: 12, result: response }),
+          )}))`,
+        ],
+      }),
+    );
+
+    const result = await current.tools[0]!.execute("id", { expression: "x" });
+    const text = result.content[0]!.text;
+    expect(text).toContain(
+      "search incomplete; no proved suggestion was retained",
+    );
+    expect(text).toContain(
+      "qualification: optimization proof nodes budget exhausted (measured 4, configured 3)",
+    );
+  });
+
   it("renders one atomic multi-target suggestion without a primary target", async () => {
     const current = host();
     const adapter = fileURLToPath(
