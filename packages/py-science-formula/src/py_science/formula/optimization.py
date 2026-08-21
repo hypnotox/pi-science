@@ -595,6 +595,11 @@ def _cross_equation_candidates(
     return tuple(result)
 
 
+def _generated_reference(name: str, scope: _EvaluationScope) -> Expression:
+    indices = tuple(Symbol(index) for index in scope.output_indices)
+    return IndexedValue(name, indices) if indices else Symbol(name)
+
+
 def _generate_candidates(
     computed: RetainedComputation, budget: _OptimizationBudget
 ) -> tuple[tuple[_CandidateComputation, ...], tuple[str, ...]]:
@@ -647,18 +652,21 @@ def _generate_candidates(
                     kind = "repeated_call"
                 else:
                     kind = "repeated_subexpression"
+                intermediate_scope = _smallest_scope(repeated, scope)
                 append(
                     _CandidateComputation(
                         kind=kind,
                         target=target,
                         original=expression,
                         proposed=_replace_paths(
-                            expression, (item.path for item in items), Symbol(generated_name)
+                            expression,
+                            (item.path for item in items),
+                            _generated_reference(generated_name, intermediate_scope),
                         ),
                         occurrences=tuple(items),
                         intermediate_name=generated_name,
                         intermediate_expression=repeated,
-                        intermediate_scope=_smallest_scope(repeated, scope),
+                        intermediate_scope=intermediate_scope,
                     )
                 )
 
@@ -735,24 +743,36 @@ def _generate_candidates(
                             occurrence.scope.output_bindings,
                             occurrence.scope.binders[:-1],
                         )
+                        intermediate_scope = _smallest_scope(node, outer_scope)
                         append(
                             _CandidateComputation(
                                 kind="iterator_invariant_hoisting",
                                 target=target,
                                 original=expression,
                                 proposed=_replace_paths(
-                                    expression, (occurrence.path,), Symbol(generated_name)
+                                    expression,
+                                    (occurrence.path,),
+                                    _generated_reference(generated_name, intermediate_scope),
                                 ),
                                 occurrences=(occurrence,),
                                 intermediate_name=generated_name,
                                 intermediate_expression=node,
-                                intermediate_scope=_smallest_scope(node, outer_scope),
+                                intermediate_scope=intermediate_scope,
                             )
                         )
-        for candidate in _cross_equation_candidates(
-            computed, occurrences_by_target, generated_name
-        ):
-            append(candidate)
+        try:
+            sharing_candidates = _cross_equation_candidates(
+                computed, occurrences_by_target, generated_name
+            )
+        except ExpressionTooComplex:
+            qualifications.append(
+                "optimization per-candidate transformation nodes budget exhausted "
+                f"(measured >{MAX_OPTIMIZATION_TRANSFORM_NODES}, "
+                f"configured {MAX_OPTIMIZATION_TRANSFORM_NODES})"
+            )
+        else:
+            for candidate in sharing_candidates:
+                append(candidate)
     except _BudgetExhausted as error:
         qualifications.append(str(error))
     return tuple(candidates), tuple(dict.fromkeys(qualifications))
@@ -1303,7 +1323,6 @@ def _candidate_semantic_key(candidate: _CandidateComputation) -> tuple[object, .
     )
     return (
         tuple((target, proposed) for target, _original, proposed in transformations),
-        tuple((item.target, item.path, item.scope) for item in candidate.occurrences),
         candidate.intermediate_expression,
         candidate.intermediate_scope,
     )

@@ -105,6 +105,35 @@ def test_sum_bounds_remain_outside_the_new_binder_and_named_producers_are_skippe
     ]
 
 
+def test_candidate_deduplication_ignores_occurrence_discovery_routes() -> None:
+    from py_science.formula.optimization import (
+        _candidate_semantic_key,
+        _CandidateComputation,
+        _EvaluationScope,
+        _Occurrence,
+    )
+
+    expression = _expression("x + 1")
+    proposed = _expression("x")
+    scope = _EvaluationScope((), (), ())
+    occurrences = tuple(
+        _Occurrence("expression", path, expression, frozenset({"x"}), (), scope)
+        for path in ((0,), (1,))
+    )
+    candidates = tuple(
+        _CandidateComputation(
+            kind="horner",
+            target="expression",
+            original=expression,
+            proposed=proposed,
+            occurrences=(occurrence,),
+        )
+        for occurrence in occurrences
+    )
+
+    assert _candidate_semantic_key(candidates[0]) == _candidate_semantic_key(candidates[1])
+
+
 def test_extraction_renderer_preserves_legacy_text_and_exhaustion_is_quiet() -> None:
     expression = _expression("x[i] + 1 + (x[i] + 1)")
 
@@ -298,6 +327,15 @@ def test_report_and_suggestion_cross_field_truth_table() -> None:
         type(suggestion).model_validate({**suggestion_data, "savings": "-1"})
     with pytest.raises(ValidationError):
         type(suggestion).model_validate({**suggestion_data, "intermediate": None})
+    with pytest.raises(ValidationError):
+        type(suggestion).model_validate(
+            {
+                **suggestion_data,
+                "conclusion": "proved_under_assumptions",
+                "conditions": (),
+                "assumptions_used": (),
+            }
+        )
     with pytest.raises(ValidationError):
         type(populated).model_validate({**populated.model_dump(), "optimization": None})
 
@@ -526,6 +564,42 @@ def test_output_multiplicity_and_intermediate_scope_are_charged_directly() -> No
         "5",
         "7",
     )
+
+
+def test_indexed_local_intermediate_is_referenced_at_its_output_interface() -> None:
+    from py_science.formula import (
+        AnalysisRequest,
+        EquationRequest,
+        FormulaSyntax,
+        IndexDomain,
+        MathematicalDomain,
+        OptimizationConfig,
+        VariableDeclaration,
+        analyze,
+    )
+
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=(
+                EquationRequest(
+                    name="value",
+                    expression="Eq(value[i], (x[i] + 1) * (x[i] + 1))",
+                    domains={"i": IndexDomain(lower="0", upper="3")},
+                ),
+            ),
+            variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
+            optimization=OptimizationConfig(max_suggestions=16),
+        )
+    )
+
+    assert outcome.status == "success" and outcome.optimization is not None
+    suggestion = next(
+        item for item in outcome.optimization.suggestions if item.kind == "repeated_subexpression"
+    )
+    assert suggestion.intermediate is not None
+    assert suggestion.intermediate.scope_output_indices == ("i",)
+    assert "optimization_tmp_1[i]" in suggestion.transformations[0].proposed.normalized_sympy
 
 
 def test_hoisting_with_no_whole_work_improvement_is_omitted() -> None:
@@ -1033,6 +1107,55 @@ def test_sharing_refuses_unequal_arity_constraints_and_uses_collision_free_name(
     assert sharing.intermediate.name == "optimization_tmp_2"
 
 
+def test_cross_equation_domain_signature_overflow_is_a_typed_incomplete_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from py_science.formula import (
+        AnalysisRequest,
+        EquationRequest,
+        FormulaSyntax,
+        IndexDomain,
+        MathematicalDomain,
+        VariableDeclaration,
+        analyze,
+    )
+    from py_science.formula import optimization as optimization_service
+    from py_science.formula.expressions import ExpressionTooComplex
+
+    def exhausted(*_args: object, **_kwargs: object) -> object:
+        raise ExpressionTooComplex("bounded substitution exhausted")
+
+    monkeypatch.setattr(optimization_service, "substitute", exhausted)
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=(
+                EquationRequest(
+                    name="left",
+                    expression="Eq(left[i], x[i] + 1)",
+                    domains={"i": IndexDomain(lower="0", upper="N")},
+                ),
+                EquationRequest(
+                    name="right",
+                    expression="Eq(right[j], x[j] - 1)",
+                    domains={"j": IndexDomain(lower="0", upper="N")},
+                ),
+            ),
+            variables={
+                "N": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER),
+                "x": VariableDeclaration(domain=MathematicalDomain.REAL),
+            },
+        )
+    )
+
+    assert outcome.status == "success" and outcome.optimization is not None
+    assert outcome.optimization.status == "incomplete"
+    assert any(
+        "optimization per-candidate transformation nodes budget exhausted" in item
+        for item in outcome.optimization.qualifications
+    )
+
+
 def test_horner_coefficients_bounds_refusals_and_higher_work_filtering(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1087,7 +1210,7 @@ def test_horner_coefficients_bounds_refusals_and_higher_work_filtering(
     )
     assert backend_refused.status == "success" and backend_refused.optimization is not None
     assert backend_refused.optimization.status == "incomplete"
-    assert "backend refusal" in backend_refused.optimization.qualifications[0]
+    assert backend_refused.optimization.qualifications[0] == "optimization Horner backend refusal"
 
 
 def test_recursive_horner_inspection_is_charged_before_backend_descent(

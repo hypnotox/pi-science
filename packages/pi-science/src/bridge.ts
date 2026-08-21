@@ -2787,9 +2787,9 @@ function validOptimizationSuggestion(
     ) &&
     validRelationshipUses(value.assumptions_used) &&
     (value.assumptions_used as unknown[]).length <= 128 &&
-    (value.conclusion !== "proved" ||
-      (value.conditions.length === 0 &&
-        (value.assumptions_used as unknown[]).length === 0)) &&
+    (value.conclusion === "proved_under_assumptions") ===
+      (value.conditions.length > 0 ||
+        (value.assumptions_used as unknown[]).length > 0) &&
     [value.work_before, value.work_after, value.savings].every((item) =>
       validBoundedDiagnosticText(item, 4_096),
     ) &&

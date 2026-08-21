@@ -1316,8 +1316,9 @@ class OptimizationSuggestion(StructuredModel):
         }
         if requires_intermediate != (self.intermediate is not None):
             raise ValueError("optimization family and intermediate shape are inconsistent")
-        if self.conclusion == "proved" and (self.conditions or self.assumptions_used):
-            raise ValueError("unconditional optimization proof cannot carry conditions")
+        qualified = bool(self.conditions or self.assumptions_used)
+        if (self.conclusion == "proved_under_assumptions") != qualified:
+            raise ValueError("optimization proof conclusion must agree with its qualifications")
         return self
 
 

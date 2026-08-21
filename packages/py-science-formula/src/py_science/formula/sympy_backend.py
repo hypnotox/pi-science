@@ -1475,7 +1475,7 @@ def bounded_horner_candidate(
     try:
         candidate = sympy.horner(value, variable)
     except sympy.polys.polyerrors.PolynomialError:
-        return BoundedHornerRefusal("backend refusal", 1, 1)
+        return BoundedHornerRefusal("backend refusal")
     generated_nodes = sum(1 for _ in sympy.preorder_traversal(candidate))
     if generated_nodes > max_generated_nodes:
         return BoundedHornerRefusal(

@@ -429,6 +429,20 @@ describe("private formula bridge", () => {
           qualifications: ["contradictory"],
         },
       },
+      {
+        ...populated,
+        optimization: {
+          ...populated.optimization,
+          suggestions: [
+            {
+              ...suggestion,
+              conclusion: "proved_under_assumptions",
+              conditions: [],
+              assumptions_used: [],
+            },
+          ],
+        },
+      },
     ]) {
       await expect(
         invokeAdapter(node, responder(malformed), request("1/x + 1/x")),
