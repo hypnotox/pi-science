@@ -1658,6 +1658,130 @@ def test_complete_candidate_replays_sum_and_output_scoped_reuse() -> None:
     assert replayed.aggregate_analysis.total_work != retained.aggregate_analysis.total_work
 
 
+def test_complete_candidate_keeps_output_dependent_sum_reuse_lexical() -> None:
+    request = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(
+            EquationRequest(
+                name="out",
+                expression="Eq(y[i], Sum((x[i] + j) * (x[i] + j), (j, 0, N)))",
+                domains={"i": IndexDomain(lower="0", upper="N")},
+            ),
+        ),
+        variables={
+            **variables("N"),
+            "x": VariableDeclaration(domain=MathematicalDomain.REAL),
+        },
+        optimization=OptimizationConfig(max_suggestions=16),
+    )
+
+    outcome = analyze(request)
+
+    assert isinstance(outcome, AnalysisSuccess)
+    sharing = next(
+        item
+        for item in outcome.optimization.suggestions
+        if item.kind == "repeated_subexpression"
+    )
+    assert sharing.intermediate is not None
+    assert sharing.intermediate.scope_binders == ("j",)
+    assert sharing.intermediate.scope_output_indices == ("i",)
+    assert sharing.savings == "-(N + 1)*(2*N + 1) + (N + 1)*(3*N + 2)"
+
+
+def test_complete_candidate_preserves_output_constraints_for_reuse_work() -> None:
+    request = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(
+            EquationRequest(
+                name="out",
+                expression="Eq(y[i], (x[i] + 1) * (x[i] + 1))",
+                domains={"i": IndexDomain(lower="0", upper="4")},
+                constraints=(
+                    DomainConstraint(name="cap", target="i", relationship="i <= 2"),
+                ),
+            ),
+        ),
+        variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
+        optimization=OptimizationConfig(max_suggestions=16),
+    )
+
+    outcome = analyze(request)
+
+    assert isinstance(outcome, AnalysisSuccess)
+    sharing = next(
+        item
+        for item in outcome.optimization.suggestions
+        if item.kind == "repeated_subexpression"
+    )
+    assert sharing.intermediate is not None
+    assert sharing.intermediate.scope_output_indices == ("i",)
+    assert (sharing.work_before, sharing.work_after, sharing.savings) == ("9", "6", "3")
+
+
+def test_complete_candidate_verification_does_not_starve_later_equations() -> None:
+    request = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=tuple(
+            EquationRequest(name=f"out{position}", expression=f"Eq(y{position}, x + 0)")
+            for position in range(9)
+        ),
+        variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
+        optimization=OptimizationConfig(max_suggestions=16),
+    )
+
+    outcome = analyze(request)
+
+    assert isinstance(outcome, AnalysisSuccess)
+    targets = {
+        transformation.target.name
+        for item in outcome.optimization.suggestions
+        if item.kind == "redundant_operation_removal"
+        for transformation in item.transformations
+    }
+    assert "out0" in targets
+    assert "out8" in targets
+    assert len(targets) == 7
+    assert any(
+        item.kind == "cross_equation_sharing" for item in outcome.optimization.suggestions
+    )
+    assert outcome.optimization.status == "incomplete"
+    assert outcome.optimization.qualifications == (
+        "optimization complete candidate reanalyses budget exhausted "
+        "(measured 10, configured 8)",
+    )
+
+
+def test_complete_candidate_obeys_the_public_equation_population_bound() -> None:
+    from py_science.formula import AnalysisFailure
+    from py_science.formula.optimization import (
+        _complete_candidate,
+        _generate_candidates,
+        _OptimizationBudget,
+    )
+    from py_science.formula.service import _analyze_computation
+
+    request = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(
+            EquationRequest(name="target", expression="Eq(target, (x + 1) * (x + 1))"),
+            *tuple(
+                EquationRequest(name=f"other{position}", expression=f"Eq(other{position}, x)")
+                for position in range(127)
+            ),
+        ),
+        variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
+        optimization=OptimizationConfig(max_suggestions=16),
+    )
+    retained = _analyze_computation(request)
+    assert not isinstance(retained, AnalysisFailure)
+    candidates, _ = _generate_candidates(retained, _OptimizationBudget())
+    sharing = next(item for item in candidates if item.intermediate_expression is not None)
+
+    with pytest.raises(ValidationError, match="at most 128"):
+        _complete_candidate(sharing, request, retained)
+
+
 def test_compatible_cross_equation_sharing_preserves_submitted_system_reports() -> None:
     request = AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,

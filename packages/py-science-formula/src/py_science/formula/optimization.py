@@ -71,6 +71,7 @@ from py_science.formula.work import (
     render_work,
     substitute_analysis,
 )
+from pydantic import ValidationError
 
 MAX_OPTIMIZATION_INSPECTIONS = 16_384
 MAX_OPTIMIZATION_CANDIDATES = 256
@@ -674,9 +675,31 @@ def _wrap_complete_let(
         owner = binding[0]
         path = (*owner.path, 1 if owner.value is not None else 2)
 
+    def lexicalize(value: Expression) -> Expression:
+        if isinstance(value, (Symbol, IndexedValue)) and value.name == name:
+            return Symbol(name)
+        if isinstance(value, BinaryExpression):
+            return BinaryExpression(
+                value.operator, lexicalize(value.left), lexicalize(value.right)
+            )
+        if isinstance(value, Call):
+            return Call(value.name, tuple(lexicalize(item) for item in value.arguments))
+        if isinstance(value, IndexedValue):
+            return IndexedValue(value.name, tuple(lexicalize(item) for item in value.indices))
+        if isinstance(value, Sum):
+            return Sum(
+                lexicalize(value.body),
+                value.index,
+                lexicalize(value.lower),
+                lexicalize(value.upper),
+            )
+        if isinstance(value, Let):
+            return Let(value.name, lexicalize(value.value), lexicalize(value.body))
+        return value
+
     def visit(value: Expression, current: tuple[int, ...]) -> Expression:
         if current == path:
-            return Let(name, intermediate, value)
+            return Let(name, intermediate, lexicalize(value))
         if isinstance(value, BinaryExpression):
             return BinaryExpression(
                 value.operator,
@@ -733,9 +756,10 @@ def _complete_candidate(
         expression = transformations["expression"]
         if candidate.intermediate_expression is not None:
             expression = _wrap_complete_let(expression, candidate)
-        return request.model_copy(
+        complete = request.model_copy(
             update={"expression": render(expression).sympy, "queries": (), "scenarios": ()}
         )
+        return AnalysisRequest.model_validate(complete.model_dump(mode="python"))
 
     equations: list[EquationRequest] = []
     for source in request.equations:
@@ -746,16 +770,14 @@ def _complete_candidate(
             and intermediate_expression is not None
             and intermediate_scope is not None
             and intermediate_scope.binders
-            and not intermediate_scope.output_indices
-            and candidate.kind != "cross_equation_sharing"
         ):
             right = _wrap_complete_let(right, candidate)
         equation = render(Equation(parsed.formula.left, right)).sympy
         equations.append(source.model_copy(update={"expression": equation}))
-    if intermediate_expression is not None and intermediate_scope is not None and (
-        intermediate_scope.output_indices
-        or not intermediate_scope.binders
-        or candidate.kind == "cross_equation_sharing"
+    if (
+        intermediate_expression is not None
+        and intermediate_scope is not None
+        and not intermediate_scope.binders
     ):
         assert intermediate_name is not None
         indices = intermediate_scope.output_indices
@@ -770,11 +792,15 @@ def _complete_candidate(
                 name=intermediate_name,
                 expression=render(Equation(left, intermediate_expression)).sympy,
                 domains={name: target.domains[name] for name in indices},
+                constraints=tuple(
+                    constraint for constraint in target.constraints if constraint.target in indices
+                ),
             )
         )
-    return request.model_copy(
+    complete = request.model_copy(
         update={"expression": None, "equations": tuple(equations), "queries": (), "scenarios": ()}
     )
+    return AnalysisRequest.model_validate(complete.model_dump(mode="python"))
 
 
 def _generate_candidates(
@@ -1242,7 +1268,11 @@ def _verify_candidate(
         _analyze_computation,  # pyright: ignore[reportPrivateUsage]
     )
 
-    replayed = _analyze_computation(_complete_candidate(candidate, request, computed))
+    try:
+        complete = _complete_candidate(candidate, request, computed)
+    except ValidationError:
+        return _Rejected("complete candidate exceeds ordinary request bounds")
+    replayed = _analyze_computation(complete)
     if isinstance(replayed, AnalysisFailure):
         return _Rejected("complete candidate does not pass ordinary analysis")
     expansion_budget = ExpansionBudget(remaining=MAX_OPTIMIZATION_TRANSFORM_NODES)
@@ -1485,6 +1515,32 @@ def _candidate_semantic_key(candidate: _CandidateComputation) -> tuple[object, .
     )
 
 
+def _complete_candidate_schedule(
+    candidates: tuple[_CandidateComputation, ...],
+) -> tuple[_CandidateComputation, ...]:
+    """Bound reanalysis without starving a shipped family or the candidate tail."""
+    if len(candidates) <= MAX_OPTIMIZATION_COMPLETE_REANALYSES:
+        return candidates
+
+    selected: set[int] = set()
+    for position, candidate in enumerate(candidates):
+        if any(candidates[index].kind == candidate.kind for index in selected):
+            continue
+        selected.add(position)
+        if len(selected) == MAX_OPTIMIZATION_COMPLETE_REANALYSES:
+            return tuple(candidates[index] for index in sorted(selected))
+
+    remaining = tuple(index for index in range(len(candidates)) if index not in selected)
+    slots = MAX_OPTIMIZATION_COMPLETE_REANALYSES - len(selected)
+    if slots == 1:
+        selected.add(remaining[-1])
+    else:
+        last = len(remaining) - 1
+        for sample in range(slots):
+            selected.add(remaining[(sample * last) // (slots - 1)])
+    return tuple(candidates[index] for index in sorted(selected))
+
+
 def _unique_qualifications(values: Iterable[str]) -> tuple[str, ...]:
     """Keep the deterministic first measurement for each bounded resource."""
     result: list[str] = []
@@ -1524,16 +1580,13 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
             ),
         )
     seen: set[tuple[object, ...]] = set()
-    complete_reanalysis_limit = MAX_OPTIMIZATION_COMPLETE_REANALYSES
-    if len(computed.equations) > complete_reanalysis_limit:
-        complete_reanalysis_limit = 1
-    for position, candidate in enumerate(candidates, 1):
-        if position > complete_reanalysis_limit:
-            qualifications.append(
-                "optimization complete candidate reanalyses budget exhausted "
-                f"(measured {position}, configured {complete_reanalysis_limit})"
-            )
-            break
+    scheduled = _complete_candidate_schedule(candidates)
+    if len(scheduled) < len(candidates):
+        qualifications.append(
+            "optimization complete candidate reanalyses budget exhausted "
+            f"(measured {len(candidates)}, configured {MAX_OPTIMIZATION_COMPLETE_REANALYSES})"
+        )
+    for candidate in scheduled:
         outcome = _verify_candidate(candidate, request, computed, context, reasoning, budget)
         if isinstance(outcome, _Exhausted):
             qualifications.append(outcome.reason)
