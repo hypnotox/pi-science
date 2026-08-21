@@ -625,6 +625,38 @@ def test_decimal_literals_are_rendered_as_canonical_exact_rationals() -> None:
     assert outcome.direct_work_blockers == ()
 
 
+def test_complete_candidate_replays_factoring_neutral_and_horner_with_context() -> None:
+    from py_science.formula.optimization import (
+        _complete_candidate,
+        _generate_candidates,
+        _OptimizationBudget,
+    )
+    from py_science.formula.service import _analyze_computation
+
+    request = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="a*x**3 + a*x**2 + 0",
+        variables={
+            "a": VariableDeclaration(domain=MathematicalDomain.REAL),
+            "x": VariableDeclaration(domain=MathematicalDomain.REAL),
+        },
+        assumptions=(),
+        definitions=(),
+        optimization=OptimizationConfig(max_suggestions=16),
+    )
+    retained = _analyze_computation(request)
+    assert isinstance(retained, object) and not isinstance(retained, AnalysisFailure)
+    candidates, _ = _generate_candidates(retained, _OptimizationBudget())
+    kinds = {"factoring", "redundant_operation_removal", "horner"}
+    for candidate in candidates:
+        if candidate.kind not in kinds:
+            continue
+        replayed = _analyze_computation(_complete_candidate(candidate, request, retained))
+        assert not isinstance(replayed, AnalysisFailure)
+        assert replayed.expression is not None
+        assert replayed.knowledge == retained.knowledge
+
+
 def test_dense_polynomial_horner_advice_is_independently_proved_and_lower_work() -> None:
     request = AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,

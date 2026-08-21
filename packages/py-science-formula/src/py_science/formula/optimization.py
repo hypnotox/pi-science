@@ -29,9 +29,14 @@ from py_science.formula.expressions import (
     expression_node_count,
     substitute,
 )
-from py_science.formula.mapped_outputs import ExpansionBudget, MappedOutputExpander
+from py_science.formula.mapped_outputs import (
+    ExpansionBudget,
+    MappedOutputExpander,
+)
 from py_science.formula.models import (
+    AnalysisFailure,
     AnalysisRequest,
+    EquationRequest,
     IdentityEvidence,
     Interpretation,
     OptimizationIntermediate,
@@ -69,6 +74,7 @@ from py_science.formula.work import (
 
 MAX_OPTIMIZATION_INSPECTIONS = 16_384
 MAX_OPTIMIZATION_CANDIDATES = 256
+MAX_OPTIMIZATION_COMPLETE_REANALYSES = 8
 MAX_OPTIMIZATION_TRANSFORM_NODES = 8_192
 MAX_OPTIMIZATION_AGGREGATE_TRANSFORM_NODES = 32_768
 MAX_OPTIMIZATION_PROOFS = 256
@@ -654,6 +660,123 @@ def _generated_reference(name: str, scope: _EvaluationScope) -> Expression:
     return IndexedValue(name, indices) if indices else Symbol(name)
 
 
+def _wrap_complete_let(
+    expression: Expression, candidate: _CandidateComputation
+) -> Expression:
+    """Place a lexical candidate at the scope where its value is evaluated."""
+    name = candidate.intermediate_name
+    intermediate = candidate.intermediate_expression
+    scope = candidate.intermediate_scope
+    assert name is not None and intermediate is not None and scope is not None
+    binding = scope.binders[-1:]
+    path = ()
+    if binding:
+        owner = binding[0]
+        path = (*owner.path, 1 if owner.value is not None else 2)
+
+    def visit(value: Expression, current: tuple[int, ...]) -> Expression:
+        if current == path:
+            return Let(name, intermediate, value)
+        if isinstance(value, BinaryExpression):
+            return BinaryExpression(
+                value.operator,
+                visit(value.left, (*current, 0)),
+                visit(value.right, (*current, 1)),
+            )
+        if isinstance(value, Call):
+            return Call(
+                value.name,
+                tuple(visit(item, (*current, index)) for index, item in enumerate(value.arguments)),
+            )
+        if isinstance(value, IndexedValue):
+            return IndexedValue(
+                value.name,
+                tuple(visit(item, (*current, index)) for index, item in enumerate(value.indices)),
+            )
+        if isinstance(value, Sum):
+            return Sum(
+                visit(value.body, (*current, 2)),
+                value.index,
+                visit(value.lower, (*current, 0)),
+                visit(value.upper, (*current, 1)),
+            )
+        if isinstance(value, Let):
+            return Let(
+                value.name,
+                visit(value.value, (*current, 0)),
+                visit(value.body, (*current, 1)),
+            )
+        return value
+
+    return visit(expression, ())
+
+
+def _complete_candidate(
+    candidate: _CandidateComputation,
+    request: AnalysisRequest,
+    computed: RetainedComputation,
+) -> AnalysisRequest:
+    """Build the authoritative, reparseable computation for one local proposal."""
+    intermediate_name = candidate.intermediate_name
+    intermediate_expression = candidate.intermediate_expression
+    intermediate_scope = candidate.intermediate_scope
+    if intermediate_expression is not None:
+        assert intermediate_name is not None and intermediate_scope is not None
+    transformations = dict(
+        (target, proposed)
+        for target, _original, proposed in (
+            candidate.transformed_targets
+            or ((candidate.target, candidate.original, candidate.proposed),)
+        )
+    )
+    if computed.expression is not None:
+        expression = transformations["expression"]
+        if candidate.intermediate_expression is not None:
+            expression = _wrap_complete_let(expression, candidate)
+        return request.model_copy(
+            update={"expression": render(expression).sympy, "queries": (), "scenarios": ()}
+        )
+
+    equations: list[EquationRequest] = []
+    for source in request.equations:
+        parsed = next(item for item in computed.equations if item.name == source.name)
+        right = transformations.get(source.name, parsed.formula.right)
+        if (
+            source.name == candidate.target
+            and intermediate_expression is not None
+            and intermediate_scope is not None
+            and intermediate_scope.binders
+            and not intermediate_scope.output_indices
+            and candidate.kind != "cross_equation_sharing"
+        ):
+            right = _wrap_complete_let(right, candidate)
+        equation = render(Equation(parsed.formula.left, right)).sympy
+        equations.append(source.model_copy(update={"expression": equation}))
+    if intermediate_expression is not None and intermediate_scope is not None and (
+        intermediate_scope.output_indices
+        or not intermediate_scope.binders
+        or candidate.kind == "cross_equation_sharing"
+    ):
+        assert intermediate_name is not None
+        indices = intermediate_scope.output_indices
+        target = next(item for item in request.equations if item.name == candidate.target)
+        left: Expression = (
+            IndexedValue(intermediate_name, tuple(Symbol(name) for name in indices))
+            if indices
+            else Symbol(intermediate_name)
+        )
+        equations.append(
+            EquationRequest(
+                name=intermediate_name,
+                expression=render(Equation(left, intermediate_expression)).sympy,
+                domains={name: target.domains[name] for name in indices},
+            )
+        )
+    return request.model_copy(
+        update={"expression": None, "equations": tuple(equations), "queries": (), "scenarios": ()}
+    )
+
+
 def _generate_candidates(
     computed: RetainedComputation, budget: _OptimizationBudget
 ) -> tuple[tuple[_CandidateComputation, ...], tuple[str, ...]]:
@@ -909,7 +1032,7 @@ def _as_work(analysis: RetainedWorkAnalysis) -> WorkAnalysis:
     )
 
 
-def _aggregate_scope(
+def _aggregate_scope(  # pyright: ignore[reportUnusedFunction]
     analysis: WorkAnalysis,
     scope: _EvaluationScope,
     context: WorkContext,
@@ -982,7 +1105,7 @@ def _aggregate_scope(
     return result
 
 
-def _candidate_target_work(
+def _candidate_target_work(  # pyright: ignore[reportUnusedFunction]
     target: str,
     proposed: Expression,
     computed: RetainedComputation,
@@ -1010,43 +1133,6 @@ def _candidate_target_work(
             reasoning,
             f"optimization equation {target}",
         )
-    return result
-
-
-def _whole_candidate_work(
-    candidate: _CandidateComputation,
-    computed: RetainedComputation,
-    context: WorkContext,
-    reasoning: ReasoningContext,
-) -> WorkAnalysis | None:
-    transformations = candidate.transformed_targets or (
-        (candidate.target, candidate.original, candidate.proposed),
-    )
-    changed = {
-        target: _candidate_target_work(target, proposed, computed, context, reasoning)
-        for target, _original, proposed in transformations
-    }
-    if computed.expression is not None:
-        result = changed[candidate.target]
-    else:
-        result = WorkAnalysis()
-        for name in computed.dependency_order:
-            result = result.combine(changed.get(name, _as_work(computed.equation_analyses[name])))
-    if candidate.intermediate_expression is not None:
-        assert candidate.intermediate_scope is not None
-        equation = next(
-            (item for item in computed.equations if item.name == candidate.target), None
-        )
-        intermediate = _aggregate_scope(
-            analyze_work(candidate.intermediate_expression, context),
-            candidate.intermediate_scope,
-            context,
-            output_domains=equation.output_domains if equation is not None else (),
-            reasoning=reasoning,
-        )
-        if intermediate is None:
-            return None
-        result = result.combine(intermediate)
     return result
 
 
@@ -1150,12 +1236,23 @@ def _verify_candidate(
         budget.transformation(transformation_nodes)
     except _BudgetExhausted as error:
         return _Exhausted(str(error))
+    # Candidate generation is untrusted. Reparse its complete computation through
+    # the ordinary retained-analysis seam before any proof or work projection.
+    from py_science.formula.service import (
+        _analyze_computation,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    replayed = _analyze_computation(_complete_candidate(candidate, request, computed))
+    if isinstance(replayed, AnalysisFailure):
+        return _Rejected("complete candidate does not pass ordinary analysis")
     expansion_budget = ExpansionBudget(remaining=MAX_OPTIMIZATION_TRANSFORM_NODES)
     reserved: set[str] = set()
     for _target, expression, _indices, _domains in _target_inputs(computed):
         reserved.update(_all_symbol_names(expression))
     answers: list[QueryAnswer] = []
     try:
+        # Proof expansion is deliberately downstream of complete-candidate
+        # validation; it never supplies candidate work or placement semantics.
         for _target, original, proposed in transformations:
             original_expanded = MappedOutputExpander(
                 computed, expansion_budget, set(reserved)
@@ -1188,9 +1285,7 @@ def _verify_candidate(
                 answer = QueryAnswer(
                     conclusion="proved",
                     evidence=IdentityEvidence(
-                        statement=(
-                            "checked intermediate substitution reconstructs every retained output"
-                        )
+                        statement="checked complete candidate reconstructs every retained output"
                     ),
                 )
             if answer.conclusion not in {"proved", "proved_under_assumptions"}:
@@ -1206,10 +1301,8 @@ def _verify_candidate(
         )
 
     assert reasoning is not None
-    after = _whole_candidate_work(candidate, computed, context, reasoning)
+    after = _as_work(replayed.aggregate_analysis)
     before = _as_work(computed.aggregate_analysis)
-    if after is None:
-        return _Rejected("candidate scope multiplicity is unavailable")
     if after.unknown_costs or after.unresolved or after.direct_work_blockers:
         return _Rejected("candidate aggregate work is unavailable")
     if before.unknown_costs or before.unresolved or before.direct_work_blockers:
@@ -1431,7 +1524,16 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
             ),
         )
     seen: set[tuple[object, ...]] = set()
-    for candidate in candidates:
+    complete_reanalysis_limit = MAX_OPTIMIZATION_COMPLETE_REANALYSES
+    if len(computed.equations) > complete_reanalysis_limit:
+        complete_reanalysis_limit = 1
+    for position, candidate in enumerate(candidates, 1):
+        if position > complete_reanalysis_limit:
+            qualifications.append(
+                "optimization complete candidate reanalyses budget exhausted "
+                f"(measured {position}, configured {complete_reanalysis_limit})"
+            )
+            break
         outcome = _verify_candidate(candidate, request, computed, context, reasoning, budget)
         if isinstance(outcome, _Exhausted):
             qualifications.append(outcome.reason)

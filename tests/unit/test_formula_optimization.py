@@ -1583,6 +1583,31 @@ def test_retained_analysis_disables_optimization() -> None:
     ).optimization == retained.success.optimization
 
 
+def test_complete_candidate_replays_expression_local_reuse_and_neutral_removal() -> None:
+    from py_science.formula import AnalysisFailure, AnalysisRequest, FormulaSyntax
+    from py_science.formula.optimization import (
+        _complete_candidate,
+        _generate_candidates,
+        _OptimizationBudget,
+    )
+    from py_science.formula.service import _analyze_computation
+
+    request = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="(x + 1) * (x + 1) + 0",
+    )
+    retained = _analyze_computation(request)
+    assert not isinstance(retained, AnalysisFailure)
+    candidates, _ = _generate_candidates(retained, _OptimizationBudget())
+    for candidate in candidates:
+        if candidate.kind not in {"repeated_subexpression", "redundant_operation_removal"}:
+            continue
+        replayed = _analyze_computation(_complete_candidate(candidate, request, retained))
+        assert not isinstance(replayed, AnalysisFailure)
+        assert replayed.expression is not None
+        assert replayed.aggregate_analysis.total_work != retained.aggregate_analysis.total_work
+
+
 def test_ordinary_analysis_optimization_ownership() -> None:
     from py_science.formula import AnalysisRequest, FormulaSyntax, OptimizationConfig, analyze
 

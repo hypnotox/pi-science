@@ -1623,6 +1623,41 @@ def test_infinite_output_domain_is_rejected_as_a_finite_computational_bound() ->
     assert "infinite" in outcome.error.message
 
 
+def test_complete_candidate_replays_sum_and_output_scoped_reuse() -> None:
+    from py_science.formula import AnalysisFailure
+    from py_science.formula.optimization import (
+        _complete_candidate,
+        _generate_candidates,
+        _OptimizationBudget,
+    )
+    from py_science.formula.service import _analyze_computation
+
+    request = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(
+            EquationRequest(
+                name="out",
+                expression="Eq(y[i], Sum((x[i] + 1) * (x[i] + 1), (j, 0, N)))",
+                domains={"i": IndexDomain(lower="0", upper="N")},
+            ),
+        ),
+        variables={
+            **variables("N"),
+            "x": VariableDeclaration(domain=MathematicalDomain.REAL),
+        },
+        optimization=OptimizationConfig(max_suggestions=16),
+    )
+    retained = _analyze_computation(request)
+    assert not isinstance(retained, AnalysisFailure)
+    candidates, _ = _generate_candidates(retained, _OptimizationBudget())
+    candidate = next(item for item in candidates if item.intermediate_expression is not None)
+    replayed = _analyze_computation(_complete_candidate(candidate, request, retained))
+    assert not isinstance(replayed, AnalysisFailure)
+    assert tuple(item.name for item in replayed.equations if item.name == "out") == ("out",)
+    assert replayed.equations[-1].domain_order == ("i",)
+    assert replayed.aggregate_analysis.total_work != retained.aggregate_analysis.total_work
+
+
 def test_compatible_cross_equation_sharing_preserves_submitted_system_reports() -> None:
     request = AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,
