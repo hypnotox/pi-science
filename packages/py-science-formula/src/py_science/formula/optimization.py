@@ -1189,61 +1189,6 @@ def _interpretation(expression: Expression) -> Interpretation:
     return Interpretation(normalized_sympy=rendered.sympy, normalized_latex=rendered.latex)
 
 
-def _expand_generated_intermediate(
-    expression: Expression,
-    name: str,
-    intermediate: Expression,
-    formal_indices: tuple[str, ...],
-) -> Expression:
-    """Expand one generated scalar or indexed reference by checked substitution."""
-    if isinstance(expression, Symbol) and expression.name == name and not formal_indices:
-        return intermediate
-    if isinstance(expression, IndexedValue) and expression.name == name:
-        if len(expression.indices) != len(formal_indices):
-            raise ExpressionTooComplex("generated optimization interface changed arity")
-        return substitute(
-            intermediate,
-            dict(zip(formal_indices, expression.indices, strict=True)),
-            max_nodes=MAX_OPTIMIZATION_TRANSFORM_NODES,
-        )
-    if isinstance(expression, BinaryExpression):
-        return BinaryExpression(
-            expression.operator,
-            _expand_generated_intermediate(expression.left, name, intermediate, formal_indices),
-            _expand_generated_intermediate(expression.right, name, intermediate, formal_indices),
-        )
-    if isinstance(expression, Call):
-        return Call(
-            expression.name,
-            tuple(
-                _expand_generated_intermediate(item, name, intermediate, formal_indices)
-                for item in expression.arguments
-            ),
-        )
-    if isinstance(expression, IndexedValue):
-        return IndexedValue(
-            expression.name,
-            tuple(
-                _expand_generated_intermediate(item, name, intermediate, formal_indices)
-                for item in expression.indices
-            ),
-        )
-    if isinstance(expression, Sum):
-        return Sum(
-            _expand_generated_intermediate(expression.body, name, intermediate, formal_indices),
-            expression.index,
-            _expand_generated_intermediate(expression.lower, name, intermediate, formal_indices),
-            _expand_generated_intermediate(expression.upper, name, intermediate, formal_indices),
-        )
-    if isinstance(expression, Let):
-        return Let(
-            expression.name,
-            _expand_generated_intermediate(expression.value, name, intermediate, formal_indices),
-            _expand_generated_intermediate(expression.body, name, intermediate, formal_indices),
-        )
-    return expression
-
-
 def _verify_candidate(
     candidate: _CandidateComputation,
     request: AnalysisRequest,
@@ -1280,27 +1225,61 @@ def _verify_candidate(
     for _target, expression, _indices, _domains in _target_inputs(computed):
         reserved.update(_all_symbol_names(expression))
     answers: list[QueryAnswer] = []
+
+    def abstract_opaque_atoms(
+        left: Expression, right: Expression
+    ) -> tuple[Expression, Expression]:
+        atoms: dict[object, Symbol] = {}
+        reserved_atoms = _all_symbol_names(left) | _all_symbol_names(right)
+
+        def atom(value: Expression) -> Symbol:
+            try:
+                key: object = (type(value).__name__, render(value).sympy)
+            except NormalizationError:
+                key = value
+            existing = atoms.get(key)
+            if existing is not None:
+                return existing
+            position = len(atoms)
+            name = f"optimization_proof_atom_{position}"
+            while name in reserved_atoms:
+                position += 1
+                name = f"optimization_proof_atom_{position}"
+            reserved_atoms.add(name)
+            result = Symbol(name)
+            atoms[key] = result
+            return result
+
+        def visit(value: Expression) -> Expression:
+            if isinstance(value, (Call, IndexedValue, Sum)):
+                return atom(value)
+            if isinstance(value, BinaryExpression):
+                return BinaryExpression(value.operator, visit(value.left), visit(value.right))
+            if isinstance(value, Sum):
+                return Sum(visit(value.body), value.index, visit(value.lower), visit(value.upper))
+            if isinstance(value, Let):
+                return Let(value.name, visit(value.value), visit(value.body))
+            return value
+
+        return visit(left), visit(right)
+
+    def retained_output(analyzed: RetainedComputation, target: str) -> Expression:
+        if target == "expression":
+            assert analyzed.expression is not None
+            return analyzed.expression
+        return next(item.formula.right for item in analyzed.equations if item.name == target)
+
     try:
         # Proof expansion is deliberately downstream of complete-candidate
-        # validation; it never supplies candidate work or placement semantics.
-        for _target, original, proposed in transformations:
+        # validation and reads the replayed outputs themselves. It never supplies
+        # candidate work or placement semantics.
+        for target, _original, _proposed in transformations:
             original_expanded = MappedOutputExpander(
                 computed, expansion_budget, set(reserved)
-            ).expand(original)
-            if (
-                candidate.intermediate_name is not None
-                and candidate.intermediate_expression is not None
-                and candidate.intermediate_scope is not None
-            ):
-                proposed = _expand_generated_intermediate(
-                    proposed,
-                    candidate.intermediate_name,
-                    candidate.intermediate_expression,
-                    candidate.intermediate_scope.output_indices,
-                )
-            expanded = MappedOutputExpander(computed, expansion_budget, set(reserved)).expand(
-                proposed
-            )
+            ).expand(retained_output(computed, target))
+            expanded = MappedOutputExpander(
+                replayed, expansion_budget, set(reserved)
+            ).expand(retained_output(replayed, target))
             try:
                 budget.proof(
                     expression_node_count(original_expanded) + expression_node_count(expanded)
@@ -1308,10 +1287,27 @@ def _verify_candidate(
             except _BudgetExhausted as error:
                 return _Exhausted(str(error))
             answer = equivalence_answer(original_expanded, expanded, reasoning)
-            if (
-                answer.conclusion not in {"proved", "proved_under_assumptions"}
-                and original_expanded == expanded
-            ):
+            normalized_equal = False
+            if answer.conclusion not in {"proved", "proved_under_assumptions"}:
+                original_canonical = _canonical_output_expression(original_expanded, ())
+                expanded_canonical = _canonical_output_expression(expanded, ())
+                try:
+                    normalized_equal = (
+                        original_canonical == expanded_canonical
+                        or render(original_canonical).sympy == render(expanded_canonical).sympy
+                    )
+                except NormalizationError:
+                    normalized_equal = False
+                if not normalized_equal:
+                    abstracted_original, abstracted_expanded = abstract_opaque_atoms(
+                        original_canonical, expanded_canonical
+                    )
+                    abstracted_answer = equivalence_answer(
+                        abstracted_original, abstracted_expanded, reasoning
+                    )
+                    if not abstracted_answer.conditions:
+                        answer = abstracted_answer
+            if normalized_equal:
                 answer = QueryAnswer(
                     conclusion="proved",
                     evidence=IdentityEvidence(
@@ -1367,8 +1363,6 @@ def _verify_candidate(
         work_before = render_work(before.total_work, work_budget)
         work_after = render_work(after.total_work, work_budget)
         savings = render_work(relation.delta, work_budget)
-        original = _interpretation(candidate.original)
-        proposed = _interpretation(candidate.proposed)
         intermediate = (
             OptimizationIntermediate(
                 name=candidate.intermediate_name,
@@ -1528,6 +1522,12 @@ def _complete_candidate_schedule(
             continue
         selected.add(position)
         if len(selected) == MAX_OPTIMIZATION_COMPLETE_REANALYSES:
+            tail = len(candidates) - 1
+            tail_kind = candidates[tail].kind
+            selected.remove(
+                next(index for index in selected if candidates[index].kind == tail_kind)
+            )
+            selected.add(tail)
             return tuple(candidates[index] for index in sorted(selected))
 
     remaining = tuple(index for index in range(len(candidates)) if index not in selected)

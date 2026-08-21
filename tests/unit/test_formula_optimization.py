@@ -1608,6 +1608,73 @@ def test_complete_candidate_replays_expression_local_reuse_and_neutral_removal()
         assert replayed.aggregate_analysis.total_work != retained.aggregate_analysis.total_work
 
 
+def test_complete_candidate_proof_reads_the_replayed_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import py_science.formula.optimization as optimization_service
+    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+    from py_science.formula.computation import RetainedComputation
+    from py_science.formula.optimization import _CandidateComputation
+
+    original_complete_candidate = optimization_service._complete_candidate
+
+    def falsified_complete_candidate(
+        candidate: _CandidateComputation,
+        request: AnalysisRequest,
+        computed: RetainedComputation,
+    ) -> AnalysisRequest:
+        complete = original_complete_candidate(candidate, request, computed)
+        return AnalysisRequest.model_validate(
+            {**complete.model_dump(mode="python"), "expression": "0"}
+        )
+
+    monkeypatch.setattr(
+        optimization_service, "_complete_candidate", falsified_complete_candidate
+    )
+
+    outcome = analyze(
+        AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x*y + x*z")
+    )
+
+    assert outcome.status == "success"
+    assert all(item.kind != "factoring" for item in outcome.optimization.suggestions)
+
+
+def test_complete_candidate_schedule_preserves_all_kinds_and_the_tail() -> None:
+    from py_science.formula.optimization import (
+        _CandidateComputation,
+        _complete_candidate_schedule,
+    )
+
+    kinds = (
+        "repeated_subexpression",
+        "repeated_call",
+        "reciprocal_reuse",
+        "factoring",
+        "redundant_operation_removal",
+        "iterator_invariant_hoisting",
+        "cross_equation_sharing",
+        "horner",
+        "repeated_subexpression",
+    )
+    candidates = tuple(
+        _CandidateComputation(
+            kind=kind,
+            target=f"target{position}",
+            original=_expression("x"),
+            proposed=_expression("x"),
+            occurrences=(),
+        )
+        for position, kind in enumerate(kinds)
+    )
+
+    scheduled = _complete_candidate_schedule(candidates)
+
+    assert len(scheduled) == 8
+    assert {item.kind for item in scheduled} == set(kinds)
+    assert scheduled[-1] is candidates[-1]
+
+
 def test_ordinary_analysis_optimization_ownership() -> None:
     from py_science.formula import AnalysisRequest, FormulaSyntax, OptimizationConfig, analyze
 
