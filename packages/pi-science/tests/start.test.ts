@@ -88,7 +88,7 @@ function context(hasUI: boolean) {
 }
 
 describe("readiness gate", () => {
-  it("uses the real command signature and registers a valid tool result", async () => {
+  it("advertises bounded optimization advice and uses the real command signature", async () => {
     const current = host();
     const response = {
       status: "success",
@@ -129,10 +129,10 @@ describe("readiness gate", () => {
     expect(current.tools).toHaveLength(1);
     expect(current.tools[0]).toMatchObject({
       description: expect.stringMatching(
-        /restricted SymPy.*candidate.*dominance/,
+        /restricted SymPy.*bounded exact-symbolic optimization advice.*candidate.*dominance/,
       ),
       promptSnippet: expect.stringMatching(
-        /qualified symbolic work.*candidate.*dominance/,
+        /qualified symbolic work.*bounded exact-symbolic optimization advice.*candidate.*dominance/,
       ),
       promptGuidelines: [
         expect.stringMatching(
@@ -357,7 +357,7 @@ describe("readiness gate", () => {
     });
   });
 
-  it("presents proved local optimization advice compactly with canonical details", async () => {
+  it("presents first-ranked optimization advice compactly with canonical details", async () => {
     const current = host();
     const adapter = fileURLToPath(
       new URL("../bridge/formula_adapter.py", import.meta.url),
@@ -375,6 +375,7 @@ describe("readiness gate", () => {
     });
     const text = result.content[0]!.text;
     expect(text).toContain("Optimization advice");
+    expect(text).toContain("first-ranked proved suggestion");
     expect(text).toContain("factoring: expression: x*y + x*z → x*(y + z)");
     expect(text).toContain("work 3 → 2; saves 1");
     expect(text).toContain("exact_symbolic_only");
@@ -494,6 +495,7 @@ describe("readiness gate", () => {
       assumptions: [{ name: "known", relationship: "x > 0" }],
     });
     const text = result.content[0]!.text;
+    expect(text).toContain("first-ranked proved suggestion");
     expect(text).toContain(longReplacement);
     expect(text).not.toContain(`${longReplacement.slice(0, 512)}...`);
     expect(text).toContain("assumptions used: known (x > 0)");
@@ -586,6 +588,7 @@ describe("readiness gate", () => {
       optimization: { max_suggestions: 16 },
     });
     const text = result.content[0]!.text;
+    expect(text).toContain("first-ranked proved suggestion");
     expect(text).toContain("cross_equation_sharing:");
     expect(text).toContain("equation left:");
     expect(text).toContain("equation right:");

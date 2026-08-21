@@ -227,7 +227,7 @@ function compactToolText(result: BridgeResult): string {
     const additional = report.suggestions.length - 1;
     return [
       "Optimization advice",
-      `- ${suggestion.kind}: ${transformations}${intermediate}; work ${suggestion.work_before} → ${suggestion.work_after}; saves ${suggestion.savings}${conditions}${assumptions}; ${suggestion.finite_precision_qualification}`,
+      `- first-ranked proved suggestion: ${suggestion.kind}: ${transformations}${intermediate}; work ${suggestion.work_before} → ${suggestion.work_after}; saves ${suggestion.savings}${conditions}${assumptions}; ${suggestion.finite_precision_qualification}`,
       ...(additional === 0
         ? []
         : [
@@ -321,9 +321,9 @@ export async function start(
     name: "analyze_formula",
     label: "Analyze formula",
     description:
-      "Analyze one restricted SymPy expression or named equation system, compare two candidates, or identify bounded aggregate-work term dominance on one axis",
+      "Analyze one restricted SymPy expression or named equation system with bounded exact-symbolic optimization advice, compare two candidates, or identify bounded aggregate-work term dominance on one axis",
     promptSnippet:
-      "Analyze restricted-SymPy formulas for qualified symbolic work, candidate comparison, or bounded one-axis aggregate-work term dominance",
+      "Analyze restricted-SymPy formulas for qualified symbolic work and bounded exact-symbolic optimization advice, candidate comparison, or bounded one-axis aggregate-work term dominance",
     promptGuidelines: [
       "Before first using analyze_formula, read the available pi-science-formula-analysis skill for the accepted dialect, request modeling, and result interpretation.",
       "When analyze_formula rejects a request, use its Python-owned message and any returned path, span, or supported alternative to correct the request.",
