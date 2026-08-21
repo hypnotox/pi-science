@@ -347,7 +347,7 @@ describe("readiness gate", () => {
             "- General direct work: 0",
             "- Specialized evaluation work: none",
             "Optimization advice",
-            "- complete; requested at most 3",
+            "- no proved opportunity found within completed search",
             "Blockers",
             "- none",
           ].join("\n"),
@@ -375,7 +375,7 @@ describe("readiness gate", () => {
     });
     const text = result.content[0]!.text;
     expect(text).toContain("Optimization advice");
-    expect(text).toContain("factoring (expression: x*(y + z))");
+    expect(text).toContain("factoring: expression: x*y + x*z → x*(y + z)");
     expect(text).toContain("work 3 → 2; saves 1");
     expect(text).toContain("exact_symbolic_only");
     expect(result.details).toMatchObject({
@@ -392,6 +392,67 @@ describe("readiness gate", () => {
         ],
       },
     });
+  });
+
+  it("keeps disabled optimization advice out of compact output", async () => {
+    const current = host();
+    const adapter = fileURLToPath(
+      new URL("../bridge/formula_adapter.py", import.meta.url),
+    );
+    await start(
+      current.api,
+      Promise.resolve({
+        ready: true,
+        command: "uv",
+        args: ["run", "--locked", "python", adapter],
+      }),
+    );
+    const result = await current.tools[0]!.execute("id", {
+      expression: "x*y + x*z",
+      optimization: { max_suggestions: 0 },
+    });
+    expect(result.content[0]!.text).not.toContain("Optimization advice");
+    expect(result.details).toMatchObject({
+      optimization: { status: "disabled", suggestions: [] },
+    });
+  });
+
+  it("renders one atomic multi-target suggestion without a primary target", async () => {
+    const current = host();
+    const adapter = fileURLToPath(
+      new URL("../bridge/formula_adapter.py", import.meta.url),
+    );
+    await start(
+      current.api,
+      Promise.resolve({
+        ready: true,
+        command: "uv",
+        args: ["run", "--locked", "python", adapter],
+      }),
+    );
+    const result = await current.tools[0]!.execute("id", {
+      equations: [
+        {
+          name: "left",
+          expression: "Eq(left[i], x[i]*x[i] + 1)",
+          domains: { i: { lower: "0", upper: "3" } },
+        },
+        {
+          name: "right",
+          expression: "Eq(right[j], x[j]*x[j] - 1)",
+          domains: { j: { lower: "0", upper: "3" } },
+        },
+      ],
+      variables: { x: { domain: "real" } },
+      optimization: { max_suggestions: 16 },
+    });
+    const text = result.content[0]!.text;
+    expect(text).toContain("cross_equation_sharing:");
+    expect(text).toContain("equation left:");
+    expect(text).toContain("equation right:");
+    expect(text).toContain("shared intermediate");
+    expect(text).toContain("exact_symbolic_only");
+    expect(text).not.toContain("primary target");
   });
 
   it("surfaces localized dominance blockers in compact output", async () => {

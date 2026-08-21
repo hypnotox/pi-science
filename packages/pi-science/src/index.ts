@@ -187,24 +187,50 @@ function compactToolText(result: BridgeResult): string {
             `- Specialized evaluation work (scenario ${scenario.name}): ${scenario.substituted_work}`,
         )),
   ];
-  const optimization = [
-    `- ${analysis.optimization.status}; requested at most ${analysis.optimization.requested_limit}`,
-    ...analysis.optimization.suggestions.map((suggestion) => {
-      const targets = suggestion.transformations
-        .map((transformation) => {
-          const target =
-            transformation.target.kind === "expression"
-              ? "expression"
-              : `equation ${transformation.target.name}`;
-          return `${target}: ${compactExpression(transformation.proposed.normalized_sympy)}`;
-        })
-        .join("; ");
-      return `- ${suggestion.kind} (${targets}); work ${suggestion.work_before} → ${suggestion.work_after}; saves ${suggestion.savings}${suggestion.conditions.length ? `; conditions: ${suggestion.conditions.join(", ")}` : ""}; ${suggestion.finite_precision_qualification}`;
-    }),
-    ...analysis.optimization.qualifications.map(
-      (qualification) => `- qualification: ${qualification}`,
-    ),
-  ];
+  const optimization = (() => {
+    const report = analysis.optimization;
+    if (report.status === "disabled") return [];
+
+    if (report.suggestions.length === 0) {
+      return [
+        "Optimization advice",
+        `- ${report.status === "complete" ? "no proved opportunity found within completed search" : "search incomplete; no proved suggestion was retained; inspect details for the local bound"}`,
+        ...report.qualifications.map(
+          (qualification) => `- qualification: ${qualification}`,
+        ),
+      ];
+    }
+
+    const suggestion = report.suggestions[0]!;
+    const transformations = suggestion.transformations
+      .map((transformation) => {
+        const target =
+          transformation.target.kind === "expression"
+            ? "expression"
+            : `equation ${transformation.target.name}`;
+        return `${target}: ${compactExpression(transformation.original.normalized_sympy)} → ${compactExpression(transformation.proposed.normalized_sympy)}`;
+      })
+      .join("; ");
+    const intermediate = suggestion.intermediate
+      ? `; shared intermediate ${suggestion.intermediate.name} = ${compactExpression(suggestion.intermediate.expression.normalized_sympy)}`
+      : "";
+    const additional = report.suggestions.length - 1;
+    return [
+      "Optimization advice",
+      `- ${suggestion.kind}: ${transformations}${intermediate}; work ${suggestion.work_before} → ${suggestion.work_after}; saves ${suggestion.savings}${suggestion.conditions.length ? `; conditions: ${suggestion.conditions.join(", ")}` : ""}; ${suggestion.finite_precision_qualification}`,
+      ...(additional === 0
+        ? []
+        : [
+            `- ${additional} additional proved suggestion${additional === 1 ? "" : "s"} in details`,
+          ]),
+      ...(report.status === "incomplete"
+        ? ["- search incomplete; inspect details for the local bound"]
+        : []),
+      ...report.qualifications.map(
+        (qualification) => `- qualification: ${qualification}`,
+      ),
+    ];
+  })();
   const blockers = [
     ...analysis.direct_work_blockers,
     ...(analysis.system?.unknown_costs.map((cost) => `unknown cost: ${cost}`) ??
@@ -229,7 +255,6 @@ function compactToolText(result: BridgeResult): string {
     ...(queryConclusions.length === 0 ? ["- none"] : queryConclusions),
     "Work",
     ...work,
-    "Optimization advice",
     ...optimization,
     "Blockers",
     ...(blockers.length === 0

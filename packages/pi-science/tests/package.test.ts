@@ -27,6 +27,11 @@ describe("npm package boundary", () => {
     );
     expect(skill).toContain("compact human-readable projection");
     expect(skill).toContain("complete canonical report in `details`");
+    expect(skill).toContain("best proved suggestion");
+    expect(skill).toContain("never a primary target");
+    expect(skill).toContain(
+      "additional proved suggestions in canonical `details`",
+    );
     expect(skill).toContain(
       "evaluation work, not represented mathematical value",
     );
