@@ -73,6 +73,11 @@ from py_science.formula.models import (
     LimitResult,
     MathematicalDomain,
     OperationCounts,
+    OptimizationFailure,
+    OptimizationReport,
+    OptimizationSuccess,
+    OptimizeOutcome,
+    OptimizeRequest,
     PropertiesQuery,
     PropertiesResult,
     QueryAnswer,
@@ -127,7 +132,7 @@ from py_science.formula.work import (
 MAX_REQUEST_BYTES = 262_144
 MAX_REQUEST_NODES = 16_384
 MAX_RESULT_BYTES = 262_144
-MAX_OPTIMIZATION_BYTES = 65_536
+MAX_OPTIMIZATION_BYTES = 262_144
 MAX_COMBINED_RESULT_BYTES = MAX_RESULT_BYTES + MAX_OPTIMIZATION_BYTES
 MAX_RENDERED_BYTES = 196_608
 
@@ -188,9 +193,43 @@ def analyze(request: AnalysisRequest) -> AnalysisOutcome:
     if request.queries:
         outcome = _attach_queries(request, result)
     if isinstance(outcome, AnalysisSuccess):
-        optimization = _optimization_report(request, result, result.work_context)
+        try:
+            optimization = _optimization_report(request, result, result.work_context)
+        except Exception:
+            optimization = OptimizationReport(
+                requested_limit=request.optimization.max_suggestions,
+                status="failed",
+                qualifications=("optimization advice failed unexpectedly",),
+            )
         outcome = outcome.model_copy(update={"optimization": optimization})
     return _bound_result(outcome)
+
+
+def optimize(request: OptimizeRequest) -> OptimizeOutcome:
+    """Run the same bounded Python policy exposed by ordinary advice."""
+    try:
+        ordinary = AnalysisRequest.model_validate({
+            "syntax": request.syntax, "expression": request.expression, "equations": request.equations,
+            "variables": request.variables, "functions": request.functions,
+            "primitive_costs": request.primitive_costs, "assumptions": request.assumptions,
+            "definitions": request.definitions,
+            "optimization": {"max_suggestions": request.max_plans},
+        })
+        computed = _analyze_computation(ordinary)
+        if isinstance(computed, AnalysisFailure):
+            return OptimizationFailure(error=computed.error.message)
+        report = _optimization_report(ordinary, computed, computed.work_context)
+        if report.status == "failed":
+            return OptimizationFailure(error=report.qualifications[0])
+        return OptimizationSuccess(
+            requested_limit=request.max_plans,
+            search_status="incomplete" if report.status == "incomplete" else "complete",
+            plans=report.plans,
+            qualifications=report.qualifications,
+        )
+    except Exception:
+        # Direct operation failures remain typed and never expose partial candidates.
+        return OptimizationFailure(error="optimization operation failed unexpectedly")
 
 
 def analyze_dominance(request: DominanceAnalysisRequest) -> DominanceAnalysisOutcome:

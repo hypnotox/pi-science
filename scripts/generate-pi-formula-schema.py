@@ -10,7 +10,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from py_science.formula import AnalysisRequest, CandidateComparisonRequest, DominanceAnalysisRequest
+from py_science.formula import (
+    AnalysisRequest,
+    CandidateComparisonRequest,
+    DominanceAnalysisRequest,
+    OptimizeRequest,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT = ROOT / "packages" / "pi-science" / "src" / "formula-schema.json"
@@ -308,7 +313,43 @@ def generate_schema() -> JsonObject:
         "required": ["operation", "equations", "axis"],
         "type": "object",
     }
-    schema = {"anyOf": [expression, system, comparison, dominance_expression, dominance_system]}
+    optimize_raw = OptimizeRequest.model_json_schema()
+    optimize_definitions = optimize_raw.get("$defs")
+    optimize_properties = optimize_raw.get("properties")
+    if not isinstance(optimize_definitions, dict) or not isinstance(optimize_properties, dict):
+        raise ValueError("OptimizeRequest emitted an incompatible JSON Schema")
+    optimize_metadata = {
+        name: _normalize(copy.deepcopy(item), optimize_definitions)
+        for name, item in optimize_properties.items()
+        if name not in {"syntax", "expression", "equations"}
+    }
+    optimize_expression = {
+        "additionalProperties": False,
+        "properties": {
+            "expression": _normalize(
+                copy.deepcopy(optimize_properties["expression"]), optimize_definitions
+            ),
+            **optimize_metadata,
+        },
+        "required": ["operation", "expression"],
+        "type": "object",
+    }
+    optimize_equations = _normalize(
+        copy.deepcopy(optimize_properties["equations"]), optimize_definitions
+    )
+    optimize_equations["minItems"] = 1
+    optimize_system = {
+        "additionalProperties": False,
+        "properties": {"equations": optimize_equations, **optimize_metadata},
+        "required": ["operation", "equations"],
+        "type": "object",
+    }
+    schema = {
+        "anyOf": [
+            expression, system, comparison, dominance_expression, dominance_system,
+            optimize_expression, optimize_system,
+        ]
+    }
     validate_schema(schema)
     return schema
 

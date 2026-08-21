@@ -204,7 +204,7 @@ class DomainConstraint(StructuredModel):
 
     name: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
     target: str = Field(min_length=1, max_length=MAX_NAME_LENGTH, pattern=_NAME_PATTERN)
-    relationship: str = Field(min_length=1, max_length=MAX_FORMULA_BYTES)
+    relationship: str = Field(min_length=1, max_length=262_144)
 
 
 class EquationRequest(StructuredModel):
@@ -352,7 +352,7 @@ class QueryBase(StructuredModel):
 
 class EquivalenceQuery(QueryBase):
     kind: Literal["equivalence"] = "equivalence"
-    comparison: str = Field(min_length=1, max_length=MAX_FORMULA_BYTES)
+    comparison: str = Field(min_length=1, max_length=262_144)
 
 
 class ClosedFormQuery(QueryBase):
@@ -763,6 +763,64 @@ def _require_unique(values: Iterable[str], label: str) -> None:
     items = tuple(values)
     if len(set(items)) != len(items):
         raise ValueError(f"{label} must be unique")
+
+
+class OptimizationCandidate(StructuredModel):
+    """Complete, replayable ordinary-analysis input owned by one plan."""
+
+    syntax: FormulaSyntax
+    expression: str | None = None
+    equations: tuple[EquationRequest, ...] = Field(default=(), max_length=MAX_EQUATIONS)
+    variables: dict[str, VariableDeclaration] = Field(default_factory=dict)
+    functions: tuple[FunctionDefinition, ...] = Field(default=(), max_length=MAX_FUNCTIONS)
+    primitive_costs: tuple[PrimitiveCost, ...] = Field(default=(), max_length=MAX_PRIMITIVE_COSTS)
+    assumptions: tuple[Assumption, ...] = Field(default=(), max_length=MAX_ASSUMPTIONS)
+    definitions: tuple[DirectedDefinition, ...] = Field(default=(), max_length=MAX_DEFINITIONS)
+    outputs: tuple[str, ...] = Field(min_length=1, max_length=MAX_EQUATIONS)
+
+    @model_validator(mode="after")
+    def complete_shape(self) -> "OptimizationCandidate":
+        if (self.expression is None) != bool(self.equations):
+            raise ValueError("candidate requires exactly one expression or nonempty equation list")
+        expected = ("expression",) if self.expression is not None else tuple(item.name for item in self.equations)
+        if self.outputs != expected:
+            raise ValueError("candidate output identities must match its transformed computation")
+        return self
+
+
+class OptimizeRequest(StructuredModel):
+    """Explicit bounded optimization; analysis-only controls are intentionally absent."""
+
+    syntax: FormulaSyntax
+    operation: Literal["optimize"] = "optimize"
+    expression: str | None = None
+    equations: tuple[EquationRequest, ...] = Field(default=(), max_length=MAX_EQUATIONS)
+    variables: dict[str, VariableDeclaration] = Field(default_factory=dict)
+    functions: tuple[FunctionDefinition, ...] = Field(default=(), max_length=MAX_FUNCTIONS)
+    primitive_costs: tuple[PrimitiveCost, ...] = Field(default=(), max_length=MAX_PRIMITIVE_COSTS)
+    assumptions: tuple[Assumption, ...] = Field(default=(), max_length=MAX_ASSUMPTIONS)
+    definitions: tuple[DirectedDefinition, ...] = Field(default=(), max_length=MAX_DEFINITIONS)
+    max_plans: int = Field(default=3, ge=1, le=16)
+
+    @field_validator("max_plans")
+    @classmethod
+    def strict_max_plans(cls, value: int) -> int:
+        if isinstance(value, bool):
+            raise ValueError("max_plans must be a strict integer")
+        return value
+
+    @model_validator(mode="after")
+    def request_shape(self) -> "OptimizeRequest":
+        if (self.expression is None) != bool(self.equations):
+            raise ValueError("provide exactly one expression or a nonempty equation list")
+        # Reuse the ordinary semantic contract, while refusing its analysis-only knobs.
+        AnalysisRequest.model_validate({
+            "syntax": self.syntax, "expression": self.expression, "equations": self.equations,
+            "variables": self.variables, "functions": self.functions,
+            "primitive_costs": self.primitive_costs, "assumptions": self.assumptions,
+            "definitions": self.definitions,
+        })
+        return self
 
 
 class CandidateComputation(StructuredModel):
@@ -1326,18 +1384,45 @@ class OptimizationSuggestion(StructuredModel):
         return self
 
 
+class OptimizationPlan(StructuredModel):
+    """One independently replayable, verified optimization result."""
+
+    identity: str = Field(min_length=1, max_length=262_144)
+    candidate: OptimizationCandidate
+    suggestion: OptimizationSuggestion
+
+
+class OptimizationFailure(StructuredModel):
+    status: Literal["failed"] = "failed"
+    error: str = Field(min_length=1, max_length=4_096)
+
+
+class OptimizationSuccess(StructuredModel):
+    status: Literal["success"] = "success"
+    requested_limit: int = Field(ge=1, le=16)
+    search_status: Literal["complete", "incomplete"]
+    plans: tuple[OptimizationPlan, ...] = Field(default=(), max_length=16)
+    qualifications: tuple[BoundedQueryText, ...] = Field(default=(), max_length=128)
+
+
+type OptimizeOutcome = Annotated[OptimizationSuccess | OptimizationFailure, Field(discriminator="status")]
+
+
 class OptimizationReport(StructuredModel):
     requested_limit: int = Field(ge=0, le=16)
-    status: Literal["disabled", "complete", "incomplete"]
+    status: Literal["disabled", "complete", "incomplete", "failed"]
     suggestions: tuple[OptimizationSuggestion, ...] = Field(default=(), max_length=16)
+    plans: tuple[OptimizationPlan, ...] = Field(default=(), max_length=16)
     qualifications: tuple[BoundedQueryText, ...] = Field(default=(), max_length=128)
 
     @model_validator(mode="after")
     def report_shape(self) -> "OptimizationReport":
-        if len(self.suggestions) > self.requested_limit:
-            raise ValueError("optimization suggestions exceed requested limit")
+        if len(self.suggestions) > self.requested_limit or len(self.plans) > self.requested_limit:
+            raise ValueError("optimization plans exceed requested limit")
+        if self.plans and tuple(item.suggestion for item in self.plans) != self.suggestions:
+            raise ValueError("optimization plans must project the same suggestions")
         if self.status == "disabled" and (
-            self.requested_limit != 0 or self.suggestions or self.qualifications
+            self.requested_limit != 0 or self.suggestions or self.plans or self.qualifications
         ):
             raise ValueError("disabled optimization requires an empty zero-limit report")
         if self.requested_limit == 0 and self.status != "disabled":
@@ -1346,6 +1431,8 @@ class OptimizationReport(StructuredModel):
             raise ValueError("incomplete optimization requires an exhaustion qualification")
         if self.status == "complete" and self.qualifications:
             raise ValueError("complete optimization cannot carry search qualifications")
+        if self.status == "failed" and (self.suggestions or self.plans or not self.qualifications):
+            raise ValueError("failed optimization must contain only a bounded diagnostic")
         return self
 
 
@@ -1611,7 +1698,7 @@ class DominanceExclusion(StructuredModel):
 
 class DominanceEvidence(StructuredModel):
     pair: tuple[str, str]
-    difference: str = Field(min_length=1, max_length=MAX_FORMULA_BYTES)
+    difference: str = Field(min_length=1, max_length=262_144)
     sign: Literal[-1, 0, 1] | None = None
     roots: tuple[str, ...] = Field(default=(), max_length=256)
 

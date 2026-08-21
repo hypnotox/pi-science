@@ -13,6 +13,7 @@ import {
   type ExpressionAnalysisRequest,
   type SystemAnalysisRequest,
   type DominanceRequest,
+  type OptimizeRequest,
 } from "./bridge.js";
 import { provision, type Readiness } from "./provision.js";
 
@@ -23,7 +24,8 @@ export type FormulaParameters =
   | Omit<ExpressionAnalysisRequest, "syntax">
   | Omit<SystemAnalysisRequest, "syntax">
   | Omit<CandidateComparisonRequest, "syntax">
-  | Omit<DominanceRequest, "syntax">;
+  | Omit<DominanceRequest, "syntax">
+  | Omit<OptimizeRequest, "syntax">;
 
 export type PinnedSource = { revision: string; repo: string };
 

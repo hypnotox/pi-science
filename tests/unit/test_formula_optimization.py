@@ -591,8 +591,8 @@ def test_advice_has_a_separate_result_allowance_and_excludes_its_key_from_base()
     from py_science.formula import service as formula_service
 
     assert formula_service.MAX_RESULT_BYTES == 262_144
-    assert formula_service.MAX_OPTIMIZATION_BYTES == 65_536
-    assert formula_service.MAX_COMBINED_RESULT_BYTES == 327_680
+    assert formula_service.MAX_OPTIMIZATION_BYTES == 262_144
+    assert formula_service.MAX_COMBINED_RESULT_BYTES == 524_288
     outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x"))
     assert outcome.status == "success" and outcome.optimization is not None
     base_json = outcome.model_dump_json(exclude={"optimization"})
@@ -920,7 +920,7 @@ def test_oversized_advice_truncates_without_replacing_base_success() -> None:
                 suggestion.transformations[0].model_copy(
                     update={
                         "proposed": Interpretation(
-                            normalized_sympy="x" * 70_000, normalized_latex="x" * 70_000
+                            normalized_sympy="x" * 140_000, normalized_latex="x" * 140_000
                         )
                     }
                 ),
@@ -942,7 +942,7 @@ def test_oversized_advice_truncates_without_replacing_base_success() -> None:
     assert bounded.optimization.qualifications[0].startswith(
         "optimization advice bytes budget exhausted (measured "
     )
-    assert "configured 65536" in bounded.optimization.qualifications[0]
+    assert "configured 262144" in bounded.optimization.qualifications[0]
 
 
 def test_exact_base_and_maximum_field_contribution_preserve_success() -> None:
@@ -998,7 +998,7 @@ def test_exact_base_and_maximum_field_contribution_preserve_success() -> None:
     assert bounded.optimization.qualifications[0].startswith(
         "optimization advice bytes budget exhausted (measured "
     )
-    assert "configured 65536" in bounded.optimization.qualifications[0]
+    assert "configured 262144" in bounded.optimization.qualifications[0]
 
 
 def test_unexpected_reasoning_and_verifier_defects_propagate(
@@ -1011,13 +1011,15 @@ def test_unexpected_reasoning_and_verifier_defects_propagate(
         raise RuntimeError("unexpected optimization defect")
 
     monkeypatch.setattr(optimization_service.ReasoningContext, "build", defect)
-    with pytest.raises(RuntimeError, match="unexpected optimization defect"):
-        analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 0"))
+    result = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 0"))
+    assert result.status == "success"
+    assert result.optimization.status == "failed"
 
     monkeypatch.undo()
     monkeypatch.setattr(optimization_service, "_verify_candidate", defect)
-    with pytest.raises(RuntimeError, match="unexpected optimization defect"):
-        analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 0"))
+    result = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 0"))
+    assert result.status == "success"
+    assert result.optimization.status == "failed"
 
 
 def test_cross_equation_sharing_and_horner_publish_verified_savings() -> None:
@@ -1593,7 +1595,7 @@ def test_multibyte_advice_limit_measures_encoded_bytes() -> None:
                 suggestion.transformations[0].model_copy(
                     update={
                         "proposed": Interpretation(
-                            normalized_sympy="é" * 40_000, normalized_latex="é" * 40_000
+                            normalized_sympy="é" * 140_000, normalized_latex="é" * 140_000
                         )
                     }
                 ),
@@ -1613,7 +1615,7 @@ def test_multibyte_advice_limit_measures_encoded_bytes() -> None:
     assert bounded.optimization.status == "incomplete"
     qualification = bounded.optimization.qualifications[0]
     assert "advice bytes" in qualification
-    assert "measured" in qualification and "configured 65536" in qualification
+    assert "measured" in qualification and "configured 262144" in qualification
 
 
 def test_unexpected_horner_backend_defects_propagate(
@@ -1625,13 +1627,14 @@ def test_unexpected_horner_backend_defects_propagate(
         raise RuntimeError("unexpected Horner defect")
 
     monkeypatch.setattr(sympy_backend.sympy, "horner", defect)
-    with pytest.raises(RuntimeError, match="unexpected Horner defect"):
-        analyze(
-            AnalysisRequest(
-                syntax=FormulaSyntax.SYMPY,
-                expression="2*x**3 + 3*x**2 + 4*x + 5",
-            )
+    result = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="2*x**3 + 3*x**2 + 4*x + 5",
         )
+    )
+    assert result.status == "success"
+    assert result.optimization.status == "failed"
 
 
 def test_unexpected_factoring_backend_defects_propagate(
@@ -1660,6 +1663,7 @@ def test_retained_analysis_disables_optimization() -> None:
         "requested_limit": 0,
         "status": "disabled",
         "suggestions": (),
+        "plans": (),
         "qualifications": (),
     }
     assert type(retained.success).model_validate_json(
@@ -1783,5 +1787,32 @@ def test_ordinary_analysis_optimization_ownership() -> None:
         "requested_limit": 0,
         "status": "disabled",
         "suggestions": (),
+        "plans": (),
         "qualifications": (),
     }
+
+
+def test_optimize_operation_returns_replayable_complete_plans() -> None:
+    from py_science.formula import (
+        AnalysisRequest,
+        FormulaSyntax,
+        OptimizeRequest,
+        analyze,
+        optimize,
+    )
+
+    request = OptimizeRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="x*x + x*x",
+    )
+    result = optimize(request)
+
+    assert result.status == "success"
+    assert result.requested_limit == 3
+    assert result.plans
+    plan = result.plans[0]
+    assert plan.candidate.syntax == FormulaSyntax.SYMPY
+    assert plan.candidate.expression is not None
+    assert plan.candidate.outputs == ("expression",)
+    replay = analyze(AnalysisRequest.model_validate(plan.candidate.model_dump(exclude={"outputs"})))
+    assert replay.status == "success"

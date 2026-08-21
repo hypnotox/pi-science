@@ -1,10 +1,10 @@
 import { TextDecoder } from "node:util";
 import { spawnIsolated, terminateTree } from "./process.js";
 
-export const PROTOCOL_VERSION = 12;
+export const PROTOCOL_VERSION = 13;
 export const MAX_FORMULA_BYTES = 65_536;
 export const MAX_ENVELOPE_BYTES = 2_097_152;
-export const MAX_RESPONSE_BYTES = 327_936;
+export const MAX_RESPONSE_BYTES = 524_544;
 const MAX_DIAGNOSTIC_BYTES = 4_096;
 
 export type MathematicalDomain =
@@ -216,8 +216,22 @@ export type DominanceRequest = Omit<
     | { expression: string; equations?: never }
     | { equations: EquationRequest[]; expression?: never }
   );
+export type OptimizeRequest = Omit<
+  RequestMetadata<QueryRequest>,
+  "scenarios" | "queries" | "optimization"
+> & {
+  syntax: "sympy";
+  operation: "optimize";
+  max_plans?: number;
+} & (
+    | { expression: string; equations?: never }
+    | { equations: EquationRequest[]; expression?: never }
+  );
 export type FormulaRequest =
-  AnalysisRequest | CandidateComparisonRequest | DominanceRequest;
+  | AnalysisRequest
+  | CandidateComparisonRequest
+  | DominanceRequest
+  | OptimizeRequest;
 
 export type Interpretation = {
   normalized_sympy: string;
@@ -531,7 +545,18 @@ export type DominanceSuccess = {
   }>;
   dominance_status: "complete" | "unresolved" | "empty";
 };
+export type OptimizationOperationSuccess = {
+  status: "success";
+  requested_limit: number;
+  search_status: "complete" | "incomplete";
+  plans: unknown[];
+  qualifications: string[];
+};
+export type OptimizationOperationFailure = { status: "failed"; error: string };
+export type OptimizationOperationResult =
+  OptimizationOperationSuccess | OptimizationOperationFailure;
 export type BridgeResult =
+  | OptimizationOperationResult
   | AnalysisSuccess
   | CandidateComparisonSuccess
   | DominanceSuccess
@@ -2877,6 +2902,7 @@ function validOptimization(
       "requested_limit",
       "status",
       "suggestions",
+      ...("plans" in value ? ["plans"] : []),
       "qualifications",
     ])
   )
@@ -2887,8 +2913,23 @@ function validOptimization(
     !Number.isSafeInteger(limit) ||
     limit < 0 ||
     limit > 16 ||
-    !["disabled", "complete", "incomplete"].includes(String(value.status)) ||
+    !["disabled", "complete", "incomplete", "failed"].includes(
+      String(value.status),
+    ) ||
     !Array.isArray(value.suggestions) ||
+    ("plans" in value &&
+      (!Array.isArray(value.plans) ||
+        value.plans.length !== value.suggestions.length ||
+        !value.plans.every(
+          (plan, index) =>
+            isRecord(plan) &&
+            exactKeys(plan, ["identity", "candidate", "suggestion"]) &&
+            typeof plan.identity === "string" &&
+            Buffer.byteLength(plan.identity, "utf8") <= MAX_RESPONSE_BYTES &&
+            isRecord(plan.candidate) &&
+            JSON.stringify(plan.suggestion) ===
+              JSON.stringify((value.suggestions as unknown[])[index]),
+        ))) ||
     value.suggestions.length > limit ||
     !value.suggestions.every((item) =>
       validOptimizationSuggestion(item, request),
@@ -2909,9 +2950,18 @@ function validOptimization(
     return (
       limit === 0 &&
       value.suggestions.length === 0 &&
+      (!("plans" in value) ||
+        (Array.isArray(value.plans) && value.plans.length === 0)) &&
       value.qualifications.length === 0
     );
   if (limit === 0 || value.status === "disabled") return false;
+  if (value.status === "failed")
+    return (
+      value.suggestions.length === 0 &&
+      (!("plans" in value) ||
+        (Array.isArray(value.plans) && value.plans.length === 0)) &&
+      value.qualifications.length > 0
+    );
   if (value.status === "incomplete" && value.qualifications.length === 0)
     return false;
   if (value.status === "complete" && value.qualifications.length > 0)
@@ -3046,6 +3096,39 @@ function formulaSources(request: FormulaRequest): string[] {
   return sources;
 }
 
+function validOptimizeResult(
+  value: unknown,
+  request: OptimizeRequest,
+): boolean {
+  if (!isRecord(value)) return false;
+  if (value.status === "failed")
+    return (
+      exactKeys(value, ["status", "error"]) &&
+      typeof value.error === "string" &&
+      Buffer.byteLength(value.error, "utf8") <= MAX_DIAGNOSTIC_BYTES
+    );
+  if (
+    value.status !== "success" ||
+    !exactKeys(value, [
+      "status",
+      "requested_limit",
+      "search_status",
+      "plans",
+      "qualifications",
+    ])
+  )
+    return false;
+  return (
+    value.requested_limit === (request.max_plans ?? 3) &&
+    (value.search_status === "complete" ||
+      value.search_status === "incomplete") &&
+    Array.isArray(value.plans) &&
+    value.plans.length <= (request.max_plans ?? 3) &&
+    Array.isArray(value.qualifications) &&
+    value.qualifications.every((item) => typeof item === "string")
+  );
+}
+
 export async function invokeAdapter(
   command: string,
   args: string[],
@@ -3168,13 +3251,15 @@ export async function invokeAdapter(
             ? isRecord(envelope.result) && envelope.result.status === "failure"
               ? validResult(envelope.result)
               : validComparisonResult(envelope.result, request)
-            : "operation" in request &&
-                request.operation === "analyze_dominance"
-              ? isRecord(envelope.result) &&
-                envelope.result.status === "failure"
-                ? validResult(envelope.result)
-                : validDominanceResult(envelope.result, request)
-              : validResult(envelope.result, request as AnalysisRequest))
+            : "operation" in request && request.operation === "optimize"
+              ? validOptimizeResult(envelope.result, request)
+              : "operation" in request &&
+                  request.operation === "analyze_dominance"
+                ? isRecord(envelope.result) &&
+                  envelope.result.status === "failure"
+                  ? validResult(envelope.result)
+                  : validDominanceResult(envelope.result, request)
+                : validResult(envelope.result, request as AnalysisRequest))
         )
           return finish(
             new BridgeError(

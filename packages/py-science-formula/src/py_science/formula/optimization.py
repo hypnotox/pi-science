@@ -39,8 +39,10 @@ from py_science.formula.models import (
     EquationRequest,
     IdentityEvidence,
     Interpretation,
+    OptimizationCandidate,
     OptimizationIntermediate,
     OptimizationOccurrence,
+    OptimizationPlan,
     OptimizationReport,
     OptimizationSuggestion,
     OptimizationTarget,
@@ -147,6 +149,7 @@ class _CandidateComputation:
 @dataclass(frozen=True, slots=True)
 class _Accepted:
     suggestion: OptimizationSuggestion
+    candidate: AnalysisRequest
     savings_expression: Expression
 
 
@@ -1489,7 +1492,7 @@ def _verify_candidate(
         work_after=work_after,
         savings=savings,
     )
-    return _Accepted(suggestion, relation.delta)
+    return _Accepted(suggestion, complete, relation.delta)
 
 
 def _suggestion_order(left: OptimizationSuggestion, right: OptimizationSuggestion) -> int:
@@ -1668,9 +1671,30 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
         accepted.sort(
             key=cmp_to_key(lambda left, right: _suggestion_order(left.suggestion, right.suggestion))
         )
+    selected = accepted[:limit]
+    def plan(item: _Accepted) -> OptimizationPlan:
+        candidate_request = item.candidate
+        candidate = OptimizationCandidate(
+            syntax=candidate_request.syntax,
+            expression=candidate_request.expression,
+            equations=candidate_request.equations,
+            variables=candidate_request.variables,
+            functions=candidate_request.functions,
+            primitive_costs=candidate_request.primitive_costs,
+            assumptions=candidate_request.assumptions,
+            definitions=candidate_request.definitions,
+            outputs=("expression",) if candidate_request.expression is not None else tuple(
+                equation.name for equation in candidate_request.equations
+            ),
+        )
+        # This canonical JSON identity is stable across the direct and passive surfaces.
+        identity = candidate.model_dump_json(exclude_none=True)
+        return OptimizationPlan(identity=identity, candidate=candidate, suggestion=item.suggestion)
+    plans = tuple(plan(item) for item in selected)
     return OptimizationReport(
         requested_limit=limit,
         status="incomplete" if qualifications else "complete",
-        suggestions=tuple(item.suggestion for item in accepted[:limit]),
+        suggestions=tuple(item.suggestion for item in selected),
+        plans=plans,
         qualifications=_unique_qualifications(qualifications),
     )

@@ -27,5 +27,6 @@ Origin: ADR-0016
 
 
 ### `rule: bounded-optimization-advice-requests`
-Ordinary expression and equation-system requests may carry only `optimization.max_suggestions`, which defaults to 3 and accepts integers from 0 through 16; zero disables advice. Candidate comparison and dominance requests do not carry optimization configuration.
+Ordinary expression and equation-system requests may carry only `optimization.max_suggestions`, which defaults to 3 and accepts integers from 0 through 16; zero disables advice. Direct `operation: optimize` accepts semantic formula input and `max_plans`, default 3, as a strict integer from 1 through 16. Its returned candidates include syntax, transformed expression or equations, required variables/functions/costs/assumptions/definitions, and output identities, but exclude scenarios, queries, and optimization controls. Candidate comparison and dominance requests do not carry optimization configuration.
 Origin: ADR-0017
+Revised-by: ADR-adopt-stateless-replayable-formula-optimization-plans

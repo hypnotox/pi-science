@@ -273,7 +273,7 @@ async function kind(promise: Promise<unknown>, expected: BridgeError["kind"]) {
 
 describe("private formula bridge", () => {
   it("reserves the combined base and optimization response allowance", () => {
-    expect(MAX_RESPONSE_BYTES).toBe(327_936);
+    expect(MAX_RESPONSE_BYTES).toBe(524_544);
   });
 
   it("strictly transports zero-post-work correlated optimization reports without recomputing policy", async () => {
@@ -379,6 +379,7 @@ describe("private formula bridge", () => {
         requested_limit: 0,
         status: "disabled",
         suggestions: [],
+        plans: [],
         qualifications: [],
       },
     };
@@ -1144,7 +1145,7 @@ describe("private formula bridge", () => {
       await kind(invokeAdapter(node, responder(value), request()), "protocol");
   });
 
-  it("strictly validates populated protocol-v12 query result unions", async () => {
+  it("strictly validates populated protocol-v13 query result unions", async () => {
     const identityAnswer = {
       check: null,
       conclusion: "proved",
@@ -2556,6 +2557,7 @@ describe("retained optimization ownership", () => {
           requested_limit: 0,
           status: "disabled",
           suggestions: [],
+          plans: [],
           qualifications: [],
         });
       }

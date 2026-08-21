@@ -63,3 +63,5 @@ The public union and computation language require protocol v13. Its atomic imple
 - 2026-08-21: Proposed
 - 2026-08-21: Implementing; content-sha256: 1d3cf3094f32b66de36db3a7cbe967612c782e562202d26d3e4c8453429cb00f
 - 2026-08-21: Applied; operations: update `product/mathematical-input-contract:safe-familiar-inputs`, update `product/mathematical-input-contract:compositional-indexed-equation-requests`
+
+- 2026-08-21: Applied; operations: update `product/product-boundary:symbolic-analysis-only`, update `product/mathematical-input-contract:bounded-optimization-advice-requests`, update `product/analysis-report-contract:qualified-optimization-advice`, update `product/mathematical-analysis-model:bounded-optimization-transformation`

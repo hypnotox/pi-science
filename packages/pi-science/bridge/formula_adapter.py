@@ -11,22 +11,26 @@ from py_science.formula import (
     AnalysisRequest,
     CandidateComparisonRequest,
     DominanceAnalysisRequest,
+    OptimizeRequest,
     analyze,
     analyze_dominance,
     compare_candidates,
+    optimize,
 )
 from pydantic import TypeAdapter, ValidationError
 
-PROTOCOL_VERSION = 12
+PROTOCOL_VERSION = 13
 REQUEST_ADAPTER: TypeAdapter[
-    AnalysisRequest | CandidateComparisonRequest | DominanceAnalysisRequest
-] = TypeAdapter(AnalysisRequest | CandidateComparisonRequest | DominanceAnalysisRequest)
+    AnalysisRequest | CandidateComparisonRequest | DominanceAnalysisRequest | OptimizeRequest
+] = TypeAdapter(
+    AnalysisRequest | CandidateComparisonRequest | DominanceAnalysisRequest | OptimizeRequest
+)
 # The public request permits 262,144 UTF-8 source bytes. This whole-envelope
 # limit also covers JSON escaping and every bounded collection/name field.
 MAX_ENVELOPE_BYTES = 2_097_152
 # Python preserves 262,144 base-result bytes and separately allows 65,536
 # optimization bytes; this ceiling adds 256 bytes of bounded protocol framing.
-MAX_RESPONSE_BYTES = 327_936
+MAX_RESPONSE_BYTES = 524_544
 MAX_DIAGNOSTIC_BYTES = 4_096
 
 
@@ -100,7 +104,10 @@ def main() -> int:
         request = REQUEST_ADAPTER.validate_json(
             json.dumps(request_payload, ensure_ascii=False, separators=(",", ":"))
         )
-        if getattr(request, "operation", None) == "compare_candidates":
+        if getattr(request, "operation", None) == "optimize":
+            outcome = optimize(cast(OptimizeRequest, request))
+            result = outcome.model_dump(mode="json", exclude_none=False)
+        elif getattr(request, "operation", None) == "compare_candidates":
             outcome = compare_candidates(cast(CandidateComparisonRequest, request))
             result = outcome.model_dump(mode="json", exclude_none=False)
         elif getattr(request, "operation", None) == "analyze_dominance":
