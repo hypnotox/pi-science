@@ -3,7 +3,7 @@ format: plan-v2
 date: 2026-08-20
 adrs:
   - adopt-bounded-formula-optimization-advice
-status: Proposed
+status: Implemented
 ---
 # Plan: Implement bounded formula optimization advice
 

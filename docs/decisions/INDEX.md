@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-- [ADR-0017: Adopt bounded formula optimization advice](0017-adopt-bounded-formula-optimization-advice.md) (Implementing)
+_No decisions are in flight._
 
 ## History
 
@@ -22,3 +22,4 @@
 - [ADR-0014: Canonicalize Nested Polynomial Results and Extend Explicit Derived Consumers](0014-canonicalize-nested-polynomial-results-and-extend-explicit-derived-consumers.md) (Implemented)
 - [ADR-0015: Adopt bounded candidate comparison](0015-adopt-bounded-candidate-comparison.md) (Implemented)
 - [ADR-0016: Adopt bounded aggregate-work dominance analysis](0016-adopt-bounded-aggregate-work-dominance-analysis.md) (Implemented)
+- [ADR-0017: Adopt bounded formula optimization advice](0017-adopt-bounded-formula-optimization-advice.md) (Implemented)
