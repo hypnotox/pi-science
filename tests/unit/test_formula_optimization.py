@@ -1167,6 +1167,56 @@ def test_cross_equation_canonical_binders_do_not_capture_user_symbols() -> None:
     )
 
 
+def test_cross_equation_domains_distinguish_dependent_and_free_bounds() -> None:
+    from py_science.formula import (
+        AnalysisRequest,
+        EquationRequest,
+        FormulaSyntax,
+        IndexDomain,
+        MathematicalDomain,
+        OptimizationConfig,
+        VariableDeclaration,
+        analyze,
+    )
+
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            equations=(
+                EquationRequest(
+                    name="z_dependent",
+                    expression="Eq(z_dependent[i,j], x[i,j]*x[i,j] + 1)",
+                    domains={
+                        "i": IndexDomain(lower="0", upper="N"),
+                        "j": IndexDomain(lower="0", upper="i"),
+                    },
+                ),
+                EquationRequest(
+                    name="a_free",
+                    expression="Eq(a_free[p,q], x[p,q]*x[p,q] - 1)",
+                    domains={
+                        "p": IndexDomain(lower="0", upper="N"),
+                        "q": IndexDomain(lower="0", upper="optimization_index_0"),
+                    },
+                ),
+            ),
+            variables={
+                "x": VariableDeclaration(domain=MathematicalDomain.REAL),
+                "N": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER),
+                "optimization_index_0": VariableDeclaration(
+                    domain=MathematicalDomain.NONNEGATIVE_INTEGER
+                ),
+            },
+            optimization=OptimizationConfig(max_suggestions=16),
+        )
+    )
+
+    assert outcome.status == "success"
+    assert all(
+        item.kind != "cross_equation_sharing" for item in outcome.optimization.suggestions
+    )
+
+
 def test_sharing_covers_scalar_lexical_predecessor_and_producer_dependencies() -> None:
     from py_science.formula import (
         AnalysisRequest,

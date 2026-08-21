@@ -492,13 +492,35 @@ def _target_inputs(
     )
 
 
+def _canonical_output_index_names(
+    arity: int, reserved_names: set[str]
+) -> tuple[str, ...]:
+    reserved = set(reserved_names)
+    result: list[str] = []
+    for position in range(arity):
+        base = f"optimization_index_{position}"
+        name = base
+        suffix = 0
+        while name in reserved:
+            suffix += 1
+            name = f"{base}_{suffix}"
+        reserved.add(name)
+        result.append(name)
+    return tuple(result)
+
+
 def _canonical_output_expression(
     expression: Expression,
     output_indices: tuple[str, ...],
     reserved_names: set[str] | None = None,
+    canonical_output_indices: tuple[str, ...] | None = None,
 ) -> Expression:
     """Normalize positional output and lexical binder names without algebra."""
     reserved = set(reserved_names or ()) | _all_symbol_names(expression)
+    if canonical_output_indices is None:
+        canonical_output_indices = _canonical_output_index_names(len(output_indices), reserved)
+    assert len(canonical_output_indices) == len(output_indices)
+    reserved.update(canonical_output_indices)
 
     def fresh(base: str) -> str:
         name = base
@@ -563,10 +585,7 @@ def _canonical_output_expression(
             )
         return value
 
-    names = {
-        name: fresh(f"optimization_index_{position}")
-        for position, name in enumerate(output_indices)
-    }
+    names = dict(zip(output_indices, canonical_output_indices, strict=True))
     return visit(expression, names, ())
 
 
@@ -581,6 +600,9 @@ def _cross_equation_candidates(
     canonical_reserved: set[str] = set()
     for equation in computed.equations:
         canonical_reserved.update(_all_symbol_names(equation.formula.right))
+        for domain in equation.output_domains:
+            canonical_reserved.update(_all_symbol_names(domain.lower))
+            canonical_reserved.update(_all_symbol_names(domain.upper))
     grouped: dict[
         tuple[int, Expression, tuple[tuple[Expression, Expression], ...]],
         list[_Occurrence],
@@ -590,9 +612,14 @@ def _cross_equation_candidates(
         # Equation-local constraints cannot be attached to one shared producer.
         if equation.submitted_constraints:
             continue
+        canonical_output_indices = _canonical_output_index_names(
+            len(equation.domain_order), canonical_reserved
+        )
         replacements: dict[str, Expression] = {
-            name: Symbol(f"optimization_index_{position}")
-            for position, name in enumerate(equation.domain_order)
+            name: Symbol(canonical)
+            for name, canonical in zip(
+                equation.domain_order, canonical_output_indices, strict=True
+            )
         }
         domain_signature = tuple(
             (
@@ -611,6 +638,7 @@ def _cross_equation_candidates(
                         occurrence.expression,
                         equation.domain_order,
                         canonical_reserved,
+                        canonical_output_indices,
                     ),
                     domain_signature,
                 )
