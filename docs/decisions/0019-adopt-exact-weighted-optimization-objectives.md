@@ -1,7 +1,7 @@
 ---
 format: current-state-v4
 slug: adopt-exact-weighted-optimization-objectives
-status: Implementing
+status: Implemented
 date: 2026-08-22
 ---
 # ADR-0019: Adopt exact weighted optimization objectives
@@ -63,3 +63,4 @@ The profile is still an abstract symbolic objective, not time, resource use, num
 - 2026-08-22: Proposed
 - 2026-08-22: Implementing; content-sha256: 75478b0028e071657d552403bc6bc4a0639dfb375922062dadcb1c54d423778a
 - 2026-08-22: Applied; operations: update `product/product-boundary:symbolic-analysis-only`, update `product/mathematical-input-contract:bounded-optimization-advice-requests`, update `product/mathematical-analysis-model:bounded-optimization-transformation`, update `product/analysis-report-contract:qualified-optimization-advice`
+- 2026-08-22: Implemented; content-sha256: 75478b0028e071657d552403bc6bc4a0639dfb375922062dadcb1c54d423778a

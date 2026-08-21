@@ -2,7 +2,7 @@
 format: plan-v2
 date: 2026-08-22
 adrs: [adopt-exact-weighted-optimization-objectives]
-status: Proposed
+status: Implemented
 ---
 # Plan: Implement exact weighted optimization objectives
 
