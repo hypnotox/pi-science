@@ -395,6 +395,96 @@ describe("readiness gate", () => {
     });
   });
 
+  it("presents Python-ranked incomparable advice without claiming superiority", async () => {
+    const current = host();
+    const suggestion = (
+      kind: "factoring" | "horner",
+      proposed: string,
+      workAfter: string,
+      savings: string,
+    ) => ({
+      kind,
+      transformations: [
+        {
+          target: { kind: "expression", name: null },
+          occurrences: [{ path: [], binders: [], output_indices: [] }],
+          original: { normalized_sympy: "x", normalized_latex: "x" },
+          proposed: { normalized_sympy: proposed, normalized_latex: proposed },
+        },
+      ],
+      intermediate: null,
+      conclusion: "proved",
+      evidence: { kind: "identity", statement: "verified" },
+      conditions: [],
+      assumptions_used: [],
+      work_before: "N + M + 4",
+      work_after: workAfter,
+      savings,
+      finite_precision_qualification: "exact_symbolic_only",
+    });
+    const response = {
+      status: "success",
+      interpretation: { normalized_sympy: "x", normalized_latex: "x" },
+      operation_counts: {
+        additions: 0,
+        subtractions: 0,
+        multiplications: 0,
+        divisions: 0,
+        powers: 0,
+      },
+      abstract_work: 0,
+      direct_work_applicability: "finite",
+      direct_work_blockers: [],
+      scenarios: [],
+      queries: [],
+      optimization: {
+        requested_limit: 3,
+        status: "complete",
+        suggestions: [
+          suggestion("factoring", "first_candidate", "M + 4", "N"),
+          suggestion("horner", "second_candidate", "N + 4", "M"),
+        ],
+        qualifications: [],
+      },
+    };
+    await start(
+      current.api,
+      Promise.resolve({
+        ready: true,
+        command: process.execPath,
+        args: [
+          "-e",
+          `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
+            JSON.stringify({ version: 12, result: response }),
+          )}))`,
+        ],
+      }),
+    );
+
+    const result = await current.tools[0]!.execute("id", {
+      expression: "x",
+      variables: {
+        N: { domain: "positive_integer" },
+        M: { domain: "positive_integer" },
+      },
+    });
+    const text = result.content[0]!.text;
+    expect(text).toContain(
+      "first-ranked proved suggestion: factoring: expression: x → first_candidate",
+    );
+    expect(text).toContain("1 additional proved suggestion in details");
+    expect(text).not.toContain("second_candidate");
+    expect(text).not.toMatch(/best|superior/i);
+    expect(result.details).toMatchObject({
+      optimization: {
+        suggestions: [
+          { kind: "factoring", savings: "N" },
+          { kind: "horner", savings: "M" },
+        ],
+      },
+    });
+  });
+
   it("keeps disabled optimization advice out of compact output", async () => {
     const current = host();
     const adapter = fileURLToPath(
