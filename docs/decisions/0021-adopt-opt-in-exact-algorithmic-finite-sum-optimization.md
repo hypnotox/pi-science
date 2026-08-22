@@ -1,7 +1,7 @@
 ---
 format: current-state-v4
 slug: adopt-opt-in-exact-algorithmic-finite-sum-optimization
-status: Implementing
+status: Implemented
 date: 2026-08-22
 ---
 # ADR-0021: Adopt opt-in exact algorithmic finite-sum optimization
@@ -64,3 +64,4 @@ Protocol v16 changes Python models, generated schema, adapter, strict Pi validat
 - 2026-08-22: Proposed
 - 2026-08-22: Implementing; content-sha256: fe2c328463f1683983dd3fc813172d8c9bff492bf3f05cae6335bddac7e60134
 - 2026-08-22: Applied; operations: update `product/product-boundary:symbolic-analysis-only`, update `product/mathematical-input-contract:bounded-optimization-advice-requests`, update `product/mathematical-analysis-model:bounded-optimization-transformation`, update `product/analysis-report-contract:qualified-optimization-advice`
+- 2026-08-22: Implemented; content-sha256: fe2c328463f1683983dd3fc813172d8c9bff492bf3f05cae6335bddac7e60134

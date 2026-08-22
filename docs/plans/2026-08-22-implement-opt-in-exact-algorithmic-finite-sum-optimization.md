@@ -2,7 +2,7 @@
 format: plan-v2
 date: 2026-08-22
 adrs: [adopt-opt-in-exact-algorithmic-finite-sum-optimization]
-status: Proposed
+status: Implemented
 ---
 # Plan: Implement opt-in exact algorithmic finite-sum optimization
 
