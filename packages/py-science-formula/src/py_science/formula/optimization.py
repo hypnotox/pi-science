@@ -757,6 +757,37 @@ def _canonical_output_expression(
     return visit(expression, names, ())
 
 
+def _generated_let_variants(
+    expression: Expression, generated_names: frozenset[str]
+) -> tuple[Expression, ...]:
+    """Enumerate bounded dependency-valid orders for a generated Let chain."""
+    bindings: list[tuple[str, Expression]] = []
+    body = expression
+    while isinstance(body, Let) and body.name in generated_names:
+        bindings.append((body.name, body.value))
+        body = body.body
+    if len(bindings) < 2:
+        return (expression,)
+
+    bound_names = {name for name, _value in bindings}
+    variants: list[Expression] = []
+    for order in permutations(bindings):
+        available: set[str] = set()
+        valid = True
+        for name, value in order:
+            if not (_free_symbols(value) & bound_names) <= available:
+                valid = False
+                break
+            available.add(name)
+        if not valid:
+            continue
+        reordered = body
+        for name, value in reversed(order):
+            reordered = Let(name, value, reordered)
+        variants.append(reordered)
+    return tuple(variants) or (expression,)
+
+
 def _cross_equation_descriptors(
     computed: RetainedComputation,
     occurrences_by_target: Mapping[str, tuple[_Occurrence, ...]],
@@ -2317,9 +2348,12 @@ def _canonical_state_key(
         _stable_json([value.model_dump(mode="json") for value in request.definitions]),
         tuple(request.outputs),
     )
-    def serialize(generated: dict[str, str]) -> tuple[object, ...]:
+    def serialize(
+        generated: dict[str, str], expression: Expression | None = None
+    ) -> tuple[object, ...]:
         if computed.expression is not None:
-            canonical = _canonical_output_expression(computed.expression, (), free_names=generated)
+            source = computed.expression if expression is None else expression
+            canonical = _canonical_output_expression(source, (), free_names=generated)
             return (*context, "expression", render(canonical).sympy)
 
         equations: list[tuple[object, ...]] = []
@@ -2402,14 +2436,26 @@ def _canonical_state_key(
             )
         return (*context, "system", tuple(equations))
     # Generated producers are binders in the complete state, not trace-order
-    # labels.  Depth two has at most two, so selecting the least complete
-    # serialization across their bijections is bounded and capture-avoiding.
+    # labels. Depth two has at most two, so select the least complete
+    # serialization across their name bijections and dependency-valid Let
+    # orders. Independent producer introduction order is not state semantics.
+    name_orders = tuple(permutations(names)) if names else ((),)
+    expression_variants = (
+        _generated_let_variants(computed.expression, frozenset(names))
+        if computed.expression is not None
+        else (None,)
+    )
     return min(
         serialize(
-            {name: f"optimization_generated_{position}" for position, name in enumerate(order)}
+            {
+                name: f"optimization_generated_{position}"
+                for position, name in enumerate(order)
+            },
+            expression,
         )
-        for order in permutations(names)
-    ) if names else serialize({})
+        for order in name_orders
+        for expression in expression_variants
+    )
 
 
 def _trace_key(

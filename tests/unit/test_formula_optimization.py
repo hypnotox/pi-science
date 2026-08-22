@@ -802,6 +802,7 @@ def test_hoisting_with_no_whole_work_improvement_is_omitted() -> None:
 
 def test_public_proposals_reparse_and_reconstruct_independently() -> None:
     from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+
     for expression in (
         "(x + 1) * (x + 1)",
         "1/x + 1/x",
@@ -2419,18 +2420,14 @@ def test_composed_search_v1_budget_seams_distinguish_transition_and_final_proofs
     )
     from py_science.formula.service import _analyze_computation
 
-    request = AnalysisRequest(
-        syntax=FormulaSyntax.SYMPY, expression="(x + 1)*(x + 1) + 0"
-    )
+    request = AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="(x + 1)*(x + 1) + 0")
     computed = _analyze_computation(request)
     assert not isinstance(computed, AnalysisFailure)
     materialization_budget = _OptimizationBudget(
         replace(_OptimizationBudgetConfig(), candidates=1), "depth-one"
     )
     collector = _RetainedLaneCollector(materialization_budget)
-    lanes, qualifications = _generate_candidate_lanes(
-        computed, materialization_budget, collector
-    )
+    lanes, qualifications = _generate_candidate_lanes(computed, materialization_budget, collector)
     assert sum(map(len, lanes.values())) == collector.retained_count == 1
     # Discovery retains descriptors only.  The selected fair prefix is the
     # sole point that enters a factory and consumes a generated transition.
@@ -2439,8 +2436,7 @@ def test_composed_search_v1_budget_seams_distinguish_transition_and_final_proofs
     collector.schedule()
     assert materialization_budget.candidates == 1
     assert collector.exhaustion() == (
-        "optimization depth-one generated transitions budget exhausted "
-        "(measured 2, configured 1)"
+        "optimization depth-one generated transitions budget exhausted (measured 2, configured 1)"
     )
 
     transition = _optimization_report(
@@ -2463,6 +2459,113 @@ def test_composed_search_v1_budget_seams_distinguish_transition_and_final_proofs
     assert final.qualifications == (
         "optimization final-acceptance proof steps budget exhausted (measured 1, configured 0)",
     )
+
+
+@pytest.mark.parametrize(
+    ("field", "qualification"),
+    [
+        (
+            "inspections",
+            "optimization depth-one inspected nodes budget exhausted (measured 9, configured 0)",
+        ),
+        (
+            "depth_two_inspections",
+            "optimization depth-two inspected nodes budget exhausted (measured 5, configured 0)",
+        ),
+        (
+            "whole_inspections",
+            "optimization whole-request inspected nodes budget exhausted "
+            "(measured 9, configured 0)",
+        ),
+        (
+            "candidates",
+            "optimization depth-one generated transitions budget exhausted "
+            "(measured 1, configured 0)",
+        ),
+        (
+            "complete_reanalyses",
+            "optimization depth-one complete candidate reanalyses budget exhausted "
+            "(measured 1, configured 0)",
+        ),
+        (
+            "expanded_parents",
+            "optimization depth-two expanded parents budget exhausted (measured 1, configured 0)",
+        ),
+        (
+            "retained_states",
+            "optimization depth-one retained states budget exhausted (measured 1, configured 0)",
+        ),
+        (
+            "aggregate_transform_nodes",
+            "optimization depth-one aggregate transformation nodes budget exhausted "
+            "(measured 7, configured 0)",
+        ),
+        (
+            "proofs",
+            "optimization depth-one proof steps budget exhausted (measured 1, configured 0)",
+        ),
+        (
+            "proof_nodes",
+            "optimization depth-one proof nodes budget exhausted (measured 14, configured 0)",
+        ),
+        (
+            "work_nodes",
+            "optimization depth-one work-comparison nodes budget exhausted "
+            "(measured 2, configured 0)",
+        ),
+        (
+            "whole_proofs",
+            "optimization whole-request proof steps budget exhausted (measured 1, configured 0)",
+        ),
+        (
+            "whole_proof_nodes",
+            "optimization whole-request proof nodes budget exhausted (measured 14, configured 0)",
+        ),
+        (
+            "whole_work_nodes",
+            "optimization whole-request work-comparison nodes budget exhausted "
+            "(measured 2, configured 0)",
+        ),
+        (
+            "final_states",
+            "optimization final-acceptance retained states budget exhausted "
+            "(measured 1, configured 0)",
+        ),
+        (
+            "final_proofs",
+            "optimization final-acceptance proof steps budget exhausted (measured 1, configured 0)",
+        ),
+        (
+            "final_proof_nodes",
+            "optimization final-acceptance proof nodes budget exhausted "
+            "(measured 14, configured 0)",
+        ),
+        (
+            "final_work_nodes",
+            "optimization final-acceptance work-comparison nodes budget exhausted "
+            "(measured 2, configured 0)",
+        ),
+    ],
+)
+def test_composed_search_v1_every_injected_counter_is_independently_qualified(
+    field: str, qualification: str
+) -> None:
+    """Every fixed depth, whole-request, and final counter owns its diagnostic."""
+    from dataclasses import replace
+
+    from py_science.formula import AnalysisFailure, AnalysisRequest, FormulaSyntax
+    from py_science.formula.optimization import _optimization_report, _OptimizationBudgetConfig
+    from py_science.formula.service import _analyze_computation
+
+    request = AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="(x + 1)*(x + 1) + 0")
+    computed = _analyze_computation(request)
+    assert not isinstance(computed, AnalysisFailure)
+    configuration = replace(_OptimizationBudgetConfig(), **{field: 0})
+
+    report = _optimization_report(request, computed, computed.work_context, configuration)
+
+    assert report.status == "incomplete"
+    assert qualification in report.qualifications
 
 
 def test_composed_search_v1_max_plans_is_an_exact_ranked_prefix() -> None:
@@ -2522,6 +2625,96 @@ def test_composed_search_v1_alpha_renamed_binders_keep_population_order() -> Non
         ]
 
     assert population("i") == population("j")
+
+
+def test_composed_search_v1_deduplicates_opposite_generated_producer_orders() -> None:
+    """Independent producer introduction orders collapse to one final state."""
+    from py_science.formula import AnalysisRequest, FormulaSyntax, OptimizationConfig, analyze
+
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="(x + 1)*(x + 1) + (y + 1)*(y + 1)",
+            optimization=OptimizationConfig(max_suggestions=16),
+        )
+    )
+    assert outcome.status == "success" and outcome.optimization is not None
+    composed = [plan for plan in outcome.optimization.plans if len(plan.trace) == 2]
+
+    assert len(composed) == 1
+    assert tuple(step.kind for step in composed[0].trace) == (
+        "repeated_subexpression",
+        "repeated_subexpression",
+    )
+    assert composed[0].suggestion.objective_savings == "2"
+
+
+def test_composed_search_v1_equation_permutations_keep_logical_population() -> None:
+    """Search policy is equation-order invariant while replay preserves caller order."""
+    from py_science.formula import (
+        AnalysisRequest,
+        EquationRequest,
+        FormulaSyntax,
+        IndexDomain,
+        MathematicalDomain,
+        OptimizationConfig,
+        OptimizationPlan,
+        VariableDeclaration,
+        analyze,
+    )
+
+    equations = (
+        EquationRequest(
+            name="left",
+            expression="Eq(left[i], x[i]*x[i] + 1)",
+            domains={"i": IndexDomain(lower="0", upper="3")},
+        ),
+        EquationRequest(
+            name="right",
+            expression="Eq(right[j], x[j]*x[j] - 1)",
+            domains={"j": IndexDomain(lower="0", upper="3")},
+        ),
+    )
+
+    def plans(order: tuple[EquationRequest, ...]) -> tuple[OptimizationPlan, ...]:
+        outcome = analyze(
+            AnalysisRequest(
+                syntax=FormulaSyntax.SYMPY,
+                equations=order,
+                variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
+                optimization=OptimizationConfig(max_suggestions=16),
+            )
+        )
+        assert outcome.status == "success" and outcome.optimization is not None
+        return outcome.optimization.plans
+
+    forward = plans(equations)
+    reversed_order = plans(tuple(reversed(equations)))
+
+    def logical_population(
+        items: tuple[OptimizationPlan, ...],
+    ) -> list[tuple[tuple[str, ...], str, tuple[tuple[str, str], ...]]]:
+        return [
+            (
+                tuple(step.kind for step in plan.trace),
+                plan.suggestion.objective_savings,
+                tuple(
+                    sorted(
+                        (equation.name, equation.expression)
+                        for equation in plan.candidate.equations
+                    )
+                ),
+            )
+            for plan in items
+        ]
+
+    assert logical_population(forward) == logical_population(reversed_order)
+    assert tuple(item.name for item in forward[0].candidate.equations[:2]) == ("left", "right")
+    assert tuple(item.name for item in reversed_order[0].candidate.equations[:2]) == (
+        "right",
+        "left",
+    )
+    assert forward[0].identity != reversed_order[0].identity
 
 
 def test_composed_search_v1_retained_lanes_are_round_robin_and_order_invariant(
@@ -2584,8 +2777,13 @@ def test_composed_search_v1_retained_lanes_are_round_robin_and_order_invariant(
     assert calls == reversed_calls == [(families[0], 0)]
     assert budget.candidates == reversed_budget.candidates == 1
     assert collector.retained_count == reversed_collector.retained_count == 1
-    assert collector.exhaustion() == reversed_collector.exhaustion() == (
-        "optimization transition generated transitions budget exhausted (measured 2, configured 1)"
+    assert (
+        collector.exhaustion()
+        == reversed_collector.exhaustion()
+        == (
+            "optimization transition generated transitions budget exhausted "
+            "(measured 2, configured 1)"
+        )
     )
 
     request = AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="(x + 1)*(x + 1) + (y + 0)")

@@ -111,6 +111,14 @@ function optimizationPlan(
     outputs: ["expression"],
   };
   const { ordering: _ordering, ...step } = suggestion;
+  const localStep = {
+    ...step,
+    evidence: {
+      kind: "identity",
+      statement:
+        "checked exact symbolic equivalence for every transformed retained output",
+    },
+  };
   const identity = JSON.stringify({
     syntax: "sympy",
     ...candidate,
@@ -121,7 +129,7 @@ function optimizationPlan(
     objective: { kind: "unit_work_v1" },
     candidate,
     suggestion,
-    trace: [{ ...step, candidate, identity }],
+    trace: [{ ...localStep, candidate, identity }],
   };
 }
 
@@ -531,7 +539,11 @@ describe("readiness gate", () => {
       ],
       intermediate: null,
       conclusion: "proved",
-      evidence: { kind: "identity", statement: "verified" },
+      evidence: {
+        kind: "identity",
+        statement:
+          "checked exact symbolic equivalence from submitted computation to final candidate",
+      },
       conditions: [],
       assumptions_used: [],
       objective_before: "N + M + 4",
@@ -655,7 +667,11 @@ describe("readiness gate", () => {
       ],
       intermediate: null,
       conclusion: "proved_under_assumptions",
-      evidence: { kind: "identity", statement: "verified" },
+      evidence: {
+        kind: "identity",
+        statement:
+          "checked exact symbolic equivalence from submitted computation to final candidate",
+      },
       conditions: [],
       assumptions_used: [{ name: "known", relationship: "x > 0" }],
       objective_before: "3",

@@ -3556,7 +3556,11 @@ function validOptimizationTraceStep(
     validOptimizationSuggestion(
       { ...suggestion, ordering: { position: 1, relation_to_previous: null } },
       parent,
-    ) && traceStateCorrelates(step, parent, parentIsSubmittedRequest)
+    ) &&
+    isRecord(step.evidence) &&
+    step.evidence.statement ===
+      "checked exact symbolic equivalence for every transformed retained output" &&
+    traceStateCorrelates(step, parent, parentIsSubmittedRequest)
   );
 }
 
@@ -3677,7 +3681,13 @@ function validOptimizationPlan(
     );
   }
   const analysisRequest = analysisRequestForTrace(request);
-  if (!validOptimizationSuggestion(value.suggestion, analysisRequest))
+  if (
+    !validOptimizationSuggestion(value.suggestion, analysisRequest) ||
+    !isRecord(value.suggestion) ||
+    !isRecord(value.suggestion.evidence) ||
+    value.suggestion.evidence.statement !==
+      "checked exact symbolic equivalence from submitted computation to final candidate"
+  )
     return false;
   const suggestion = value.suggestion as OptimizationSuggestion;
   const firstStep = trace[0] as Record<string, unknown>;

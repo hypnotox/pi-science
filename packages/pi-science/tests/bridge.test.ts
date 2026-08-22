@@ -262,6 +262,14 @@ function optimizationPlan(
     outputs: ["expression"],
   };
   const { ordering: _ordering, ...step } = suggestion;
+  const localStep = {
+    ...step,
+    evidence: {
+      kind: "identity",
+      statement:
+        "checked exact symbolic equivalence for every transformed retained output",
+    },
+  };
   const identity = JSON.stringify({
     syntax: "sympy",
     ...candidate,
@@ -272,7 +280,7 @@ function optimizationPlan(
     objective: { kind: "unit_work_v1" },
     candidate,
     suggestion,
-    trace: [{ ...step, candidate, identity }],
+    trace: [{ ...localStep, candidate, identity }],
   };
 }
 
@@ -363,7 +371,8 @@ describe("private formula bridge", () => {
       conclusion: "proved_under_assumptions",
       evidence: {
         kind: "identity",
-        statement: "normalized difference is zero",
+        statement:
+          "checked exact symbolic equivalence from submitted computation to final candidate",
       },
       conditions: ["x != 0"],
       assumptions_used: [],
@@ -1186,6 +1195,14 @@ describe("private formula bridge", () => {
       "uncorrelated_tmp";
     const brokenStepIdentity = structuredClone(composed);
     brokenStepIdentity.plans[planIndex]!.trace[0]!.identity += " ";
+    const brokenFinalIdentity = structuredClone(composed);
+    brokenFinalIdentity.plans[planIndex]!.identity += " ";
+    const brokenParentProof = structuredClone(composed);
+    brokenParentProof.plans[planIndex]!.trace[0]!.evidence.statement =
+      "fabricated parent proof";
+    const brokenFinalProof = structuredClone(composed);
+    brokenFinalProof.plans[planIndex]!.suggestion.evidence.statement =
+      "fabricated original-to-final proof";
     const brokenIntermediateValue = structuredClone(composed);
     brokenIntermediateValue.plans[
       planIndex
@@ -1235,6 +1252,9 @@ describe("private formula bridge", () => {
       brokenIntermediateValue,
       brokenLetValue,
       brokenStepIdentity,
+      brokenFinalIdentity,
+      brokenParentProof,
+      brokenFinalProof,
       brokenFinalEvidence,
       brokenState,
       brokenFinalState,
