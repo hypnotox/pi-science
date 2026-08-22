@@ -221,7 +221,10 @@ function request(expression = "x") {
 
 function optimizationPlan(
   suggestion: Record<string, unknown>,
-  expression = "optimization_tmp_1 + optimization_tmp_1",
+  expression = (
+    (suggestion.transformations as Array<Record<string, unknown>>)[0]!
+      .proposed as { normalized_sympy: string }
+  ).normalized_sympy,
 ) {
   const candidate = {
     expression,
@@ -1114,6 +1117,20 @@ describe("private formula bridge", () => {
       ...first.candidate,
       equations: [],
     });
+    // Candidate content must be the complete state declared by each target's
+    // proposal, not merely a different expression with a matching identity.
+    const brokenFinalState = structuredClone(composed);
+    const final = brokenFinalState.plans[planIndex]!.trace[1]!;
+    if (!("expression" in final.candidate))
+      throw new Error("expected expression candidate");
+    final.candidate.expression = "x + 1";
+    final.identity = JSON.stringify({
+      syntax: "sympy",
+      ...final.candidate,
+      equations: [],
+    });
+    brokenFinalState.plans[planIndex]!.candidate = final.candidate;
+    brokenFinalState.plans[planIndex]!.identity = final.identity;
 
     for (const invalid of [
       brokenChain,
@@ -1121,6 +1138,7 @@ describe("private formula bridge", () => {
       brokenStepIdentity,
       brokenFinalEvidence,
       brokenState,
+      brokenFinalState,
     ]) {
       await expect(
         invokeAdapter(node, responder(invalid), composedRequest),

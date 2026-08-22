@@ -3262,9 +3262,19 @@ function traceStateCorrelates(
     }),
   );
   if (isExpressionRequest(parent)) {
+    const proposed = transformations.find(
+      (transformation) =>
+        (transformation.target as Record<string, unknown>).kind ===
+        "expression",
+    )?.proposed as Record<string, unknown> | undefined;
+    // The complete candidate may wrap a proposed expression in the declared
+    // intermediate, but Pi only compares the supplied serialized states; it
+    // never applies a transformation or recomputes normalization.
     if (
       candidate.expression === undefined ||
-      candidate.expression === parent.expression
+      candidate.expression === parent.expression ||
+      typeof proposed?.normalized_sympy !== "string" ||
+      candidate.expression !== proposed.normalized_sympy
     )
       return false;
   } else {
@@ -3281,10 +3291,26 @@ function traceStateCorrelates(
       // Later parents are already candidate states and must remain byte-stable
       // outside the explicitly named targets.
       if (
-        !parentIsSubmittedRequest &&
-        transformed === sameJson(child, equation)
+        (!transformed &&
+          !parentIsSubmittedRequest &&
+          !sameJson(child, equation)) ||
+        (transformed && sameJson(child, equation))
       )
         return false;
+      if (transformed) {
+        const transformation = transformations.find(
+          (item) =>
+            (item.target as Record<string, unknown>).kind === "equation" &&
+            (item.target as Record<string, unknown>).name === equation.name,
+        );
+        const proposed = transformation?.proposed as
+          Record<string, unknown> | undefined;
+        if (
+          typeof proposed?.normalized_sympy !== "string" ||
+          !child.expression.includes(proposed.normalized_sympy)
+        )
+          return false;
+      }
     }
     const added = candidate.equations
       .map((equation) => equation.name)
@@ -3559,7 +3585,9 @@ function validOptimization(
       value.suggestions.length === 0 &&
       Array.isArray(value.plans) &&
       value.plans.length === 0 &&
-      value.qualifications.length === 0
+      value.qualifications.length === 0 &&
+      value.projection_status === "complete" &&
+      value.projection_qualifications.length === 0
     );
   if (limit === 0 || value.status === "disabled") return false;
   if (value.status === "failed")
@@ -3567,7 +3595,9 @@ function validOptimization(
       value.suggestions.length === 0 &&
       Array.isArray(value.plans) &&
       value.plans.length === 0 &&
-      value.qualifications.length > 0
+      value.qualifications.length > 0 &&
+      value.projection_status === "complete" &&
+      value.projection_qualifications.length === 0
     );
   if (value.status === "incomplete" && value.qualifications.length === 0)
     return false;

@@ -8,6 +8,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from fractions import Fraction
 from functools import cmp_to_key
+from itertools import permutations
 from typing import Literal
 
 from py_science.formula.computation import RetainedComputation, RetainedWorkAnalysis
@@ -1052,6 +1053,10 @@ class _RetainedLaneCollector:
         return quotas
 
     def add(self, lane: tuple[object, ...], candidate: _CandidateComputation) -> None:
+        # A completed candidate is a generated transition. Charge it at the
+        # point it enters the lane collector rather than after unbounded
+        # generator traversal; the collector then refuses further construction.
+        self.budget.candidate()
         self._counts[lane] = self._counts.get(lane, 0) + 1
         self._more_proposals |= sum(self._counts.values()) > self._capacity
         quotas = self._quotas()
@@ -1074,8 +1079,6 @@ class _RetainedLaneCollector:
         selected = _round_robin_candidates(
             ((key, tuple(values)) for key, values in self._retained.items()), self.budget
         )
-        for _key, _candidate in selected:
-            self.budget.candidate()
         return selected
 
     def exhaustion(self) -> str | None:
@@ -1825,6 +1828,19 @@ def _verify_candidate(
     raw_transformations = candidate.transformed_targets or (
         (candidate.target, candidate.original, candidate.proposed),
     )
+    complete_targets: dict[str, Expression] = {}
+    if complete.expression is not None:
+        parsed = parse_expression(complete.expression)
+        assert not isinstance(parsed, (ParseFailure, Equation, Relationship))
+        complete_targets["expression"] = parsed
+    else:
+        for equation in complete.equations:
+            parsed = parse_expression(equation.expression)
+            assert isinstance(parsed, Equation)
+            complete_targets[equation.name] = parsed.right
+    # A trace declares the complete post-step target state. Occurrence metadata
+    # remains local evidence, but transport correlation must not need Pi to
+    # apply the local rewrite or reproduce normalization.
     transformations = tuple(
         OptimizationTransformation(
             target=(
@@ -1842,9 +1858,9 @@ def _verify_candidate(
                 if item.target == target_name
             ),
             original=_interpretation(original_expression),
-            proposed=_interpretation(proposed_expression),
+            proposed=_interpretation(complete_targets[target_name]),
         )
-        for target_name, original_expression, proposed_expression in raw_transformations
+        for target_name, original_expression, _proposed_expression in raw_transformations
     )
     evidence = IdentityEvidence(
         statement="checked exact symbolic equivalence for every transformed retained output"
@@ -1867,6 +1883,7 @@ def _verify_candidate(
 
 def _original_final_suggestion(
     local: OptimizationSuggestion,
+    trace: tuple[tuple[OptimizationSuggestion, AnalysisRequest], ...],
     root: RetainedComputation,
     final: RetainedComputation,
     request: AnalysisRequest,
@@ -1939,7 +1956,7 @@ def _original_final_suggestion(
         conditions = tuple(
             dict.fromkeys(
                 (
-                    *local.conditions,
+                    *[condition for step, _candidate in trace for condition in step.conditions],
                     *[item for answer in answers for item in answer.conditions],
                     *relation.conditions,
                 )
@@ -1947,7 +1964,7 @@ def _original_final_suggestion(
         )
         assumptions = _unique_uses(
             (
-                *local.assumptions_used,
+                *[use for step, _candidate in trace for use in step.assumptions_used],
                 *[item for answer in answers for item in answer.assumptions_used],
                 *relation.assumptions_used,
             )
@@ -2114,10 +2131,7 @@ def _canonical_state_key(
     generated_names: tuple[str, ...],
 ) -> tuple[object, ...]:
     """Serialize complete computation semantics independently of search history."""
-    generated = {
-        name: f"optimization_generated_{position}"
-        for position, name in enumerate(dict.fromkeys(generated_names))
-    }
+    names = tuple(dict.fromkeys(generated_names))
     context = (
         request.syntax.value,
         _stable_json(
@@ -2129,60 +2143,34 @@ def _canonical_state_key(
         _stable_json([value.model_dump(mode="json") for value in request.definitions]),
         tuple(request.outputs),
     )
-    if computed.expression is not None:
-        canonical = _canonical_output_expression(computed.expression, (), free_names=generated)
-        return (*context, "expression", render(canonical).sympy)
+    def serialize(generated: dict[str, str]) -> tuple[object, ...]:
+        if computed.expression is not None:
+            canonical = _canonical_output_expression(computed.expression, (), free_names=generated)
+            return (*context, "expression", render(canonical).sympy)
 
-    equations: list[tuple[object, ...]] = []
-    for equation in sorted(
-        computed.equations, key=lambda item: generated.get(item.name, item.name)
-    ):
-        reserved = _all_symbol_names(equation.formula.right)
-        for domain in equation.output_domains:
-            reserved.update(_all_symbol_names(domain.lower))
-            reserved.update(_all_symbol_names(domain.upper))
-        canonical_indices = _canonical_output_index_names(len(equation.domain_order), reserved)
-        index_names = dict(zip(equation.domain_order, canonical_indices, strict=True))
-        canonical_right = _canonical_output_expression(
-            equation.formula.right,
-            equation.domain_order,
-            reserved,
-            canonical_indices,
-            generated,
-        )
-        domains = tuple(
-            (
-                index_names[domain.index],
-                render(
-                    _canonical_output_expression(
-                        domain.lower,
-                        equation.domain_order,
-                        reserved,
-                        canonical_indices,
-                        generated,
-                    )
-                ).sympy,
-                render(
-                    _canonical_output_expression(
-                        domain.upper,
-                        equation.domain_order,
-                        reserved,
-                        canonical_indices,
-                        generated,
-                    )
-                ).sympy,
+        equations: list[tuple[object, ...]] = []
+        for equation in sorted(
+            computed.equations, key=lambda item: generated.get(item.name, item.name)
+        ):
+            reserved = _all_symbol_names(equation.formula.right)
+            for domain in equation.output_domains:
+                reserved.update(_all_symbol_names(domain.lower))
+                reserved.update(_all_symbol_names(domain.upper))
+            canonical_indices = _canonical_output_index_names(len(equation.domain_order), reserved)
+            index_names = dict(zip(equation.domain_order, canonical_indices, strict=True))
+            canonical_right = _canonical_output_expression(
+                equation.formula.right,
+                equation.domain_order,
+                reserved,
+                canonical_indices,
+                generated,
             )
-            for domain in equation.output_domains
-        )
-        constraints = tuple(
-            sorted(
+            domains = tuple(
                 (
-                    name,
-                    index_names[target],
-                    relationship.operator.value,
+                    index_names[domain.index],
                     render(
                         _canonical_output_expression(
-                            relationship.left,
+                            domain.lower,
                             equation.domain_order,
                             reserved,
                             canonical_indices,
@@ -2191,7 +2179,7 @@ def _canonical_state_key(
                     ).sympy,
                     render(
                         _canonical_output_expression(
-                            relationship.right,
+                            domain.upper,
                             equation.domain_order,
                             reserved,
                             canonical_indices,
@@ -2199,19 +2187,55 @@ def _canonical_state_key(
                         )
                     ).sympy,
                 )
-                for name, target, relationship in equation.constraints
+                for domain in equation.output_domains
             )
-        )
-        equations.append(
-            (
-                generated.get(equation.name, equation.name),
-                tuple(canonical_indices),
-                render(canonical_right).sympy,
-                domains,
-                constraints,
+            constraints = tuple(
+                sorted(
+                    (
+                        name,
+                        index_names[target],
+                        relationship.operator.value,
+                        render(
+                            _canonical_output_expression(
+                                relationship.left,
+                                equation.domain_order,
+                                reserved,
+                                canonical_indices,
+                                generated,
+                            )
+                        ).sympy,
+                        render(
+                            _canonical_output_expression(
+                                relationship.right,
+                                equation.domain_order,
+                                reserved,
+                                canonical_indices,
+                                generated,
+                            )
+                        ).sympy,
+                    )
+                    for name, target, relationship in equation.constraints
+                )
             )
+            equations.append(
+                (
+                    generated.get(equation.name, equation.name),
+                    tuple(canonical_indices),
+                    render(canonical_right).sympy,
+                    domains,
+                    constraints,
+                )
+            )
+        return (*context, "system", tuple(equations))
+    # Generated producers are binders in the complete state, not trace-order
+    # labels.  Depth two has at most two, so selecting the least complete
+    # serialization across their bijections is bounded and capture-avoiding.
+    return min(
+        serialize(
+            {name: f"optimization_generated_{position}" for position, name in enumerate(order)}
         )
-    return (*context, "system", tuple(equations))
+        for order in permutations(names)
+    ) if names else serialize({})
 
 
 def _trace_key(
@@ -2462,6 +2486,7 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
     for state in sorted(final_states.values(), key=lambda item: item.canonical_key):
         final = _original_final_suggestion(
             state.trace[-1][0],
+            state.trace,
             computed,
             state.computed,
             request,

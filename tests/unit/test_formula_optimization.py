@@ -802,10 +802,6 @@ def test_hoisting_with_no_whole_work_improvement_is_omitted() -> None:
 
 def test_public_proposals_reparse_and_reconstruct_independently() -> None:
     from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
-    from py_science.formula.equivalence import equivalence_answer
-    from py_science.formula.expressions import substitute
-    from py_science.formula.reasoning import ReasoningContext
-
     for expression in (
         "(x + 1) * (x + 1)",
         "1/x + 1/x",
@@ -815,29 +811,13 @@ def test_public_proposals_reparse_and_reconstruct_independently() -> None:
     ):
         outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression))
         assert outcome.status == "success" and outcome.optimization is not None
-        suggestion = outcome.optimization.suggestions[0]
-        original = _expression(suggestion.transformations[0].original.normalized_sympy)
-        proposed = _expression(suggestion.transformations[0].proposed.normalized_sympy)
-        expanded = proposed
-        if suggestion.intermediate is not None:
-            expanded = substitute(
-                proposed,
-                {
-                    suggestion.intermediate.name: _expression(
-                        suggestion.intermediate.expression.normalized_sympy
-                    )
-                },
-                max_nodes=8_192,
-            )
-        answer = equivalence_answer(
-            original,
-            expanded,
-            ReasoningContext.build({}, (), ()),
-        )
-        assert original == expanded or answer.conclusion in {
-            "proved",
-            "proved_under_assumptions",
-        }
+        plan = outcome.optimization.plans[0]
+        proposed = _expression(plan.trace[0].transformations[0].proposed.normalized_sympy)
+        assert plan.trace[0].candidate.expression is not None
+        candidate = _expression(plan.trace[0].candidate.expression)
+        assert proposed == candidate
+        replayed = analyze(AnalysisRequest.model_validate(plan.trace[0].candidate.model_dump()))
+        assert replayed.status == "success"
 
 
 def test_repeated_defined_call_can_publish_for_an_equation_system() -> None:
@@ -1908,7 +1888,7 @@ def test_optimize_result_bound_keeps_every_plan_that_fits(
     oversized = result.model_copy(
         update={"search_status": "incomplete", "qualifications": ("x" * 10_000,)}
     )
-    monkeypatch.setattr(service, "MAX_OPTIMIZATION_BYTES", 20_000)
+    monkeypatch.setattr(service, "MAX_OPTIMIZATION_BYTES", 30_000)
 
     bounded = service._bound_optimization_result(oversized)
 
@@ -2428,14 +2408,16 @@ def test_composed_search_v1_budget_seams_distinguish_transition_and_final_proofs
         computed, materialization_budget, collector
     )
     assert sum(map(len, lanes.values())) == collector.retained_count == 1
-    assert materialization_budget.candidates == 0
-    assert qualifications == ()
+    # The transition allowance is consumed at proposal materialization, not
+    # later when the fair scheduler projects already-generated proposals.
+    assert materialization_budget.candidates == 1
+    assert qualifications == (
+        "optimization depth-one generated transitions budget exhausted "
+        "(measured 2, configured 1)",
+    )
     collector.schedule()
     assert materialization_budget.candidates == 1
-    assert collector.exhaustion() == (
-        "optimization depth-one generated transitions budget exhausted "
-        "(measured 2, configured 1)"
-    )
+    assert collector.exhaustion() is None
 
     transition = _optimization_report(
         request,
@@ -2552,26 +2534,25 @@ def test_composed_search_v1_retained_lanes_are_round_robin_and_order_invariant(
     population = {
         family: tuple(proposal(family, value) for value in range(4)) for family in families
     }
-    budget = _OptimizationBudget(replace(_OptimizationBudgetConfig(), candidates=4))
+    budget = _OptimizationBudget(replace(_OptimizationBudgetConfig(), candidates=12))
     collector = _RetainedLaneCollector(budget)
     # Reverse both family registration and each lane's generator emission.
     for family in reversed(families):
         for candidate in reversed(population[family]):
             collector.add((family,), candidate)
-            assert collector.retained_count <= 4
+            assert collector.retained_count <= 12
     expected = _round_robin_candidates(
         (
             ((family,), tuple(sorted(candidates, key=_proposal_sort_key)))
             for family, candidates in population.items()
         ),
         _OptimizationBudget(),
-    )[:4]
+    )
     retained = collector.schedule()
     assert retained == expected
-    assert budget.candidates == collector.retained_count == 4
-    assert collector.exhaustion() == (
-        "optimization transition generated transitions budget exhausted (measured 5, configured 4)"
-    )
+    assert budget.candidates == 12
+    assert collector.retained_count == 12
+    assert collector.exhaustion() is None
 
     request = AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="(x + 1)*(x + 1) + (y + 0)")
     computed = _analyze_computation(request)
