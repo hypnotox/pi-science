@@ -16,8 +16,8 @@ This record settles only their separation. It does not choose detailed cost dime
 
 ## Decision
 
-1. `decision: three-separate-future-lanes` Future target-aware abstract symbolic costs, approximate numerical optimization, and empirical profiling or benchmarking will remain three separate architectural lanes.
-2. `decision: evidence-boundaries-remain-distinct` Target-aware symbolic costs will remain predictions under an explicit abstract model; approximate numerical optimization will require its own semantics and independent numerical verification; empirical results will remain observations of identified implementations and environments. Evidence from one lane will not stand in for another lane's proof or qualification.
+1. `decision: three-separate-future-lanes` Future target-aware exact symbolic costs, approximate numerical optimization, and empirical profiling will remain three separate architectural lanes.
+2. `decision: evidence-boundaries-remain-distinct` Target-aware exact symbolic costs will remain predictions under an explicit abstract model; approximate numerical results will require lane-specific qualification and will not be qualified by exact-symbolic proof; empirical results will remain observations of identified implementations and environments. Evidence from one lane will not stand in for another lane's proof or qualification.
 3. `decision: later-lane-specific-authorization` This decision changes no current request, result, protocol, package, optimizer, or execution behavior. Each lane will require its own later decision before implementation.
 
 ## State changes
@@ -28,7 +28,7 @@ This record settles only their separation. It does not choose detailed cost dime
 
 The project has a durable guardrail against collapsing symbolic prediction, numerical behavior, and measured performance into one claim. Exact-symbolic optimization keeps its current proof and qualification boundary.
 
-Future work must make lane-specific choices before implementation. Those choices may proceed independently, but integration across lanes must preserve their distinct evidence and ownership. This leaves detailed representations and mechanisms deliberately unsettled.
+Future work must make lane-specific choices before implementation. Those choices may proceed independently, but integration across lanes must preserve their distinct evidence. Maintaining that separation adds coordination and qualification work when results cross lane boundaries. Detailed representations and mechanisms remain deliberately unsettled.
 
 ## Alternatives Considered
 
