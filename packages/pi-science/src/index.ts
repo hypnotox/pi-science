@@ -88,14 +88,14 @@ function compactToolText(result: BridgeResult): string {
       const steps = plan.trace
         .map(
           (step, stepIndex) =>
-            `${stepIndex + 1}. ${step.kind} (${step.transformations.map((item) => (item.target.kind === "expression" ? "expression" : `equation ${item.target.name}`)).join(", ")})`,
+            `${stepIndex + 1}. ${step.kind} [tier ${step.tier}] (${step.transformations.map((item) => (item.target.kind === "expression" ? "expression" : `equation ${item.target.name}`)).join(", ")})`,
         )
         .join(" → ");
       return [
         `- Plan ${index + 1}: ${steps}; outputs: ${plan.candidate.outputs.join(", ")}`,
         `  Candidate: ${compactExpression(computation)}`,
         `  Objective profile: ${objectiveProfile(plan.objective)}`,
-        `  Original-to-final selected-objective savings: ${plan.suggestion.objective_savings}; ${plan.suggestion.finite_precision_qualification}`,
+        `  Original-to-final selected-objective savings: ${plan.suggestion.objective_savings}; ${plan.suggestion.finite_precision_qualification}; exact symbolic qualification only—no runtime or finite-precision claim`,
         ...(index === 0
           ? []
           : [
@@ -271,7 +271,7 @@ function compactToolText(result: BridgeResult): string {
                   : `equation ${transformation.target.name}`;
               return `${target}: ${transformation.original.normalized_sympy} → ${transformation.proposed.normalized_sympy}`;
             })
-            .join("; ")}`,
+            .join("; ")} [tier ${step.tier}]`,
       )
       .join(" → ");
     const intermediate = firstPlan.trace[0]?.intermediate
@@ -290,7 +290,7 @@ function compactToolText(result: BridgeResult): string {
     const additional = report.suggestions.length - 1;
     return [
       "Optimization advice",
-      `- optimization plan: ${transformations}${intermediate}; objective ${objectiveProfile(firstPlan.objective)}: ${suggestion.objective_before} → ${suggestion.objective_after}; original-to-final saving ${suggestion.objective_savings}${conditions}${assumptions}; ${suggestion.finite_precision_qualification}`,
+      `- optimization plan: ${transformations}${intermediate}; objective ${objectiveProfile(firstPlan.objective)}: ${suggestion.objective_before} → ${suggestion.objective_after}; original-to-final saving ${suggestion.objective_savings}${conditions}${assumptions}; ${suggestion.finite_precision_qualification}; exact symbolic qualification only—no runtime or finite-precision claim`,
       ...(additional === 0
         ? []
         : [

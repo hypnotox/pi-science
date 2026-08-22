@@ -1,7 +1,7 @@
 import { TextDecoder } from "node:util";
 import { spawnIsolated, terminateTree } from "./process.js";
 
-export const PROTOCOL_VERSION = 15;
+export const PROTOCOL_VERSION = 16;
 export const MAX_FORMULA_BYTES = 65_536;
 export const MAX_ENVELOPE_BYTES = 2_097_152;
 export const MAX_RESPONSE_BYTES = 524_544;
@@ -53,9 +53,11 @@ export type OptimizationObjectiveInput =
         ExactScenarioScalar
       >;
     };
+export type AlgorithmicOptimizationFamily = "finite_polynomial_sum_v1";
 export type OptimizationConfig = {
   max_suggestions?: number;
   objective?: OptimizationObjectiveInput;
+  enabled_algorithmic_families?: AlgorithmicOptimizationFamily[];
 };
 export type IntervalBound = {
   lower: ExactScenarioScalar;
@@ -242,6 +244,7 @@ export type OptimizeRequest = Omit<
   operation: "optimize";
   max_plans?: number;
   objective?: OptimizationObjectiveInput;
+  enabled_algorithmic_families?: AlgorithmicOptimizationFamily[];
 } & (
     | { expression: string; equations?: never }
     | { equations: EquationRequest[]; expression?: never }
@@ -360,7 +363,9 @@ export type OptimizationSuggestion = {
     | "redundant_operation_removal"
     | "iterator_invariant_hoisting"
     | "cross_equation_sharing"
-    | "horner";
+    | "horner"
+    | "finite_polynomial_sum_v1";
+  tier: "exact_algebraic_v1" | "exact_algorithmic_v1";
   transformations: Array<{
     target: { kind: "expression" | "equation"; name: string | null };
     occurrences: Array<{
@@ -2893,6 +2898,16 @@ function requestedOptimizationObjective(
   );
 }
 
+function requestedAlgorithmicFamilies(
+  request: AnalysisRequest | OptimizeRequest,
+): AlgorithmicOptimizationFamily[] {
+  return (
+    ("operation" in request
+      ? request.enabled_algorithmic_families
+      : request.optimization?.enabled_algorithmic_families) ?? []
+  );
+}
+
 function validOptimizationWorkClaims(
   beforeValue: unknown,
   afterValue: unknown,
@@ -2926,6 +2941,7 @@ function validOptimizationSuggestion(
     !isRecord(value) ||
     !exactKeys(value, [
       "kind",
+      "tier",
       "transformations",
       "intermediate",
       "conclusion",
@@ -2949,9 +2965,15 @@ function validOptimizationSuggestion(
     "iterator_invariant_hoisting",
     "cross_equation_sharing",
     "horner",
+    "finite_polynomial_sum_v1",
   ];
+  const tier =
+    value.kind === "finite_polynomial_sum_v1"
+      ? "exact_algorithmic_v1"
+      : "exact_algebraic_v1";
   if (
     !kinds.includes(String(value.kind)) ||
+    value.tier !== tier ||
     !Array.isArray(value.transformations) ||
     value.transformations.length < 1 ||
     value.transformations.length > 128
@@ -3559,7 +3581,9 @@ function validOptimizationTraceStep(
     ) &&
     isRecord(step.evidence) &&
     step.evidence.statement ===
-      "checked exact symbolic equivalence for every transformed retained output" &&
+      (step.tier === "exact_algorithmic_v1"
+        ? "independently checked finite-polynomial Sum antidifference and inclusive boundaries"
+        : "checked exact symbolic equivalence for every transformed retained output") &&
     traceStateCorrelates(step, parent, parentIsSubmittedRequest)
   );
 }
@@ -3608,6 +3632,16 @@ function validOptimizationPlan(
   )
     return false;
   const trace = value.trace as unknown[];
+  const enabledAlgorithmic = requestedAlgorithmicFamilies(request);
+  if (
+    trace.some(
+      (step) =>
+        isRecord(step) &&
+        step.kind === "finite_polynomial_sum_v1" &&
+        !enabledAlgorithmic.includes("finite_polynomial_sum_v1"),
+    )
+  )
+    return false;
   const finalStep = trace[trace.length - 1];
   if (
     !isRecord(finalStep) ||
@@ -3624,6 +3658,7 @@ function validOptimizationPlan(
       !isRecord(step) ||
       !exactKeys(step, [
         "kind",
+        "tier",
         "transformations",
         "intermediate",
         "conclusion",
@@ -3696,6 +3731,7 @@ function validOptimizationPlan(
     firstStep.objective_before !== suggestion.objective_before ||
     lastStep.objective_after !== suggestion.objective_after ||
     !sameJson(lastStep.kind, suggestion.kind) ||
+    !sameJson(lastStep.tier, suggestion.tier) ||
     !sameJson(lastStep.transformations, suggestion.transformations) ||
     !sameJson(lastStep.intermediate, suggestion.intermediate) ||
     !trace.every(

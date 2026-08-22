@@ -37,6 +37,7 @@ from py_science.formula.mapped_outputs import (
     MappedOutputExpander,
 )
 from py_science.formula.models import (
+    OPTIMIZATION_FAMILY_TIERS,
     AnalysisFailure,
     AnalysisRequest,
     EquationRequest,
@@ -58,6 +59,7 @@ from py_science.formula.models import (
 )
 from py_science.formula.parser import ParseFailure, parse_expression
 from py_science.formula.reasoning import ReasoningContext
+from py_science.formula.series import CheckedNestedSumResult, derive_checked_nested_sum
 from py_science.formula.sympy_backend import (
     BoundedHornerCandidate,
     BoundedHornerRefusal,
@@ -153,6 +155,7 @@ class _CandidateComputation:
         "iterator_invariant_hoisting",
         "cross_equation_sharing",
         "horner",
+        "finite_polynomial_sum_v1",
     ]
     target: str
     original: Expression
@@ -1065,6 +1068,7 @@ _FAMILY_ORDER: tuple[OptimizationKind, ...] = (
     "iterator_invariant_hoisting",
     "cross_equation_sharing",
     "horner",
+    "finite_polynomial_sum_v1",
 )
 
 
@@ -1151,6 +1155,9 @@ def _generate_candidate_lanes(
     budget: _OptimizationBudget,
     collector: _RetainedLaneCollector | None = None,
     lane_prefix: tuple[object, ...] = (),
+    *,
+    algorithmic_enabled: bool = False,
+    reasoning: ReasoningContext | None = None,
 ) -> tuple[dict[OptimizationKind, tuple[_CandidateDescriptor, ...]], tuple[str, ...]]:
     """Discover lightweight recipes into a bounded, canonical shared lane collector."""
     collector = collector or _RetainedLaneCollector(budget)
@@ -1181,6 +1188,31 @@ def _generate_candidate_lanes(
                 ) from None
             budget.inspect(max(1, expression_node_count(expression)))
             occurrences_by_target[target] = occurrences
+
+            if algorithmic_enabled and reasoning is not None:
+                checked = derive_checked_nested_sum(expression, reasoning)
+                if isinstance(checked, CheckedNestedSumResult):
+                    occurrence = next(
+                        (
+                            item
+                            for item in occurrences
+                            if item.path == checked.path and item.expression == checked.original
+                        ),
+                        None,
+                    )
+                    if occurrence is not None:
+                        proposed = _replace_paths(
+                            expression, (checked.path,), checked.candidate
+                        )
+                        append(
+                            _descriptor_from_recipe(
+                                kind="finite_polynomial_sum_v1",
+                                target=target,
+                                original=expression,
+                                proposed=proposed,
+                                occurrences=(occurrence,),
+                            )
+                        )
 
             grouped: dict[tuple[Expression, _EvaluationScope], list[_Occurrence]] = defaultdict(
                 list
@@ -1815,6 +1847,43 @@ def _verify_candidate(
         reserved.update(_all_symbol_names(expression))
     answers: list[QueryAnswer] = []
 
+    def algorithmic_answer(
+        target: str, original: Expression, proposed: Expression
+    ) -> QueryAnswer | None:
+        if candidate.kind != "finite_polynomial_sum_v1" or reasoning is None:
+            return None
+        parent_output = retained_output(computed, target)
+        checked = derive_checked_nested_sum(parent_output, reasoning)
+        occurrence = candidate.occurrences[0] if len(candidate.occurrences) == 1 else None
+        if (
+            not isinstance(checked, CheckedNestedSumResult)
+            or occurrence is None
+            or original != parent_output
+            or occurrence.path != checked.path
+            or occurrence.expression != checked.original
+            or proposed != _replace_paths(parent_output, (checked.path,), checked.candidate)
+            or render(retained_output(replayed, target)).sympy != render(proposed).sympy
+        ):
+            return QueryAnswer(
+                conclusion="unresolved",
+                blockers=("algorithmic identity correlation failed",),
+            )
+        return QueryAnswer(
+            conclusion=(
+                "proved_under_assumptions"
+                if checked.conditions or checked.uses
+                else "proved"
+            ),
+            conditions=checked.conditions,
+            assumptions_used=checked.uses,
+            evidence=IdentityEvidence(
+                statement=(
+                    "independently checked finite-polynomial Sum antidifference "
+                    "and inclusive boundaries"
+                )
+            ),
+        )
+
     def abstract_opaque_atoms(left: Expression, right: Expression) -> tuple[Expression, Expression]:
         atoms: dict[object, Symbol] = {}
         reserved_atoms = _all_symbol_names(left) | _all_symbol_names(right)
@@ -1873,9 +1942,17 @@ def _verify_candidate(
                 )
             except _BudgetExhausted as error:
                 return _Exhausted(str(error))
-            answer = equivalence_answer(original_expanded, expanded, reasoning)
+            checked_answer = algorithmic_answer(target, _original, _proposed)
+            answer = (
+                checked_answer
+                if checked_answer is not None
+                else equivalence_answer(original_expanded, expanded, reasoning)
+            )
             normalized_equal = False
-            if answer.conclusion not in {"proved", "proved_under_assumptions"}:
+            if checked_answer is None and answer.conclusion not in {
+                "proved",
+                "proved_under_assumptions",
+            }:
                 canonical_reserved = _all_symbol_names(original_expanded) | _all_symbol_names(
                     expanded
                 )
@@ -2025,10 +2102,15 @@ def _verify_candidate(
         for target_name, original_expression, proposed_expression in raw_transformations
     )
     evidence = IdentityEvidence(
-        statement="checked exact symbolic equivalence for every transformed retained output"
+        statement=(
+            "independently checked finite-polynomial Sum antidifference and inclusive boundaries"
+            if candidate.kind == "finite_polynomial_sum_v1"
+            else "checked exact symbolic equivalence for every transformed retained output"
+        )
     )
     suggestion = OptimizationSuggestion(
         kind=candidate.kind,
+        tier=OPTIMIZATION_FAMILY_TIERS[candidate.kind],
         transformations=transformations,
         intermediate=intermediate,
         conclusion=conclusion,
@@ -2128,6 +2210,74 @@ def _original_final_suggestion(
     reserved: set[str] = set()
     for _target, expression, _indices, _domains in _target_inputs(root):
         reserved.update(_all_symbol_names(expression))
+
+    # Algorithmic identities are not delegated to the rational-equivalence seam.
+    # Rederive each identity from its owning pre-step state, correlate its child,
+    # then independently derive the corresponding root identity used by the final proof.
+    root_algorithmic: dict[str, CheckedNestedSumResult] = {}
+    algorithmic_conditions: list[str] = []
+    algorithmic_uses: list[RelationshipUse] = []
+    parent_computed = root
+    from py_science.formula.service import (
+        _analyze_computation,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    for step, child_request in trace:
+        child_computed = _analyze_computation(child_request)
+        if isinstance(child_computed, AnalysisFailure):
+            return _Rejected("algorithmic final replay failed")
+        if step.kind == "finite_polynomial_sum_v1":
+            if len(step.transformations) != 1:
+                return _Rejected("algorithmic identity has invalid topology")
+            transformation = step.transformations[0]
+            target = transformation.target.name or "expression"
+            parent_output = (
+                parent_computed.expression
+                if target == "expression"
+                else next(
+                    item.formula.right
+                    for item in parent_computed.equations
+                    if item.name == target
+                )
+            )
+            child_output = (
+                child_computed.expression
+                if target == "expression"
+                else next(
+                    item.formula.right
+                    for item in child_computed.equations
+                    if item.name == target
+                )
+            )
+            assert parent_output is not None and child_output is not None
+            checked = derive_checked_nested_sum(parent_output, reasoning)
+            if not isinstance(checked, CheckedNestedSumResult):
+                return _Rejected("algorithmic identity cannot be independently rederived")
+            expected = _replace_paths(parent_output, (checked.path,), checked.candidate)
+            occurrence = transformation.occurrences[0]
+            if (
+                occurrence.path != checked.path
+                or transformation.original != _interpretation(parent_output)
+                or transformation.proposed != _interpretation(expected)
+                or render(child_output).sympy != render(expected).sympy
+                or step.conditions != checked.conditions
+                or step.assumptions_used != checked.uses
+            ):
+                return _Rejected("algorithmic identity provenance is not correlated")
+            root_output = (
+                root.expression
+                if target == "expression"
+                else next(item.formula.right for item in root.equations if item.name == target)
+            )
+            assert root_output is not None
+            root_checked = derive_checked_nested_sum(root_output, reasoning)
+            if not isinstance(root_checked, CheckedNestedSumResult):
+                return _Rejected("original algorithmic identity cannot be independently rederived")
+            root_algorithmic[target] = root_checked
+            algorithmic_conditions.extend(checked.conditions)
+            algorithmic_uses.extend(checked.uses)
+        parent_computed = child_computed
+
     try:
         root_outputs = (
             [("expression", root.expression)]
@@ -2142,9 +2292,15 @@ def _original_final_suggestion(
         answers: list[QueryAnswer] = []
         for target, original in root_outputs:
             assert original is not None and final_outputs.get(target) is not None
+            proof_original = original
+            if target in root_algorithmic:
+                checked = root_algorithmic[target]
+                proof_original = _replace_paths(
+                    original, (checked.path,), checked.candidate
+                )
             left = MappedOutputExpander(
                 root, ExpansionBudget(remaining=MAX_OPTIMIZATION_TRANSFORM_NODES), set(reserved)
-            ).expand(original)
+            ).expand(proof_original)
             right = MappedOutputExpander(
                 final, ExpansionBudget(remaining=MAX_OPTIMIZATION_TRANSFORM_NODES), set(reserved)
             ).expand(final_outputs[target])
@@ -2160,6 +2316,7 @@ def _original_final_suggestion(
             dict.fromkeys(
                 (
                     *[condition for step, _candidate in trace for condition in step.conditions],
+                    *algorithmic_conditions,
                     *[item for answer in answers for item in answer.conditions],
                     *relation.conditions,
                 )
@@ -2168,6 +2325,7 @@ def _original_final_suggestion(
         assumptions = _unique_uses(
             (
                 *[use for step, _candidate in trace for use in step.assumptions_used],
+                *algorithmic_uses,
                 *[item for answer in answers for item in answer.assumptions_used],
                 *relation.assumptions_used,
             )
@@ -2630,7 +2788,14 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
         depth_one_budget.parent()
         root_collector = _RetainedLaneCollector(depth_one_budget)
         _root_lanes, generation_qualifications = _generate_candidate_lanes(
-            computed, depth_one_budget, root_collector
+            computed,
+            depth_one_budget,
+            root_collector,
+            algorithmic_enabled=(
+                "finite_polynomial_sum_v1"
+                in request.optimization.enabled_algorithmic_families
+            ),
+            reasoning=reasoning,
         )
         qualifications.extend(generation_qualifications)
         root_schedule = root_collector.schedule()
@@ -2662,7 +2827,15 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
         try:
             depth_two_budget.parent()
             _lanes, generation_qualifications = _generate_candidate_lanes(
-                parent.computed, depth_two_budget, depth_two_collector, (parent.canonical_key,)
+                parent.computed,
+                depth_two_budget,
+                depth_two_collector,
+                (parent.canonical_key,),
+                algorithmic_enabled=(
+                    "finite_polynomial_sum_v1"
+                    in request.optimization.enabled_algorithmic_families
+                ),
+                reasoning=reasoning,
             )
             qualifications.extend(generation_qualifications)
         except _BudgetExhausted as error:
@@ -2779,6 +2952,7 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
             trace.append(
                 OptimizationTraceStep(
                     kind=step_suggestion.kind,
+                    tier=step_suggestion.tier,
                     transformations=step_suggestion.transformations,
                     intermediate=step_suggestion.intermediate,
                     conclusion=step_suggestion.conclusion,

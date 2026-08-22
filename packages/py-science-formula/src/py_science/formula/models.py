@@ -689,11 +689,33 @@ type OptimizationObjective = Annotated[
 ]
 
 
+type AlgorithmicOptimizationFamily = Literal["finite_polynomial_sum_v1"]
+
+
 class OptimizationConfig(StructuredModel):
     """Bounded, informational advice requested only for ordinary analysis."""
 
     max_suggestions: int = Field(default=3, ge=0, le=16)
     objective: OptimizationObjective = Field(default_factory=UnitWorkObjective)
+    enabled_algorithmic_families: tuple[AlgorithmicOptimizationFamily, ...] = Field(
+        default=(), max_length=1
+    )
+
+    @field_validator("enabled_algorithmic_families", mode="before")
+    @classmethod
+    def accept_algorithmic_family_list(cls, value: object) -> object:
+        return tuple(cast(list[object], value)) if isinstance(value, list) else value
+
+    @field_validator("enabled_algorithmic_families")
+    @classmethod
+    def canonical_algorithmic_families(
+        cls, value: tuple[AlgorithmicOptimizationFamily, ...]
+    ) -> tuple[AlgorithmicOptimizationFamily, ...]:
+        if len(set(value)) != len(value):
+            raise ValueError("enabled algorithmic families must be unique")
+        if value != tuple(sorted(value)):
+            raise ValueError("enabled algorithmic families must use canonical order")
+        return value
 
 
 def _validate_output_identities(
@@ -861,6 +883,25 @@ class OptimizeRequest(StructuredModel):
     definitions: tuple[DirectedDefinition, ...] = Field(default=(), max_length=MAX_DEFINITIONS)
     max_plans: int = Field(default=3, ge=1, le=16)
     objective: OptimizationObjective = Field(default_factory=UnitWorkObjective)
+    enabled_algorithmic_families: tuple[AlgorithmicOptimizationFamily, ...] = Field(
+        default=(), max_length=1
+    )
+
+    @field_validator("enabled_algorithmic_families", mode="before")
+    @classmethod
+    def accept_algorithmic_family_list(cls, value: object) -> object:
+        return tuple(cast(list[object], value)) if isinstance(value, list) else value
+
+    @field_validator("enabled_algorithmic_families")
+    @classmethod
+    def canonical_algorithmic_families(
+        cls, value: tuple[AlgorithmicOptimizationFamily, ...]
+    ) -> tuple[AlgorithmicOptimizationFamily, ...]:
+        if len(set(value)) != len(value):
+            raise ValueError("enabled algorithmic families must be unique")
+        if value != tuple(sorted(value)):
+            raise ValueError("enabled algorithmic families must use canonical order")
+        return value
 
     @field_validator("max_plans")
     @classmethod
@@ -1380,11 +1421,26 @@ type OptimizationKind = Literal[
     "iterator_invariant_hoisting",
     "cross_equation_sharing",
     "horner",
+    "finite_polynomial_sum_v1",
 ]
+type OptimizationTier = Literal["exact_algebraic_v1", "exact_algorithmic_v1"]
+
+OPTIMIZATION_FAMILY_TIERS: dict[OptimizationKind, OptimizationTier] = {
+    "repeated_subexpression": "exact_algebraic_v1",
+    "repeated_call": "exact_algebraic_v1",
+    "reciprocal_reuse": "exact_algebraic_v1",
+    "factoring": "exact_algebraic_v1",
+    "redundant_operation_removal": "exact_algebraic_v1",
+    "iterator_invariant_hoisting": "exact_algebraic_v1",
+    "cross_equation_sharing": "exact_algebraic_v1",
+    "horner": "exact_algebraic_v1",
+    "finite_polynomial_sum_v1": "exact_algorithmic_v1",
+}
 
 
 class OptimizationSuggestion(StructuredModel):
     kind: OptimizationKind
+    tier: OptimizationTier
     transformations: tuple[OptimizationTransformation, ...] = Field(min_length=1, max_length=128)
     intermediate: OptimizationIntermediate | None = None
     conclusion: Literal["proved", "proved_under_assumptions"]
@@ -1399,6 +1455,8 @@ class OptimizationSuggestion(StructuredModel):
 
     @model_validator(mode="after")
     def proved_positive_shape(self) -> "OptimizationSuggestion":
+        if self.tier != OPTIMIZATION_FAMILY_TIERS[self.kind]:
+            raise ValueError("optimization family and tier are inconsistent")
         targets = tuple(
             (item.target.kind, item.target.name) for item in self.transformations
         )
@@ -1476,6 +1534,7 @@ class OptimizationTraceStep(StructuredModel):
     """One complete, parent-relative transition in a replayable plan."""
 
     kind: OptimizationKind
+    tier: OptimizationTier
     transformations: tuple[OptimizationTransformation, ...] = Field(min_length=1, max_length=128)
     intermediate: OptimizationIntermediate | None = None
     conclusion: Literal["proved", "proved_under_assumptions"]
@@ -1491,6 +1550,8 @@ class OptimizationTraceStep(StructuredModel):
 
     @model_validator(mode="after")
     def trace_step_shape(self) -> "OptimizationTraceStep":
+        if self.tier != OPTIMIZATION_FAMILY_TIERS[self.kind]:
+            raise ValueError("optimization trace family and tier are inconsistent")
         if self.identity != self.candidate.model_dump_json(exclude_none=True):
             raise ValueError("optimization trace identity must match its candidate")
         if len({(item.target.kind, item.target.name) for item in self.transformations}) != len(self.transformations):
@@ -1511,6 +1572,8 @@ class OptimizationPlan(StructuredModel):
     def trace_final_shape(self) -> "OptimizationPlan":
         if self.trace[-1].candidate != self.candidate or self.trace[-1].identity != self.identity:
             raise ValueError("optimization plan must equal its final trace step")
+        if self.suggestion.tier != self.trace[-1].tier:
+            raise ValueError("optimization summary tier must match the final trace step")
         return self
 
 

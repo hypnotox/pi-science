@@ -2796,3 +2796,132 @@ def test_composed_search_v1_retained_lanes_are_round_robin_and_order_invariant(
     )
     reversed_families = _optimization_report(request, computed, computed.work_context, seam)
     assert reversed_families == baseline
+
+
+def test_exact_algorithmic_sum_v1_opt_in_is_strict_and_candidate_local() -> None:
+    from py_science.formula import OptimizationConfig
+    from pydantic import ValidationError
+
+    assert OptimizationConfig().enabled_algorithmic_families == ()
+    assert OptimizationConfig.model_validate_json(
+        '{"enabled_algorithmic_families":[]}'
+    ).enabled_algorithmic_families == ()
+    assert OptimizationConfig(
+        enabled_algorithmic_families=("finite_polynomial_sum_v1",)
+    ).enabled_algorithmic_families == ("finite_polynomial_sum_v1",)
+    with pytest.raises(ValidationError):
+        OptimizationConfig(
+            enabled_algorithmic_families=(
+                "finite_polynomial_sum_v1",
+                "finite_polynomial_sum_v1",
+            )
+        )
+    with pytest.raises(ValidationError):
+        OptimizationConfig.model_validate(
+            {"enabled_algorithmic_families": ["future_family"]}
+        )
+
+
+def test_exact_algorithmic_sum_v1_absent_empty_query_parity_and_enabled_plan() -> None:
+    from py_science.formula import (
+        AnalysisRequest,
+        ClosedFormQuery,
+        FormulaSyntax,
+        OptimizationConfig,
+        analyze,
+    )
+
+    source = "3 + Sum(Sum(i*j + j**2, (j, 0, i)), (i, 0, 100))"
+    query = (ClosedFormQuery(name="closed"),)
+    absent = analyze(
+        AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=source, queries=query)
+    )
+    empty = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression=source,
+            queries=query,
+            optimization=OptimizationConfig(enabled_algorithmic_families=()),
+        )
+    )
+    enabled = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression=source,
+            queries=query,
+            optimization=OptimizationConfig(
+                max_suggestions=16,
+                enabled_algorithmic_families=("finite_polynomial_sum_v1",),
+            ),
+        )
+    )
+
+    assert absent.status == "success"
+    assert empty.status == "success"
+    assert enabled.status == "success"
+    assert absent.queries == empty.queries == enabled.queries
+    assert absent.optimization == empty.optimization
+    plan = next(
+        plan
+        for plan in enabled.optimization.plans
+        if any(step.kind == "finite_polynomial_sum_v1" for step in plan.trace)
+    )
+    assert plan.suggestion.tier == plan.trace[-1].tier
+    assert any(step.tier == "exact_algorithmic_v1" for step in plan.trace)
+    assert plan.candidate.expression is not None and "Sum(" not in plan.candidate.expression
+    assert int(plan.suggestion.objective_savings) > 0
+
+
+def test_exact_algorithmic_sum_v1_mixes_with_algebraic_search_deterministically() -> None:
+    from py_science.formula import (
+        AnalysisRequest,
+        FormulaSyntax,
+        MathematicalDomain,
+        OptimizationConfig,
+        VariableDeclaration,
+        analyze,
+    )
+
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="x*y + x*z + Sum(Sum(i*j + j**2, (j, 0, i)), (i, 0, 100))",
+            variables={
+                name: VariableDeclaration(domain=MathematicalDomain.REAL)
+                for name in ("x", "y", "z")
+            },
+            optimization=OptimizationConfig(
+                max_suggestions=16,
+                enabled_algorithmic_families=("finite_polynomial_sum_v1",),
+            ),
+        )
+    )
+    assert outcome.status == "success"
+    mixed = next(plan for plan in outcome.optimization.plans if len(plan.trace) == 2)
+    assert tuple((step.kind, step.tier) for step in mixed.trace) == (
+        ("finite_polynomial_sum_v1", "exact_algorithmic_v1"),
+        ("factoring", "exact_algebraic_v1"),
+    )
+    assert mixed.candidate.expression == "x*(y + z) + 21591275"
+    assert mixed.suggestion.objective_savings == "20604"
+
+
+def test_exact_algorithmic_sum_v1_direct_request_keeps_opt_in_out_of_replay() -> None:
+    from py_science.formula import FormulaSyntax, OptimizeRequest, optimize
+
+    outcome = optimize(
+        OptimizeRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="Sum(Sum(i*j + j**2, (j, 0, i)), (i, 0, 100))",
+            max_plans=16,
+            enabled_algorithmic_families=("finite_polynomial_sum_v1",),
+        )
+    )
+    assert outcome.status == "success"
+    plan = next(
+        plan
+        for plan in outcome.plans
+        if any(step.kind == "finite_polynomial_sum_v1" for step in plan.trace)
+    )
+    assert "enabled_algorithmic_families" not in plan.identity
+    assert plan.trace[0].transformations[0].occurrences[0].path == ()

@@ -60,7 +60,7 @@ The MVP provides:
 4. scenario evaluation for fixed values, intervals, finite choices, definitions, and retained asymptotic variables;
 5. dependency, ideal-reuse, and repeated-expression extraction diagnostics for named equation systems;
 6. explicit bounded general-context mathematical queries with qualified evidence;
-7. default-on bounded repeated-structure, reuse, factoring, redundant-operation-removal, iterator-invariant-hoisting, compatible cross-equation-sharing, and Horner advice whose exact-symbolic proof and positive selected-objective reduction are independently checked.
+7. default-on bounded exact-algebraic repeated-structure, reuse, factoring, redundant-operation-removal, iterator-invariant-hoisting, compatible cross-equation-sharing, and Horner advice, plus a separately opted-in exact-algorithmic replacement for ADR-0012's bounded nested finite-polynomial `Sum` family; every step and final has independent proof and positive whole-computation selected-objective reduction.
 
 The tooling includes a concise agent skill for formulating analyzable requests and inspecting the normalized result. [Analysis Model](analysis-model.md) defines the request and report contract.
 
@@ -72,7 +72,7 @@ The MVP does not:
 - analyze supplied datasets statistically;
 - validate physical correctness or prove that a model represents the intended real-world system;
 - model caches, vectorization, GPU occupancy, exact hardware timing, parallel schedules, or synchronization;
-- generate optimized source code or infer arbitrary high-level algorithm replacements;
+- generate optimized source code or infer arbitrary high-level algorithm replacements beyond the explicitly enabled bounded finite-polynomial `Sum` family;
 - provide a complete formal proof system;
 - accept arbitrary Python, LaTeX input, or unrestricted SymPy;
 - silently choose numerical approximations.
@@ -88,7 +88,7 @@ The MVP succeeds when an agent can:
 - fix some parameters while retaining others as scaling dimensions;
 - evaluate intervals and finite choices with correctly qualified results;
 - inspect named dependencies, ideal reuse, and repeated-expression extraction diagnostics;
-- inspect a bounded incomplete-or-complete optimization report without confusing abstract work with runtime or exact-symbolic reassociation with finite-precision stability;
+- inspect a bounded incomplete-or-complete, tier-qualified optimization report without confusing abstract work with runtime or exact-symbolic algorithm replacement with finite-precision stability;
 - ask supported bounded mathematical questions and inspect their evidence and qualifications;
 - see exactly which unknowns or evaluator limits prevent a tighter answer;
 - revise an algorithm plan using the analysis before producing implementation code.

@@ -61,6 +61,18 @@ class SeriesRule:
     uses: tuple[Any, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class CheckedNestedSumResult:
+    """One bounded project-verified nested finite-polynomial Sum identity."""
+
+    path: tuple[int, ...]
+    original: Sum
+    candidate: Expression
+    projected_expression: Expression
+    conditions: tuple[str, ...]
+    uses: tuple[Any, ...]
+
+
 class _NestedReasoningCapture(ValueError):
     pass
 
@@ -205,7 +217,47 @@ def derive_closed_form(expression: Expression, reasoning: ReasoningContext | Non
 
 
 def _derive_nested_polynomial(expression: Expression, reasoning: ReasoningContext) -> QueryAnswer:
-    """Evaluate one bounded finite-polynomial Sum tree innermost first."""
+    """Project the shared checked nested-Sum result onto the query contract."""
+    checked = derive_checked_nested_sum(expression, reasoning)
+    if isinstance(checked, QueryAnswer):
+        return checked
+    try:
+        candidate, source = render(checked.projected_expression), render(expression).sympy
+    except Exception:
+        return _unresolved("query candidate cannot be rendered")
+    if max(len(candidate.sympy), len(candidate.latex), len(source)) > 4096:
+        return _unresolved("query candidate rendering exceeds its bound")
+    tally = count_operations(checked.projected_expression)
+    return QueryAnswer(
+        conclusion=(
+            "proved_under_assumptions" if checked.uses or checked.conditions else "proved"
+        ),
+        conditions=checked.conditions,
+        assumptions_used=checked.uses,
+        evidence=ClosedFormEvidence(
+            verification="finite_antidifference", statement=f"{source} = {candidate.sympy}"
+        ),
+        derived_candidates=(
+            DerivedCandidate(
+                interpretation=Interpretation(
+                    normalized_sympy=candidate.sympy, normalized_latex=candidate.latex
+                ),
+                operation_counts=OperationCounts(
+                    additions=tally.additions,
+                    subtractions=tally.subtractions,
+                    multiplications=tally.multiplications,
+                    divisions=tally.divisions,
+                    powers=tally.powers,
+                ),
+            ),
+        ),
+    )
+
+
+def derive_checked_nested_sum(
+    expression: Expression, reasoning: ReasoningContext
+) -> CheckedNestedSumResult | QueryAnswer:
+    """Derive one maximal nested Sum with bounded independent backend checks."""
     roots = _direct_sums(expression)
     try:
         expanded = _nested_expand_for_limits(
@@ -279,36 +331,24 @@ def _derive_nested_polynomial(expression: Expression, reasoning: ReasoningContex
             return _unresolved("query candidate cannot be rendered")
         denominator_uses = _unique((*denominator_uses, *uses))
 
-    try:
-        candidate, source = render(candidate_expression), render(expression).sympy
-    except Exception:
-        return _unresolved("query candidate cannot be rendered")
-    if max(len(candidate.sympy), len(candidate.latex), len(source)) > 4096:
-        return _unresolved("query candidate rendering exceeds its bound")
+    tree_built = bounded_polynomial_canonical_candidate(rule.candidate)
+    if tree_built is None or not bounded_polynomial_canonical_verify(rule.candidate, tree_built):
+        return _unresolved("nested polynomial canonicalization failed")
+    tree_candidate = _parse_candidate(tree_built)
+    if tree_candidate is None or not _result_preflight(tree_candidate):
+        return _unresolved("nested polynomial canonicalization failed")
     conditions = tuple(dict.fromkeys((*denominator_conditions, *rule.conditions)))
     uses = _unique((*rule.uses, *denominator_uses))
-    tally = count_operations(candidate_expression)
-    return QueryAnswer(
-        conclusion="proved_under_assumptions" if uses or conditions else "proved",
+    path = _find_occurrence_path(expression, root)
+    if path is None:
+        return _unresolved("nested polynomial family has ambiguous topology")
+    return CheckedNestedSumResult(
+        path=path,
+        original=root,
+        candidate=tree_candidate,
+        projected_expression=candidate_expression,
         conditions=conditions,
-        assumptions_used=uses,
-        evidence=ClosedFormEvidence(
-            verification="finite_antidifference", statement=f"{source} = {candidate.sympy}"
-        ),
-        derived_candidates=(
-            DerivedCandidate(
-                interpretation=Interpretation(
-                    normalized_sympy=candidate.sympy, normalized_latex=candidate.latex
-                ),
-                operation_counts=OperationCounts(
-                    additions=tally.additions,
-                    subtractions=tally.subtractions,
-                    multiplications=tally.multiplications,
-                    divisions=tally.divisions,
-                    powers=tally.powers,
-                ),
-            ),
-        ),
+        uses=uses,
     )
 
 
@@ -577,6 +617,19 @@ def _direct_sums(value: Expression) -> list[Sum]:
     if isinstance(value, Sum):
         return [value]
     return [item for child in expression_children(value) for item in _direct_sums(child)]
+
+
+def _find_occurrence_path(value: Expression, selected: Sum) -> tuple[int, ...] | None:
+    matches: list[tuple[int, ...]] = []
+
+    def visit(node: Expression, path: tuple[int, ...]) -> None:
+        if node is selected:
+            matches.append(path)
+        for position, child in enumerate(expression_children(node)):
+            visit(child, (*path, position))
+
+    visit(value, ())
+    return matches[0] if len(matches) == 1 else None
 
 
 def _sum_count(value: Expression) -> int:

@@ -234,7 +234,11 @@ def optimize(request: OptimizeRequest) -> OptimizeOutcome:
             "variables": request.variables, "functions": request.functions,
             "primitive_costs": request.primitive_costs, "assumptions": request.assumptions,
             "definitions": request.definitions,
-            "optimization": {"max_suggestions": request.max_plans, "objective": request.objective},
+            "optimization": {
+                "max_suggestions": request.max_plans,
+                "objective": request.objective,
+                "enabled_algorithmic_families": request.enabled_algorithmic_families,
+            },
         })
         computed = _analyze_computation(ordinary)
         if isinstance(computed, AnalysisFailure):

@@ -169,7 +169,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 15, result: response }),
+            JSON.stringify({ version: 16, result: response }),
           )}))`,
         ],
       }),
@@ -452,6 +452,19 @@ describe("readiness gate", () => {
     expect(provedOrder.content[0]!.text).toContain(
       "Relation to previous: previous plan proved superior",
     );
+
+    const algorithmic = await current.tools[0]!.execute("id", {
+      operation: "optimize",
+      expression: "3 + Sum(Sum(i*j + j**2, (j, 0, i)), (i, 0, 100))",
+      max_plans: 16,
+      enabled_algorithmic_families: ["finite_polynomial_sum_v1"],
+    });
+    expect(algorithmic.content[0]!.text).toContain(
+      "finite_polynomial_sum_v1 [tier exact_algorithmic_v1]",
+    );
+    expect(algorithmic.content[0]!.text).toContain(
+      "no runtime or finite-precision claim",
+    );
   });
 
   it("presents typed direct optimization failures without analysis casting", async () => {
@@ -465,7 +478,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 15, result: failure }),
+            JSON.stringify({ version: 16, result: failure }),
           )}))`,
         ],
       }),
@@ -529,6 +542,7 @@ describe("readiness gate", () => {
       objective_savings: string,
     ) => ({
       kind,
+      tier: "exact_algebraic_v1" as const,
       transformations: [
         {
           target: { kind: "expression", name: null },
@@ -599,7 +613,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 15, result: response }),
+            JSON.stringify({ version: 16, result: response }),
           )}))`,
         ],
       }),
@@ -654,6 +668,7 @@ describe("readiness gate", () => {
     const longReplacement = `x + ${"y".repeat(600)}`;
     const suggestion = {
       kind: "factoring",
+      tier: "exact_algebraic_v1",
       transformations: [
         {
           target: { kind: "expression", name: null },
@@ -732,7 +747,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 15, result: response }),
+            JSON.stringify({ version: 16, result: response }),
           )}))`,
         ],
       }),
@@ -793,7 +808,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 15, result: response }),
+            JSON.stringify({ version: 16, result: response }),
           )}))`,
         ],
       }),
@@ -1070,7 +1085,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 15, result: response }),
+            JSON.stringify({ version: 16, result: response }),
           )}))`,
         ],
       }),

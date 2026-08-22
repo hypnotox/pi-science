@@ -348,6 +348,7 @@ describe("private formula bridge", () => {
   it("strictly transports zero-post-work correlated optimization reports without recomputing policy", async () => {
     const suggestion = {
       kind: "reciprocal_reuse",
+      tier: "exact_algebraic_v1",
       transformations: [
         {
           target: { kind: "expression", name: null },
@@ -737,6 +738,34 @@ describe("private formula bridge", () => {
     await expect(
       invokeAdapter(node, responder(malformedLocal), indexedRequest),
     ).rejects.toMatchObject({ kind: "protocol" });
+  });
+
+  it("strictly transports opt-in exact algorithmic plans", async () => {
+    const adapter = fileURLToPath(
+      new URL("../bridge/formula_adapter.py", import.meta.url),
+    );
+    const result = await invokeAdapter(
+      "uv",
+      ["run", "--locked", "python", adapter],
+      {
+        syntax: "sympy",
+        operation: "optimize",
+        expression: "3 + Sum(Sum(i*j + j**2, (j, 0, i)), (i, 0, 100))",
+        max_plans: 16,
+        enabled_algorithmic_families: ["finite_polynomial_sum_v1"],
+      },
+    );
+    expect(result).toMatchObject({ status: "success" });
+    if (!("plans" in result)) throw new Error("expected optimization plans");
+    expect(
+      result.plans.some((plan) =>
+        plan.trace.some(
+          (step) =>
+            step.kind === "finite_polynomial_sum_v1" &&
+            step.tier === "exact_algorithmic_v1",
+        ),
+      ),
+    ).toBe(true);
   });
 
   it("round trips the actual adapter for success, lexical Let, and analysis failure", async () => {

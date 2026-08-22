@@ -87,6 +87,16 @@
           "additionalProperties": false,
           "description": "Bounded, informational advice requested only for ordinary analysis.",
           "properties": {
+            "enabled_algorithmic_families": {
+              "items": {
+                "enum": [
+                  "finite_polynomial_sum_v1"
+                ],
+                "type": "string"
+              },
+              "maxItems": 1,
+              "type": "array"
+            },
             "max_suggestions": {
               "default": 3,
               "maximum": 16,
@@ -873,6 +883,16 @@
           "additionalProperties": false,
           "description": "Bounded, informational advice requested only for ordinary analysis.",
           "properties": {
+            "enabled_algorithmic_families": {
+              "items": {
+                "enum": [
+                  "finite_polynomial_sum_v1"
+                ],
+                "type": "string"
+              },
+              "maxItems": 1,
+              "type": "array"
+            },
             "max_suggestions": {
               "default": 3,
               "maximum": 16,
@@ -2467,6 +2487,16 @@
           "maxItems": 128,
           "type": "array"
         },
+        "enabled_algorithmic_families": {
+          "items": {
+            "enum": [
+              "finite_polynomial_sum_v1"
+            ],
+            "type": "string"
+          },
+          "maxItems": 1,
+          "type": "array"
+        },
         "expression": {
           "type": "string"
         },
@@ -2718,6 +2748,16 @@
             "type": "object"
           },
           "maxItems": 128,
+          "type": "array"
+        },
+        "enabled_algorithmic_families": {
+          "items": {
+            "enum": [
+              "finite_polynomial_sum_v1"
+            ],
+            "type": "string"
+          },
+          "maxItems": 1,
           "type": "array"
         },
         "equations": {
