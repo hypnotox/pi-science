@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-- [ADR-adopt-deterministic-bounded-composed-optimization-search: Adopt deterministic bounded composed optimization search](adopt-deterministic-bounded-composed-optimization-search.md) (Implementing)
+- [ADR-0020: Adopt deterministic bounded composed optimization search](0020-adopt-deterministic-bounded-composed-optimization-search.md) (Implementing)
 
 ## History
 

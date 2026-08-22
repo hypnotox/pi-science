@@ -4,7 +4,7 @@ slug: adopt-deterministic-bounded-composed-optimization-search
 status: Implementing
 date: 2026-08-22
 ---
-# ADR-adopt-deterministic-bounded-composed-optimization-search: Adopt deterministic bounded composed optimization search
+# ADR-0020: Adopt deterministic bounded composed optimization search
 
 ## Context
 
