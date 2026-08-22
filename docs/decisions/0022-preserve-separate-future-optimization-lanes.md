@@ -4,7 +4,7 @@ slug: preserve-separate-future-optimization-lanes
 status: Implemented
 date: 2026-08-22
 ---
-# ADR-preserve-separate-future-optimization-lanes: Preserve separate future optimization lanes
+# ADR-0022: Preserve separate future optimization lanes
 
 ## Context
 
