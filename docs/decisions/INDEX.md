@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-_No decisions are in flight._
+- [ADR-adopt-deterministic-bounded-composed-optimization-search: Adopt deterministic bounded composed optimization search](adopt-deterministic-bounded-composed-optimization-search.md) (Proposed)
 
 ## History
 
