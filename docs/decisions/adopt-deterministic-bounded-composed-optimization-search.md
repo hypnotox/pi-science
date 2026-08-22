@@ -32,6 +32,7 @@ The first search tier must remain smaller than a general rewrite system. Existin
 ## State changes
 
 - update `product/product-boundary:symbolic-analysis-only`
+- update `product/mathematical-input-contract:bounded-optimization-advice-requests`
 - update `product/mathematical-analysis-model:bounded-optimization-transformation`
 - update `product/analysis-report-contract:qualified-optimization-advice`
 
