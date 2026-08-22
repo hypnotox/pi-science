@@ -3450,16 +3450,6 @@ function canonicalSerializedSums(value: string): string | null {
   return projected;
 }
 
-function serializedTokenFingerprint(value: string): string | null {
-  const normalized = canonicalSerializedSums(value);
-  if (normalized === null) return null;
-  return (
-    normalized.match(/\*\*|[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)?|[^\s]/g) ?? []
-  )
-    .sort()
-    .join("\u0000");
-}
-
 function enclosingSerializedParentheses(value: string): string {
   let trimmed = value.trim();
   while (trimmed.startsWith("(") && trimmed.endsWith(")")) {
@@ -3475,15 +3465,20 @@ function splitSerializedTuple(value: string): string[] | null {
   return tuple?.name === "Tuple" ? tuple.arguments : null;
 }
 
-type StructuralChildren = {
-  values: string[];
-  binderOnChild: Array<string | null>;
+type SerializedBinary = {
+  operator: "+" | "-" | "*" | "/" | "**";
+  left: string;
+  right: string;
 };
 
-function serializedStructuralChildren(value: string): StructuralChildren {
+function splitSerializedBinary(value: string): SerializedBinary | null {
   const source = enclosingSerializedParentheses(value);
-  const operators: Array<{ index: number; width: number; precedence: number }> =
-    [];
+  const operators: Array<{
+    index: number;
+    width: number;
+    precedence: number;
+    operator: SerializedBinary["operator"];
+  }> = [];
   const delimiters: string[] = [];
   for (let index = 0; index < source.length; index += 1) {
     const character = source[index]!;
@@ -3500,26 +3495,86 @@ function serializedStructuralChildren(value: string): StructuralChildren {
     const unary =
       index === 0 || previous === undefined || "+-*/^(,[".includes(previous);
     if ((character === "+" || character === "-") && !unary)
-      operators.push({ index, width: 1, precedence: 1 });
+      operators.push({
+        index,
+        width: 1,
+        precedence: 1,
+        operator: character,
+      });
     else if (character === "*" && source[index + 1] === "*") {
-      operators.push({ index, width: 2, precedence: 3 });
+      operators.push({ index, width: 2, precedence: 3, operator: "**" });
       index += 1;
     } else if ((character === "*" || character === "/") && !unary)
-      operators.push({ index, width: 1, precedence: 2 });
+      operators.push({
+        index,
+        width: 1,
+        precedence: 2,
+        operator: character,
+      });
   }
-  if (operators.length > 0) {
-    const minimum = Math.min(
-      ...operators.map((operator) => operator.precedence),
-    );
-    const matching = operators.filter(
-      (operator) => operator.precedence === minimum,
-    );
-    const operator = minimum === 3 ? matching[0]! : matching.at(-1)!;
+  if (operators.length === 0) return null;
+  const minimum = Math.min(...operators.map((operator) => operator.precedence));
+  const matching = operators.filter(
+    (operator) => operator.precedence === minimum,
+  );
+  const selected = minimum === 3 ? matching[0]! : matching.at(-1)!;
+  return {
+    operator: selected.operator,
+    left: source.slice(0, selected.index).trim(),
+    right: source.slice(selected.index + selected.width).trim(),
+  };
+}
+
+function serializedStructuralFingerprint(value: string): string | null {
+  const normalized = canonicalSerializedSums(value);
+  if (normalized === null) return null;
+
+  const fingerprint = (sourceValue: string): string | null => {
+    const source = enclosingSerializedParentheses(sourceValue);
+    const binary = splitSerializedBinary(source);
+    if (binary !== null) {
+      if (binary.operator === "+" || binary.operator === "*") {
+        const operands: string[] = [];
+        const collect = (operand: string): boolean => {
+          const nested = splitSerializedBinary(operand);
+          if (nested?.operator === binary.operator)
+            return collect(nested.left) && collect(nested.right);
+          const item = fingerprint(operand);
+          if (item === null) return false;
+          operands.push(item);
+          return true;
+        };
+        if (!collect(binary.left) || !collect(binary.right)) return null;
+        return `${binary.operator}[${operands.sort().join(",")}]`;
+      }
+      const left = fingerprint(binary.left);
+      const right = fingerprint(binary.right);
+      return left === null || right === null
+        ? null
+        : `${binary.operator}[${left},${right}]`;
+    }
+    const call = splitSerializedCall(source);
+    if (call === null) return `atom:${source}`;
+    const arguments_ = call.arguments.map(fingerprint);
+    return arguments_.some((argument) => argument === null)
+      ? null
+      : `call:${call.name}(${arguments_.join(",")})`;
+  };
+
+  return fingerprint(normalized);
+}
+
+type StructuralChildren = {
+  values: string[];
+  binderOnChild: Array<string | null>;
+};
+
+function serializedStructuralChildren(value: string): StructuralChildren {
+  const source = enclosingSerializedParentheses(value);
+  const binary = splitSerializedBinary(source);
+  if (binary !== null) {
     return {
-      values: [
-        source.slice(0, operator.index).trim(),
-        source.slice(operator.index + operator.width).trim(),
-      ],
+      values: [binary.left, binary.right],
       binderOnChild: [null, null],
     };
   }
@@ -3555,17 +3610,19 @@ function serializedStructuralChildren(value: string): StructuralChildren {
 function serializedOccurrenceAtPath(
   value: string,
   path: number[],
-): { node: string; binders: string[] } | null {
+): { node: string; binders: string[]; hasSumAncestor: boolean } | null {
   let node = enclosingSerializedParentheses(value);
   const binders: string[] = [];
+  let hasSumAncestor = false;
   for (const position of path) {
+    if (splitSerializedCall(node)?.name === "Sum") hasSumAncestor = true;
     const children = serializedStructuralChildren(node);
     if (position >= children.values.length) return null;
     const binder = children.binderOnChild[position];
     if (binder !== null && binder !== undefined) binders.push(binder);
     node = enclosingSerializedParentheses(children.values[position]!);
   }
-  return { node, binders };
+  return { node, binders, hasSumAncestor };
 }
 
 function equationOutputIndices(expression: string): string[] | null {
@@ -3613,14 +3670,10 @@ function algorithmicTransformationCorrelates(
     ? original.normalized_sympy
     : (serializedEquation(original.normalized_sympy)?.[1] ??
       original.normalized_sympy);
-  const canonicalParent = canonicalSerializedSums(parentTarget);
-  const canonicalOriginal = canonicalSerializedSums(originalTarget);
+  const parentFingerprint = serializedStructuralFingerprint(parentTarget);
   if (
-    canonicalParent === null ||
-    canonicalOriginal === null ||
-    (canonicalParent !== canonicalOriginal &&
-      serializedTokenFingerprint(parentTarget) !==
-        serializedTokenFingerprint(originalTarget))
+    parentFingerprint === null ||
+    parentFingerprint !== serializedStructuralFingerprint(originalTarget)
   )
     return false;
   const occurrence = occurrences[0]!;
@@ -3629,6 +3682,7 @@ function algorithmicTransformationCorrelates(
   return (
     structuralOccurrence !== null &&
     structuralOccurrence.node.startsWith("Sum(") &&
+    !structuralOccurrence.hasSumAncestor &&
     sameJson(occurrence.binders, structuralOccurrence.binders) &&
     sameJson(occurrence.output_indices, expectedOutputIndices)
   );

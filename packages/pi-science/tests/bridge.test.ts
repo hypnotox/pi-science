@@ -777,12 +777,26 @@ describe("private formula bridge", () => {
       "4 + Sum(i*j + j**2, (j, 0, i), (i, 0, 100))";
     wrongOriginal.plans[planIndex]!.suggestion.transformations =
       wrongOriginal.plans[planIndex]!.trace[0]!.transformations;
+    const sameTokensWrongStructure = structuredClone(result);
+    sameTokensWrongStructure.plans[
+      planIndex
+    ]!.trace[0]!.transformations[0]!.original.normalized_sympy =
+      "3 + Sum(i + j*j**2, (j, 0, i), (i, 0, 100))";
+    sameTokensWrongStructure.plans[planIndex]!.suggestion.transformations =
+      sameTokensWrongStructure.plans[planIndex]!.trace[0]!.transformations;
     const wrongPath = structuredClone(result);
     wrongPath.plans[
       planIndex
     ]!.trace[0]!.transformations[0]!.occurrences[0]!.path = [1];
     wrongPath.plans[planIndex]!.suggestion.transformations =
       wrongPath.plans[planIndex]!.trace[0]!.transformations;
+    const innerPath = structuredClone(result);
+    const innerOccurrence =
+      innerPath.plans[planIndex]!.trace[0]!.transformations[0]!.occurrences[0]!;
+    innerOccurrence.path = [0, 2];
+    innerOccurrence.binders = ["i"];
+    innerPath.plans[planIndex]!.suggestion.transformations =
+      innerPath.plans[planIndex]!.trace[0]!.transformations;
     const unreachablePath = structuredClone(result);
     unreachablePath.plans[
       planIndex
@@ -797,7 +811,9 @@ describe("private formula bridge", () => {
       wrongBinders.plans[planIndex]!.trace[0]!.transformations;
     for (const invalid of [
       wrongOriginal,
+      sameTokensWrongStructure,
       wrongPath,
+      innerPath,
       unreachablePath,
       wrongBinders,
     ]) {
