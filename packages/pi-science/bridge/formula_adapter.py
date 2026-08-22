@@ -19,7 +19,7 @@ from py_science.formula import (
 )
 from pydantic import TypeAdapter, ValidationError
 
-PROTOCOL_VERSION = 14
+PROTOCOL_VERSION = 15
 REQUEST_ADAPTER: TypeAdapter[
     AnalysisRequest | CandidateComparisonRequest | DominanceAnalysisRequest | OptimizeRequest
 ] = TypeAdapter(
@@ -76,14 +76,21 @@ def _project_plan_candidates(plans: object) -> None:
         if not isinstance(raw_plan, dict):
             continue
         plan = cast(dict[str, object], raw_plan)
-        raw_candidate = plan.get("candidate")
-        if isinstance(raw_candidate, dict):
-            candidate = cast(dict[str, object], raw_candidate)
-            candidate.pop("syntax", None)
-            if candidate.get("expression") is None:
-                candidate.pop("expression", None)
-            elif candidate.get("equations") == []:
-                candidate.pop("equations", None)
+        candidates: list[object] = [plan.get("candidate")]
+        trace = plan.get("trace")
+        if isinstance(trace, list):
+            for raw_step in cast(list[object], trace):
+                if isinstance(raw_step, dict):
+                    step = cast(dict[str, object], raw_step)
+                    candidates.append(step.get("candidate"))
+        for raw_candidate in candidates:
+            if isinstance(raw_candidate, dict):
+                candidate = cast(dict[str, object], raw_candidate)
+                candidate.pop("syntax", None)
+                if candidate.get("expression") is None:
+                    candidate.pop("expression", None)
+                elif candidate.get("equations") == []:
+                    candidate.pop("equations", None)
 
 
 def _request_error(error: Exception) -> int:

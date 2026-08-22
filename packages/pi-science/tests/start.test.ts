@@ -104,11 +104,18 @@ function optimizationPlan(
     definitions: [],
     outputs: ["expression"],
   };
+  const { ordering: _ordering, ...step } = suggestion;
+  const identity = JSON.stringify({
+    syntax: "sympy",
+    ...candidate,
+    equations: [],
+  });
   return {
-    identity: JSON.stringify({ syntax: "sympy", ...candidate, equations: [] }),
+    identity,
     objective: { kind: "unit_work_v1" },
     candidate,
     suggestion,
+    trace: [{ ...step, candidate, identity }],
   };
 }
 
@@ -136,6 +143,8 @@ describe("readiness gate", () => {
         suggestions: [],
         plans: [],
         qualifications: [],
+        projection_status: "complete",
+        projection_qualifications: [],
       },
     };
     await start(
@@ -146,7 +155,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 14, result: response }),
+            JSON.stringify({ version: 15, result: response }),
           )}))`,
         ],
       }),
@@ -406,7 +415,7 @@ describe("readiness gate", () => {
     expect(text).toContain("outputs: expression");
     expect(text).toContain("Candidate:");
     expect(text).toContain("Objective profile: unit_work_v1");
-    expect(text).toContain("Selected-objective savings:");
+    expect(text).toContain("Original-to-final selected-objective savings:");
     expect(text).toContain(
       "Relation to previous: deterministic non-superiority tie-break",
     );
@@ -442,7 +451,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 14, result: failure }),
+            JSON.stringify({ version: 15, result: failure }),
           )}))`,
         ],
       }),
@@ -475,9 +484,11 @@ describe("readiness gate", () => {
     });
     const text = result.content[0]!.text;
     expect(text).toContain("Optimization advice");
-    expect(text).toContain("optimization suggestion");
+    expect(text).toContain("optimization plan");
     expect(text).toContain("factoring: expression: x*y + x*z → x*(y + z)");
-    expect(text).toContain("objective unit_work_v1: 3 → 2; saves 1");
+    expect(text).toContain(
+      "objective unit_work_v1: 3 → 2; original-to-final saving 1",
+    );
     expect(text).toContain("exact_symbolic_only");
     expect(result.details).toMatchObject({
       optimization: {
@@ -558,6 +569,8 @@ describe("readiness gate", () => {
         suggestions,
         plans: suggestions.map((item) => optimizationPlan(item, { variables })),
         qualifications: [],
+        projection_status: "complete",
+        projection_qualifications: [],
       },
     };
     await start(
@@ -568,7 +581,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 14, result: response }),
+            JSON.stringify({ version: 15, result: response }),
           )}))`,
         ],
       }),
@@ -580,7 +593,7 @@ describe("readiness gate", () => {
     });
     const text = result.content[0]!.text;
     expect(text).toContain(
-      "optimization suggestion: factoring: expression: x → first_candidate",
+      "optimization plan: 1. factoring: expression: x → first_candidate",
     );
     expect(text).toContain("1 additional proved suggestion in details");
     expect(text).not.toContain("second_candidate");
@@ -685,6 +698,8 @@ describe("readiness gate", () => {
         qualifications: [
           "optimization inspected nodes budget exhausted (measured 4, configured 3)",
         ],
+        projection_status: "complete",
+        projection_qualifications: [],
       },
     };
     await start(
@@ -695,7 +710,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 14, result: response }),
+            JSON.stringify({ version: 15, result: response }),
           )}))`,
         ],
       }),
@@ -706,7 +721,7 @@ describe("readiness gate", () => {
       assumptions: [{ name: "known", relationship: "x > 0" }],
     });
     const text = result.content[0]!.text;
-    expect(text).toContain("optimization suggestion");
+    expect(text).toContain("optimization plan");
     expect(text).toContain(longReplacement);
     expect(text).not.toContain(`${longReplacement.slice(0, 512)}...`);
     expect(text).toContain("assumptions used: known (x > 0)");
@@ -744,6 +759,8 @@ describe("readiness gate", () => {
         qualifications: [
           "optimization proof nodes budget exhausted (measured 4, configured 3)",
         ],
+        projection_status: "complete",
+        projection_qualifications: [],
       },
     };
     await start(
@@ -754,7 +771,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 14, result: response }),
+            JSON.stringify({ version: 15, result: response }),
           )}))`,
         ],
       }),
@@ -800,7 +817,7 @@ describe("readiness gate", () => {
       optimization: { max_suggestions: 16 },
     });
     const text = result.content[0]!.text;
-    expect(text).toContain("optimization suggestion");
+    expect(text).toContain("optimization plan");
     expect(text).toContain("cross_equation_sharing:");
     expect(text).toContain("equation left:");
     expect(text).toContain("equation right:");
@@ -1019,6 +1036,8 @@ describe("readiness gate", () => {
         suggestions: [],
         plans: [],
         qualifications: [],
+        projection_status: "complete",
+        projection_qualifications: [],
       },
     };
     await start(
@@ -1029,7 +1048,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 14, result: response }),
+            JSON.stringify({ version: 15, result: response }),
           )}))`,
         ],
       }),

@@ -1,7 +1,7 @@
 ---
 format: current-state-v4
 slug: adopt-deterministic-bounded-composed-optimization-search
-status: Proposed
+status: Implementing
 date: 2026-08-22
 ---
 # ADR-adopt-deterministic-bounded-composed-optimization-search: Adopt deterministic bounded composed optimization search
@@ -62,3 +62,5 @@ Complete intermediate candidates increase protocol payload size. The bounded tra
 ## Status history
 
 - 2026-08-22: Proposed
+- 2026-08-22: Implementing; content-sha256: b2753adb237d28bb70561ef7a093b66262f0e38720834c658dc7f829fffcfce9
+- 2026-08-22: Applied; operations: update `product/product-boundary:symbolic-analysis-only`, update `product/mathematical-input-contract:bounded-optimization-advice-requests`, update `product/mathematical-analysis-model:bounded-optimization-transformation`, update `product/analysis-report-contract:qualified-optimization-advice`

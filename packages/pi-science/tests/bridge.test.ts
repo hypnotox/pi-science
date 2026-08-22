@@ -109,6 +109,8 @@ const success = {
     suggestions: [],
     plans: [],
     qualifications: [],
+    projection_status: "complete",
+    projection_qualifications: [],
   },
 };
 const richSuccess = {
@@ -230,11 +232,18 @@ function optimizationPlan(
     definitions: [],
     outputs: ["expression"],
   };
+  const { ordering: _ordering, ...step } = suggestion;
+  const identity = JSON.stringify({
+    syntax: "sympy",
+    ...candidate,
+    equations: [],
+  });
   return {
-    identity: JSON.stringify({ syntax: "sympy", ...candidate, equations: [] }),
+    identity,
     objective: { kind: "unit_work_v1" },
     candidate,
     suggestion,
+    trace: [{ ...step, candidate, identity }],
   };
 }
 
@@ -343,6 +352,8 @@ describe("private formula bridge", () => {
         suggestions: [suggestion],
         plans: [optimizationPlan(suggestion)],
         qualifications: [],
+        projection_status: "complete",
+        projection_qualifications: [],
       },
     };
     await expect(
@@ -423,6 +434,8 @@ describe("private formula bridge", () => {
         suggestions: [],
         plans: [],
         qualifications: [],
+        projection_status: "complete",
+        projection_qualifications: [],
       },
     };
     await expect(
@@ -449,6 +462,8 @@ describe("private formula bridge", () => {
         suggestions: [suggestion],
         plans: [optimizationPlan(suggestion)],
         qualifications: ["optimization candidate budget exhausted"],
+        projection_status: "complete",
+        projection_qualifications: [],
       },
     };
     await expect(
@@ -2753,6 +2768,8 @@ describe("retained optimization ownership", () => {
           suggestions: [],
           plans: [],
           qualifications: [],
+          projection_status: "complete",
+          projection_qualifications: [],
         });
       }
       await expect(
@@ -2772,6 +2789,8 @@ describe("retained optimization ownership", () => {
           suggestions: [],
           plans: [],
           qualifications: [],
+          projection_status: "complete",
+          projection_qualifications: [],
         };
       }
       await expect(

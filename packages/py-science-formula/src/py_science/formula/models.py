@@ -1371,17 +1371,20 @@ class OptimizationTransformation(StructuredModel):
     proposed: Interpretation
 
 
+type OptimizationKind = Literal[
+    "repeated_subexpression",
+    "repeated_call",
+    "reciprocal_reuse",
+    "factoring",
+    "redundant_operation_removal",
+    "iterator_invariant_hoisting",
+    "cross_equation_sharing",
+    "horner",
+]
+
+
 class OptimizationSuggestion(StructuredModel):
-    kind: Literal[
-        "repeated_subexpression",
-        "repeated_call",
-        "reciprocal_reuse",
-        "factoring",
-        "redundant_operation_removal",
-        "iterator_invariant_hoisting",
-        "cross_equation_sharing",
-        "horner",
-    ]
+    kind: OptimizationKind
     transformations: tuple[OptimizationTransformation, ...] = Field(min_length=1, max_length=128)
     intermediate: OptimizationIntermediate | None = None
     conclusion: Literal["proved", "proved_under_assumptions"]
@@ -1469,6 +1472,32 @@ class OptimizationOrdering(StructuredModel):
         return self
 
 
+class OptimizationTraceStep(StructuredModel):
+    """One complete, parent-relative transition in a replayable plan."""
+
+    kind: OptimizationKind
+    transformations: tuple[OptimizationTransformation, ...] = Field(min_length=1, max_length=128)
+    intermediate: OptimizationIntermediate | None = None
+    conclusion: Literal["proved", "proved_under_assumptions"]
+    evidence: IdentityEvidence
+    conditions: tuple[BoundedQueryText, ...] = Field(default=(), max_length=128)
+    assumptions_used: tuple[RelationshipUse, ...] = Field(default=(), max_length=128)
+    objective_before: BoundedQueryText
+    objective_after: BoundedQueryText
+    objective_savings: BoundedQueryText
+    candidate: OptimizationCandidate
+    identity: str = Field(min_length=1, max_length=262_144)
+    finite_precision_qualification: Literal["exact_symbolic_only"] = "exact_symbolic_only"
+
+    @model_validator(mode="after")
+    def trace_step_shape(self) -> "OptimizationTraceStep":
+        if self.identity != self.candidate.model_dump_json(exclude_none=True):
+            raise ValueError("optimization trace identity must match its candidate")
+        if len({(item.target.kind, item.target.name) for item in self.transformations}) != len(self.transformations):
+            raise ValueError("optimization trace transformations require unique targets")
+        return self
+
+
 class OptimizationPlan(StructuredModel):
     """One independently replayable, verified optimization result."""
 
@@ -1476,6 +1505,13 @@ class OptimizationPlan(StructuredModel):
     objective: OptimizationObjective
     candidate: OptimizationCandidate
     suggestion: OptimizationSuggestion
+    trace: tuple[OptimizationTraceStep, ...] = Field(min_length=1, max_length=2)
+
+    @model_validator(mode="after")
+    def trace_final_shape(self) -> "OptimizationPlan":
+        if self.trace[-1].candidate != self.candidate or self.trace[-1].identity != self.identity:
+            raise ValueError("optimization plan must equal its final trace step")
+        return self
 
 
 class OptimizationFailure(StructuredModel):
@@ -1502,14 +1538,18 @@ class OptimizationSuccess(StructuredModel):
     status: Literal["success"] = "success"
     requested_limit: int = Field(ge=1, le=16)
     search_status: Literal["complete", "incomplete"]
+    projection_status: Literal["complete", "truncated"] = "complete"
     plans: tuple[OptimizationPlan, ...] = Field(default=(), max_length=16)
     qualifications: tuple[BoundedQueryText, ...] = Field(default=(), max_length=128)
+    projection_qualifications: tuple[BoundedQueryText, ...] = Field(default=(), max_length=128)
 
     @model_validator(mode="after")
     def success_shape(self) -> "OptimizationSuccess":
         _validate_optimization_plan_population(self.plans, self.requested_limit)
         if (self.search_status == "incomplete") != bool(self.qualifications):
             raise ValueError("optimization search status must agree with qualifications")
+        if (self.projection_status == "truncated") != bool(self.projection_qualifications):
+            raise ValueError("optimization projection status must agree with qualifications")
         return self
 
 
@@ -1522,6 +1562,8 @@ class OptimizationReport(StructuredModel):
     suggestions: tuple[OptimizationSuggestion, ...] = Field(default=(), max_length=16)
     plans: tuple[OptimizationPlan, ...] = Field(default=(), max_length=16)
     qualifications: tuple[BoundedQueryText, ...] = Field(default=(), max_length=128)
+    projection_status: Literal["complete", "truncated"] = "complete"
+    projection_qualifications: tuple[BoundedQueryText, ...] = Field(default=(), max_length=128)
 
     @model_validator(mode="after")
     def report_shape(self) -> "OptimizationReport":
@@ -1530,8 +1572,11 @@ class OptimizationReport(StructuredModel):
         _validate_optimization_plan_population(self.plans, self.requested_limit)
         if self.plans and tuple(item.suggestion for item in self.plans) != self.suggestions:
             raise ValueError("optimization plans must project the same suggestions")
+        if (self.projection_status == "truncated") != bool(self.projection_qualifications):
+            raise ValueError("optimization projection status must agree with qualifications")
         if self.status == "disabled" and (
             self.requested_limit != 0 or self.suggestions or self.plans or self.qualifications
+            or self.projection_status != "complete" or self.projection_qualifications
         ):
             raise ValueError("disabled optimization requires an empty zero-limit report")
         if self.requested_limit == 0 and self.status != "disabled":
@@ -1540,7 +1585,10 @@ class OptimizationReport(StructuredModel):
             raise ValueError("incomplete optimization requires an exhaustion qualification")
         if self.status == "complete" and self.qualifications:
             raise ValueError("complete optimization cannot carry search qualifications")
-        if self.status == "failed" and (self.suggestions or self.plans or not self.qualifications):
+        if self.status == "failed" and (
+            self.suggestions or self.plans or not self.qualifications
+            or self.projection_status != "complete" or self.projection_qualifications
+        ):
             raise ValueError("failed optimization must contain only a bounded diagnostic")
         return self
 

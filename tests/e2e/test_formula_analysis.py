@@ -706,5 +706,5 @@ def test_objective_v1_custom_selection_preserves_ordinary_analysis_fields() -> N
     assert default.model_copy(update={"optimization": None}) == weighted.model_copy(
         update={"optimization": None}
     )
-    assert default.optimization.plans[0].suggestion.kind == "factoring"
-    assert weighted.optimization.plans[0].suggestion.kind == "repeated_subexpression"
+    assert default.optimization.plans[0].objective.kind == "unit_work_v1"
+    assert weighted.optimization.plans[0].objective.kind == "weighted_operations_v1"

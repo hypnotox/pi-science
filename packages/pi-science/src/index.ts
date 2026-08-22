@@ -85,11 +85,17 @@ function compactToolText(result: BridgeResult): string {
         plan.candidate.equations
           .map((equation) => equation.expression)
           .join("; ");
+      const steps = plan.trace
+        .map(
+          (step, stepIndex) =>
+            `${stepIndex + 1}. ${step.kind} (${step.transformations.map((item) => (item.target.kind === "expression" ? "expression" : `equation ${item.target.name}`)).join(", ")})`,
+        )
+        .join(" → ");
       return [
-        `- Plan ${index + 1}: ${plan.suggestion.kind}; outputs: ${plan.candidate.outputs.join(", ")}`,
+        `- Plan ${index + 1}: ${steps}; outputs: ${plan.candidate.outputs.join(", ")}`,
         `  Candidate: ${compactExpression(computation)}`,
         `  Objective profile: ${objectiveProfile(plan.objective)}`,
-        `  Selected-objective savings: ${plan.suggestion.objective_savings}; ${plan.suggestion.finite_precision_qualification}`,
+        `  Original-to-final selected-objective savings: ${plan.suggestion.objective_savings}; ${plan.suggestion.finite_precision_qualification}`,
         ...(index === 0
           ? []
           : [
@@ -102,9 +108,16 @@ function compactToolText(result: BridgeResult): string {
       ...(plans.length ? plans : ["- none"]),
       "Search status",
       `- ${result.search_status}`,
-      "Qualifications",
+      "Search qualifications",
       ...(result.qualifications.length
         ? result.qualifications.map((qualification) => `- ${qualification}`)
+        : ["- none"]),
+      "Output projection",
+      `- ${result.projection_status}`,
+      ...(result.projection_qualifications.length
+        ? result.projection_qualifications.map(
+            (qualification) => `- ${qualification}`,
+          )
         : ["- none"]),
     ].join("\n");
   }
@@ -246,17 +259,23 @@ function compactToolText(result: BridgeResult): string {
     }
 
     const suggestion = report.suggestions[0]!;
-    const transformations = suggestion.transformations
-      .map((transformation) => {
-        const target =
-          transformation.target.kind === "expression"
-            ? "expression"
-            : `equation ${transformation.target.name}`;
-        return `${target}: ${transformation.original.normalized_sympy} → ${transformation.proposed.normalized_sympy}`;
-      })
-      .join("; ");
-    const intermediate = suggestion.intermediate
-      ? `; shared intermediate ${suggestion.intermediate.name} = ${suggestion.intermediate.expression.normalized_sympy}`
+    const firstPlan = report.plans[0]!;
+    const transformations = firstPlan.trace
+      .map(
+        (step, index) =>
+          `${index + 1}. ${step.kind}: ${step.transformations
+            .map((transformation) => {
+              const target =
+                transformation.target.kind === "expression"
+                  ? "expression"
+                  : `equation ${transformation.target.name}`;
+              return `${target}: ${transformation.original.normalized_sympy} → ${transformation.proposed.normalized_sympy}`;
+            })
+            .join("; ")}`,
+      )
+      .join(" → ");
+    const intermediate = firstPlan.trace[0]?.intermediate
+      ? `; shared intermediate ${firstPlan.trace[0].intermediate.name} = ${firstPlan.trace[0].intermediate.expression.normalized_sympy}`
       : "";
     const conditions = suggestion.conditions.length
       ? `; conditions: ${suggestion.conditions.join(", ")}`
@@ -271,7 +290,7 @@ function compactToolText(result: BridgeResult): string {
     const additional = report.suggestions.length - 1;
     return [
       "Optimization advice",
-      `- optimization suggestion: ${suggestion.kind}: ${transformations}${intermediate}; objective ${objectiveProfile(report.plans[0]!.objective)}: ${suggestion.objective_before} → ${suggestion.objective_after}; saves ${suggestion.objective_savings}${conditions}${assumptions}; ${suggestion.finite_precision_qualification}`,
+      `- optimization plan: ${transformations}${intermediate}; objective ${objectiveProfile(firstPlan.objective)}: ${suggestion.objective_before} → ${suggestion.objective_after}; original-to-final saving ${suggestion.objective_savings}${conditions}${assumptions}; ${suggestion.finite_precision_qualification}`,
       ...(additional === 0
         ? []
         : [
@@ -279,6 +298,11 @@ function compactToolText(result: BridgeResult): string {
           ]),
       ...(report.status === "incomplete"
         ? ["- search incomplete; inspect details for the local bound"]
+        : []),
+      ...(report.projection_status === "truncated"
+        ? [
+            "- output truncated after search; inspect details for the byte bound",
+          ]
         : []),
       ...report.qualifications.map(
         (qualification) => `- qualification: ${qualification}`,

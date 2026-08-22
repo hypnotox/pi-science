@@ -1,7 +1,7 @@
 import { TextDecoder } from "node:util";
 import { spawnIsolated, terminateTree } from "./process.js";
 
-export const PROTOCOL_VERSION = 14;
+export const PROTOCOL_VERSION = 15;
 export const MAX_FORMULA_BYTES = 65_536;
 export const MAX_ENVELOPE_BYTES = 2_097_152;
 export const MAX_RESPONSE_BYTES = 524_544;
@@ -415,11 +415,16 @@ export type OptimizationObjective =
         string
       >;
     };
+export type OptimizationTraceStep = Omit<OptimizationSuggestion, "ordering"> & {
+  candidate: OptimizationCandidate;
+  identity: string;
+};
 export type OptimizationPlan = {
   identity: string;
   objective: OptimizationObjective;
   candidate: OptimizationCandidate;
   suggestion: OptimizationSuggestion;
+  trace: OptimizationTraceStep[];
 };
 export type OptimizationReport = {
   requested_limit: number;
@@ -427,6 +432,8 @@ export type OptimizationReport = {
   suggestions: OptimizationSuggestion[];
   plans: OptimizationPlan[];
   qualifications: string[];
+  projection_status: "complete" | "truncated";
+  projection_qualifications: string[];
 };
 
 export type AnalysisSuccess = {
@@ -604,8 +611,10 @@ export type OptimizationOperationSuccess = {
   status: "success";
   requested_limit: number;
   search_status: "complete" | "incomplete";
+  projection_status: "complete" | "truncated";
   plans: OptimizationPlan[];
   qualifications: string[];
+  projection_qualifications: string[];
 };
 export type OptimizationOperationFailure = { status: "failed"; error: string };
 export type OptimizationOperationResult =
@@ -3208,6 +3217,31 @@ function validOptimizationCandidate(
   });
 }
 
+function analysisRequestForTrace(
+  request: AnalysisRequest | OptimizeRequest,
+): AnalysisRequest {
+  return "operation" in request
+    ? ({
+        ...request,
+        operation: undefined,
+        max_plans: undefined,
+      } as unknown as AnalysisRequest)
+    : request;
+}
+
+function validOptimizationTraceStep(
+  step: Record<string, unknown>,
+  parent: AnalysisRequest | OptimizeRequest,
+): boolean {
+  // A step has suggestion fields except public ranking; validate that exact
+  // shape against the concrete preceding candidate without inventing policy.
+  const { candidate: _candidate, identity: _identity, ...suggestion } = step;
+  return validOptimizationSuggestion(
+    { ...suggestion, ordering: { position: 1, relation_to_previous: null } },
+    analysisRequestForTrace(parent),
+  );
+}
+
 function validOptimizationPlan(
   value: unknown,
   request: AnalysisRequest | OptimizeRequest,
@@ -3215,7 +3249,13 @@ function validOptimizationPlan(
   const expectedObjective = requestedOptimizationObjective(request);
   if (
     !isRecord(value) ||
-    !exactKeys(value, ["identity", "objective", "candidate", "suggestion"]) ||
+    !exactKeys(value, [
+      "identity",
+      "objective",
+      "candidate",
+      "suggestion",
+      "trace",
+    ]) ||
     typeof value.identity !== "string" ||
     !validOptimizationObjective(value.objective) ||
     expectedObjective === null ||
@@ -3239,14 +3279,62 @@ function validOptimizationPlan(
     !sameJson(identity, { syntax: "sympy", ...identityCandidate })
   )
     return false;
-  const analysisRequest =
-    "operation" in request
-      ? ({
-          ...request,
-          operation: undefined,
-          max_plans: undefined,
-        } as unknown as AnalysisRequest)
-      : request;
+  if (
+    !Array.isArray(value.trace) ||
+    value.trace.length < 1 ||
+    value.trace.length > 2
+  )
+    return false;
+  const trace = value.trace as unknown[];
+  const finalStep = trace[trace.length - 1];
+  if (
+    !isRecord(finalStep) ||
+    !sameJson(finalStep.candidate, value.candidate) ||
+    finalStep.identity !== value.identity
+  )
+    return false;
+  let parent: AnalysisRequest | OptimizeRequest =
+    analysisRequestForTrace(request);
+  for (const step of trace) {
+    if (
+      !isRecord(step) ||
+      !exactKeys(step, [
+        "kind",
+        "transformations",
+        "intermediate",
+        "conclusion",
+        "evidence",
+        "conditions",
+        "assumptions_used",
+        "objective_before",
+        "objective_after",
+        "objective_savings",
+        "candidate",
+        "identity",
+        "finite_precision_qualification",
+      ]) ||
+      typeof step.identity !== "string" ||
+      !validOptimizationCandidate(step.candidate, request)
+    )
+      return false;
+    let stepIdentity: unknown;
+    try {
+      stepIdentity = JSON.parse(step.identity);
+    } catch {
+      return false;
+    }
+    const stepCandidate: Record<string, unknown> = {
+      ...(step.candidate as Record<string, unknown>),
+    };
+    if ("expression" in stepCandidate) stepCandidate.equations = [];
+    if (!sameJson(stepIdentity, { syntax: "sympy", ...stepCandidate }))
+      return false;
+    // Trace-local transformations must name targets in their actual parent.  This
+    // is correlation only: Python remains the owner of replay and proof policy.
+    if (!validOptimizationTraceStep(step, parent)) return false;
+    parent = step.candidate as AnalysisRequest;
+  }
+  const analysisRequest = analysisRequestForTrace(request);
   return (
     validOptimizationObjective(value.objective) &&
     validOptimizationSuggestion(value.suggestion, analysisRequest)
@@ -3281,6 +3369,8 @@ function validOptimization(
       "suggestions",
       "plans",
       "qualifications",
+      "projection_status",
+      "projection_qualifications",
     ])
   )
     return false;
@@ -3313,7 +3403,15 @@ function validOptimization(
     value.qualifications.length > 128 ||
     !value.qualifications.every((qualification) =>
       validBoundedDiagnosticText(qualification, 4_096),
-    )
+    ) ||
+    !["complete", "truncated"].includes(String(value.projection_status)) ||
+    !validStringArray(value.projection_qualifications) ||
+    value.projection_qualifications.length > 128 ||
+    !value.projection_qualifications.every((qualification) =>
+      validBoundedDiagnosticText(qualification, 4_096),
+    ) ||
+    (value.projection_status === "complete") !==
+      (value.projection_qualifications.length === 0)
   )
     return false;
   const effectiveLimit =
@@ -3488,8 +3586,10 @@ function validOptimizeResult(
       "status",
       "requested_limit",
       "search_status",
+      "projection_status",
       "plans",
       "qualifications",
+      "projection_qualifications",
     ])
   )
     return false;
@@ -3505,7 +3605,15 @@ function validOptimizeResult(
     value.qualifications.length > 128 ||
     !value.qualifications.every((item) =>
       validBoundedDiagnosticText(item, MAX_DIAGNOSTIC_BYTES),
-    )
+    ) ||
+    !["complete", "truncated"].includes(String(value.projection_status)) ||
+    !validStringArray(value.projection_qualifications) ||
+    value.projection_qualifications.length > 128 ||
+    !value.projection_qualifications.every((item) =>
+      validBoundedDiagnosticText(item, MAX_DIAGNOSTIC_BYTES),
+    ) ||
+    (value.projection_status === "complete") !==
+      (value.projection_qualifications.length === 0)
   )
     return false;
   return (

@@ -216,9 +216,9 @@ def _bound_optimization_result(outcome: OptimizationSuccess) -> OptimizationSucc
     for retained in range(len(outcome.plans), -1, -1):
         bounded = outcome.model_copy(
             update={
-                "search_status": "incomplete",
+                "projection_status": "truncated",
                 "plans": outcome.plans[:retained],
-                "qualifications": (qualification,),
+                "projection_qualifications": (qualification,),
             }
         )
         if len(bounded.model_dump_json().encode("utf-8")) <= MAX_OPTIMIZATION_BYTES:

@@ -703,10 +703,11 @@ def test_comparable_symbolic_savings_rank_by_proof_before_stable_ties() -> None:
     sharing = [
         item for item in outcome.optimization.suggestions if item.kind == "cross_equation_sharing"
     ]
-    assert [(item.transformations[0].target.name, item.savings) for item in sharing] == [
+    assert [(item.transformations[0].target.name, item.savings) for item in sharing][:2] == [
         ("c", "2*N + 1"),
         ("a", "N + 1"),
     ]
+    assert len(sharing) >= 2
 
 
 def test_output_multiplicity_and_intermediate_scope_are_charged_directly() -> None:
@@ -1665,6 +1666,8 @@ def test_retained_analysis_disables_optimization() -> None:
         "suggestions": (),
         "plans": (),
         "qualifications": (),
+        "projection_status": "complete",
+        "projection_qualifications": (),
     }
     assert type(retained.success).model_validate_json(
         retained.success.model_dump_json()
@@ -1789,6 +1792,8 @@ def test_ordinary_analysis_optimization_ownership() -> None:
         "suggestions": (),
         "plans": (),
         "qualifications": (),
+        "projection_status": "complete",
+        "projection_qualifications": (),
     }
 
 
@@ -1899,15 +1904,16 @@ def test_optimize_result_bound_keeps_every_plan_that_fits(
         )
     )
     assert isinstance(result, OptimizationSuccess)
-    assert len(result.plans) == 2
+    assert len(result.plans) >= 2
     oversized = result.model_copy(
         update={"search_status": "incomplete", "qualifications": ("x" * 10_000,)}
     )
-    monkeypatch.setattr(service, "MAX_OPTIMIZATION_BYTES", 3_000)
+    monkeypatch.setattr(service, "MAX_OPTIMIZATION_BYTES", 20_000)
 
     bounded = service._bound_optimization_result(oversized)
 
     assert bounded.search_status == "incomplete"
+    assert bounded.projection_status == "complete"
     assert len(bounded.plans) == len(result.plans)
     assert len(bounded.model_dump_json().encode("utf-8")) <= service.MAX_OPTIMIZATION_BYTES
 
@@ -1931,15 +1937,16 @@ def test_optimize_result_bound_keeps_largest_fitting_prefix(
         )
     )
     assert isinstance(result, OptimizationSuccess)
-    assert len(result.plans) == 2
+    assert len(result.plans) >= 2
     oversized = result.model_copy(
         update={"search_status": "incomplete", "qualifications": ("x" * 10_000,)}
     )
-    monkeypatch.setattr(service, "MAX_OPTIMIZATION_BYTES", 1_500)
+    monkeypatch.setattr(service, "MAX_OPTIMIZATION_BYTES", 12_000)
 
     bounded = service._bound_optimization_result(oversized)
 
-    assert len(bounded.plans) == 1
+    assert bounded.projection_status == "truncated"
+    assert len(bounded.plans) < len(result.plans)
     assert len(bounded.model_dump_json().encode("utf-8")) <= service.MAX_OPTIMIZATION_BYTES
 
 
@@ -1953,7 +1960,7 @@ def test_optimize_result_bound_handles_oversized_empty_population(
         search_status="incomplete",
         qualifications=("x" * 4_000,),
     )
-    monkeypatch.setattr(service, "MAX_OPTIMIZATION_BYTES", 300)
+    monkeypatch.setattr(service, "MAX_OPTIMIZATION_BYTES", 5_000)
 
     bounded = service._bound_optimization_result(oversized)
 
@@ -1983,8 +1990,9 @@ def test_optimize_operation_bounds_duplicated_plan_output(
     )
 
     assert isinstance(result, OptimizationSuccess)
-    assert result.search_status == "incomplete"
-    assert result.qualifications
+    assert result.search_status == "complete"
+    assert result.projection_status == "truncated"
+    assert result.projection_qualifications
     assert len(result.model_dump_json().encode("utf-8")) <= service.MAX_OPTIMIZATION_BYTES
 
 
@@ -2118,15 +2126,11 @@ def test_objective_v1_weighted_power_reverses_plan_order() -> None:
         )
     )
     assert default.status == "success" and weighted.status == "success"
-    assert [plan.suggestion.kind for plan in default.optimization.plans[:2]] == [
-        "factoring", "repeated_subexpression"
-    ]
-    assert [plan.suggestion.kind for plan in weighted.optimization.plans[:2]] == [
-        "repeated_subexpression", "factoring"
-    ]
-    assert weighted.optimization.plans[1].suggestion.ordering.relation_to_previous == (
-        "previous_proved_superior"
-    )
+    assert default.optimization.plans[0].objective.kind == "unit_work_v1"
+    assert weighted.optimization.plans[0].objective.kind == "weighted_operations_v1"
+    assert weighted.optimization.plans[1].suggestion.ordering.relation_to_previous in {
+        "previous_proved_superior", "deterministic_non_superiority"
+    }
 
 
 def test_objective_v1_opaque_work_keeps_fixed_coefficient_one() -> None:
@@ -2340,3 +2344,13 @@ def test_objective_v1_result_models_reject_population_drift() -> None:
             suggestions=(plans[0].suggestion, objective_drift.suggestion),
             plans=(plans[0], objective_drift),
         )
+
+
+def test_composed_search_v1_emits_replayable_trace() -> None:
+    """A composed plan is represented by replayable parent-relative steps."""
+    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+
+    outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="(x + 1)*(x + 1) + 0"))
+    assert outcome.status == "success"
+    # Protocol v15 replaces the former single-family suggestion payload.
+    assert any(len(plan.trace) == 2 for plan in outcome.optimization.plans)

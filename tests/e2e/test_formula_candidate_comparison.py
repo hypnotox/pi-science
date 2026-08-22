@@ -166,6 +166,8 @@ def test_nested_analysis_disables_optimization() -> None:
             "suggestions": (),
             "plans": (),
                 "qualifications": (),
+                "projection_status": "complete",
+                "projection_qualifications": (),
         }
         ordinary = analyze(request.analysis_request(candidate_request))
         assert isinstance(ordinary, AnalysisSuccess)

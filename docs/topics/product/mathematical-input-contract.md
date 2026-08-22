@@ -35,6 +35,6 @@ Origin: ADR-0016
 
 
 ### `rule: bounded-optimization-advice-requests`
-Ordinary requests carry `optimization.max_suggestions` and an optional exact objective selector; omission is `unit_work_v1`. Direct `optimize` carries `max_plans` and the same selector. `weighted_operations_v1` requires all five strictly positive bounded exact-rational operation weights; opaque work remains coefficient one. Its returned candidates include syntax, transformed expression or equations, required variables/functions/costs/assumptions/definitions, and output identities, but exclude scenarios, queries, and optimization controls. Candidate comparison and dominance requests do not carry optimization configuration.
+Ordinary requests carry `optimization.max_suggestions` and an optional exact objective selector; omission is `unit_work_v1`. Direct `optimize` carries `max_plans` and the same selector. `weighted_operations_v1` requires all five strictly positive bounded exact-rational operation weights; opaque work remains coefficient one. Its returned candidates include syntax, transformed expression or equations, required variables/functions/costs/assumptions/definitions, and output identities, but exclude scenarios, queries, and optimization controls. `max_suggestions` and `max_plans` select only the final ranked output prefix after the fixed search; requests expose no depth or budget controls. Candidate comparison and dominance requests do not carry optimization configuration.
 Origin: ADR-0017
-Revised-by: ADR-0018, ADR-0019
+Revised-by: ADR-0018, ADR-0019, ADR-adopt-deterministic-bounded-composed-optimization-search
