@@ -3246,6 +3246,21 @@ function candidateAsAnalysisRequest(
   };
 }
 
+function equationWithTargetRhs(expression: string, rhs: string): string | null {
+  // This only preserves the serialized Eq LHS while replacing its top-level
+  // RHS; it is not expression parsing or transformation application.
+  if (!expression.startsWith("Eq(")) return null;
+  const delimiters: string[] = [];
+  for (let index = 0; index < expression.length; index += 1) {
+    const character = expression[index]!;
+    if ("([{".includes(character)) delimiters.push(character);
+    else if (")] }".replace(" ", "").includes(character)) delimiters.pop();
+    else if (character === "," && delimiters.length === 1)
+      return `${expression.slice(0, index + 2)}${rhs})`;
+  }
+  return null;
+}
+
 function traceStateCorrelates(
   step: Record<string, unknown>,
   parent: AnalysisRequest,
@@ -3267,14 +3282,19 @@ function traceStateCorrelates(
         (transformation.target as Record<string, unknown>).kind ===
         "expression",
     )?.proposed as Record<string, unknown> | undefined;
-    // The complete candidate may wrap a proposed expression in the declared
-    // intermediate, but Pi only compares the supplied serialized states; it
-    // never applies a transformation or recomputes normalization.
+    const intermediate = step.intermediate;
+    // A direct expression step has one complete target state.  A generated
+    // producer deliberately wraps that target in its complete candidate; Pi
+    // correlates the declared producer structurally and never applies it.
     if (
       candidate.expression === undefined ||
       candidate.expression === parent.expression ||
       typeof proposed?.normalized_sympy !== "string" ||
-      candidate.expression !== proposed.normalized_sympy
+      (!isRecord(intermediate) &&
+        candidate.expression !== proposed.normalized_sympy) ||
+      (isRecord(intermediate) &&
+        (typeof intermediate.name !== "string" ||
+          !candidate.expression.startsWith(`Let(${intermediate.name},`)))
     )
       return false;
   } else {
@@ -3286,10 +3306,9 @@ function traceStateCorrelates(
       const child = children.get(equation.name);
       if (child === undefined) return false;
       const transformed = targets.has(`equation:${equation.name}`);
-      // Python candidates use normalized complete equations, so the first
-      // candidate may legitimately normalize untouched submitted equations.
-      // Later parents are already candidate states and must remain byte-stable
-      // outside the explicitly named targets.
+      // Submitted systems may be normalized by Python before the first
+      // retained candidate.  Once a complete parent exists, untouched states
+      // are byte-stable; transformed states must always differ.
       if (
         (!transformed &&
           !parentIsSubmittedRequest &&
@@ -3305,9 +3324,23 @@ function traceStateCorrelates(
         );
         const proposed = transformation?.proposed as
           Record<string, unknown> | undefined;
+        // `proposed` remains the public target-local RHS.  Python serializes
+        // system candidates as normalized `Eq(target, rhs)` states, allowing
+        // exact structural correlation without Pi applying the edit.
+        const rhs =
+          typeof proposed?.normalized_sympy === "string"
+            ? proposed.normalized_sympy
+            : null;
+        const expected =
+          rhs === null ? null : equationWithTargetRhs(equation.expression, rhs);
+        // Candidate binders can be capture-avoidably normalized on the first
+        // replay, but the serialized transformed RHS itself remains exact.
         if (
-          typeof proposed?.normalized_sympy !== "string" ||
-          !child.expression.includes(proposed.normalized_sympy)
+          expected === null ||
+          (!sameJson(child.expression, expected) &&
+            child.expression !== `Eq(${equation.name}, ${rhs})` &&
+            !child.expression.endsWith(`, ${rhs})`) &&
+            !parentIsSubmittedRequest)
         )
           return false;
       }

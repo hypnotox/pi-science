@@ -25,6 +25,7 @@ from py_science.formula.expressions import (
     IntegerLiteral,
     Let,
     Relationship,
+    RelationshipOperator,
     Sum,
     Symbol,
     expression_children,
@@ -1053,10 +1054,16 @@ class _RetainedLaneCollector:
         return quotas
 
     def add(self, lane: tuple[object, ...], candidate: _CandidateComputation) -> None:
-        # A completed candidate is a generated transition. Charge it at the
-        # point it enters the lane collector rather than after unbounded
-        # generator traversal; the collector then refuses further construction.
-        self.budget.candidate()
+        """Admit only the current fair retained prefix without aborting a lane.
+
+        A traversal may discover an early lane before a later live lane.  Raising
+        at the first allowance overflow made that incidental discovery order
+        select the population.  Keep only the bounded round-robin prefix and
+        charge transitions when a proposal occupies a retained prefix slot;
+        later lanes can then replace an early excess without materializing an
+        allowance-plus-one transition.
+        """
+        before = self.retained_count
         self._counts[lane] = self._counts.get(lane, 0) + 1
         self._more_proposals |= sum(self._counts.values()) > self._capacity
         quotas = self._quotas()
@@ -1068,6 +1075,11 @@ class _RetainedLaneCollector:
             values.append(candidate)
             values.sort(key=_proposal_sort_key)
             del values[quota:]
+        # A newly occupied prefix slot is the only generated transition that
+        # enters the bounded search population.  Replacement is representative
+        # selection, not another materialized transition.
+        if self.retained_count > before:
+            self.budget.candidate()
         assert self.retained_count <= self._capacity
 
     def lanes_for(
@@ -1828,19 +1840,8 @@ def _verify_candidate(
     raw_transformations = candidate.transformed_targets or (
         (candidate.target, candidate.original, candidate.proposed),
     )
-    complete_targets: dict[str, Expression] = {}
-    if complete.expression is not None:
-        parsed = parse_expression(complete.expression)
-        assert not isinstance(parsed, (ParseFailure, Equation, Relationship))
-        complete_targets["expression"] = parsed
-    else:
-        for equation in complete.equations:
-            parsed = parse_expression(equation.expression)
-            assert isinstance(parsed, Equation)
-            complete_targets[equation.name] = parsed.right
-    # A trace declares the complete post-step target state. Occurrence metadata
-    # remains local evidence, but transport correlation must not need Pi to
-    # apply the local rewrite or reproduce normalization.
+    # Trace transformations retain their public target-local proposed state.
+    # The separate complete candidate carries the post-step computation.
     transformations = tuple(
         OptimizationTransformation(
             target=(
@@ -1858,9 +1859,9 @@ def _verify_candidate(
                 if item.target == target_name
             ),
             original=_interpretation(original_expression),
-            proposed=_interpretation(complete_targets[target_name]),
+            proposed=_interpretation(proposed_expression),
         )
-        for target_name, original_expression, _proposed_expression in raw_transformations
+        for target_name, original_expression, proposed_expression in raw_transformations
     )
     evidence = IdentityEvidence(
         statement="checked exact symbolic equivalence for every transformed retained output"
@@ -1879,6 +1880,47 @@ def _verify_candidate(
         ordering=OptimizationOrdering(position=1, relation_to_previous=None),
     )
     return _Accepted(suggestion, complete, relation.delta, replayed)
+
+
+def _qualifications_compatible(
+    conditions: tuple[str, ...], request: AnalysisRequest
+) -> bool:
+    """Refuse a final whose accumulated exact-proof requirements conflict.
+
+    Equivalence intentionally publishes unresolved denominator obligations.  A
+    direct final proof therefore cannot blindly union those obligations with
+    trace requirements or submitted assumptions: ``x != 0`` and ``x == 0``
+    would describe no common qualified result.  This is deliberately a small
+    structural check at the proof seam, not a new public assumption policy.
+    """
+    relationships: list[Relationship] = []
+    for assumption in request.assumptions:
+        parsed = parse_expression(assumption.relationship)
+        if isinstance(parsed, Relationship):
+            relationships.append(parsed)
+    equalities: set[tuple[str, str]] = set()
+    inequalities: set[tuple[str, str]] = set()
+    # Denominator obligations use the deliberately minimal ``x != 0`` wire
+    # spelling, which the mathematical request parser quite properly does not
+    # accept as an input relationship.  Compare that bounded proof spelling
+    # structurally here; opaque future proof conditions remain conservative
+    # qualifications rather than becoming a new parser surface.
+    for condition in conditions:
+        separator = " != " if " != " in condition else " == " if " == " in condition else None
+        if separator is None:
+            continue
+        left, right = condition.split(separator, 1)
+        pair = (left, right) if left <= right else (right, left)
+        (inequalities if separator == " != " else equalities).add(pair)
+    for relationship in relationships:
+        try:
+            left, right = render(relationship.left).sympy, render(relationship.right).sympy
+        except NormalizationError:
+            return False
+        pair = (left, right) if left <= right else (right, left)
+        if relationship.operator is RelationshipOperator.EQUAL:
+            equalities.add(pair)
+    return not bool(equalities & inequalities)
 
 
 def _original_final_suggestion(
@@ -1969,6 +2011,8 @@ def _original_final_suggestion(
                 *relation.assumptions_used,
             )
         )
+        if not _qualifications_compatible(conditions, request):
+            return _Rejected("final proof qualifications conflict with submitted assumptions")
         return (
             local.model_copy(
                 update={

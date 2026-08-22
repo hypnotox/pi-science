@@ -815,7 +815,12 @@ def test_public_proposals_reparse_and_reconstruct_independently() -> None:
         proposed = _expression(plan.trace[0].transformations[0].proposed.normalized_sympy)
         assert plan.trace[0].candidate.expression is not None
         candidate = _expression(plan.trace[0].candidate.expression)
-        assert proposed == candidate
+        # Transformations are target-local evidence; complete candidates carry
+        # generated bindings and are intentionally a separate post-step state.
+        if plan.trace[0].intermediate is not None:
+            assert proposed != candidate
+        else:
+            assert proposed == candidate
         replayed = analyze(AnalysisRequest.model_validate(plan.trace[0].candidate.model_dump()))
         assert replayed.status == "success"
 
@@ -2371,6 +2376,25 @@ def test_objective_v1_result_models_reject_population_drift() -> None:
         )
 
 
+def test_composed_search_v1_refuses_conflicting_final_qualifications() -> None:
+    """Trace denominator obligations must share a model with request assumptions."""
+    from py_science.formula import AnalysisRequest, Assumption, FormulaSyntax
+    from py_science.formula.optimization import _qualifications_compatible
+
+    conflicting = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="x",
+        assumptions=(Assumption(name="zero", relationship="x == 0"),),
+    )
+    compatible = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="x",
+        assumptions=(Assumption(name="nonzero", relationship="x > 0"),),
+    )
+    assert not _qualifications_compatible(("x != 0",), conflicting)
+    assert _qualifications_compatible(("x != 0",), compatible)
+
+
 def test_composed_search_v1_emits_replayable_trace() -> None:
     """A composed plan is represented by replayable parent-relative steps."""
     from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
@@ -2411,13 +2435,16 @@ def test_composed_search_v1_budget_seams_distinguish_transition_and_final_proofs
     # The transition allowance is consumed at proposal materialization, not
     # later when the fair scheduler projects already-generated proposals.
     assert materialization_budget.candidates == 1
-    assert qualifications == (
-        "optimization depth-one generated transitions budget exhausted "
-        "(measured 2, configured 1)",
-    )
+    # Bounded lane admission never raises while traversing the first family:
+    # it retains the fair prefix and reports the omitted next proposal after
+    # traversal, so later lanes remain eligible at this constrained allowance.
+    assert qualifications == ()
     collector.schedule()
     assert materialization_budget.candidates == 1
-    assert collector.exhaustion() is None
+    assert collector.exhaustion() == (
+        "optimization depth-one generated transitions budget exhausted "
+        "(measured 2, configured 1)"
+    )
 
     transition = _optimization_report(
         request,

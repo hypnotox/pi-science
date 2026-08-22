@@ -221,10 +221,18 @@ function request(expression = "x") {
 
 function optimizationPlan(
   suggestion: Record<string, unknown>,
-  expression = (
-    (suggestion.transformations as Array<Record<string, unknown>>)[0]!
-      .proposed as { normalized_sympy: string }
-  ).normalized_sympy,
+  expression = (() => {
+    const proposed = (
+      suggestion.transformations as Array<Record<string, unknown>>
+    )[0]!.proposed as { normalized_sympy: string };
+    const intermediate = suggestion.intermediate as {
+      name: string;
+      expression: { normalized_sympy: string };
+    } | null;
+    return intermediate === null
+      ? proposed.normalized_sympy
+      : `Let(${intermediate.name}, ${intermediate.expression.normalized_sympy}, ${proposed.normalized_sympy})`;
+  })(),
 ) {
   const candidate = {
     expression,
