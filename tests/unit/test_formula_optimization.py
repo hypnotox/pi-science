@@ -2432,12 +2432,9 @@ def test_composed_search_v1_budget_seams_distinguish_transition_and_final_proofs
         computed, materialization_budget, collector
     )
     assert sum(map(len, lanes.values())) == collector.retained_count == 1
-    # The transition allowance is consumed at proposal materialization, not
-    # later when the fair scheduler projects already-generated proposals.
-    assert materialization_budget.candidates == 1
-    # Bounded lane admission never raises while traversing the first family:
-    # it retains the fair prefix and reports the omitted next proposal after
-    # traversal, so later lanes remain eligible at this constrained allowance.
+    # Discovery retains descriptors only.  The selected fair prefix is the
+    # sole point that enters a factory and consumes a generated transition.
+    assert materialization_budget.candidates == 0
     assert qualifications == ()
     collector.schedule()
     assert materialization_budget.candidates == 1
@@ -2537,12 +2534,11 @@ def test_composed_search_v1_retained_lanes_are_round_robin_and_order_invariant(
     from py_science.formula import optimization as optimization_service
     from py_science.formula.optimization import (
         _CandidateComputation,
+        _CandidateDescriptor,
         _optimization_report,
         _OptimizationBudget,
         _OptimizationBudgetConfig,
-        _proposal_sort_key,
         _RetainedLaneCollector,
-        _round_robin_candidates,
     )
     from py_science.formula.service import _analyze_computation
 
@@ -2558,28 +2554,39 @@ def test_composed_search_v1_retained_lanes_are_round_robin_and_order_invariant(
             occurrences=(),
         )
 
-    population = {
-        family: tuple(proposal(family, value) for value in range(4)) for family in families
-    }
-    budget = _OptimizationBudget(replace(_OptimizationBudgetConfig(), candidates=12))
-    collector = _RetainedLaneCollector(budget)
-    # Reverse both family registration and each lane's generator emission.
-    for family in reversed(families):
-        for candidate in reversed(population[family]):
-            collector.add((family,), candidate)
-            assert collector.retained_count <= 12
-    expected = _round_robin_candidates(
-        (
-            ((family,), tuple(sorted(candidates, key=_proposal_sort_key)))
-            for family, candidates in population.items()
-        ),
-        _OptimizationBudget(),
+    def collect(reverse_families: bool, reverse_descriptors: bool):
+        calls: list[tuple[str, int]] = []
+        budget = _OptimizationBudget(replace(_OptimizationBudgetConfig(), candidates=1))
+        collector = _RetainedLaneCollector(budget)
+        ordered_families = tuple(reversed(families)) if reverse_families else families
+        for family in ordered_families:
+            values = tuple(reversed(range(4))) if reverse_descriptors else range(4)
+            for value in values:
+                candidate = proposal(family, value)
+                collector.add(
+                    (family,),
+                    _CandidateDescriptor(
+                        kind=cast("object", family),  # type: ignore[arg-type]
+                        sort_key=(family, value),
+                        factory=lambda candidate=candidate, family=family, value=value: (
+                            calls.append((family, value)) or candidate
+                        ),
+                    ),
+                )
+        selected = collector.schedule()
+        return selected, calls, budget, collector
+
+    # Family registration and descriptor emission do not choose the bounded
+    # population.  Only the selected fair prefix constructs a candidate.
+    baseline, calls, budget, collector = collect(False, False)
+    reversed_population, reversed_calls, reversed_budget, reversed_collector = collect(True, True)
+    assert baseline == reversed_population
+    assert calls == reversed_calls == [(families[0], 0)]
+    assert budget.candidates == reversed_budget.candidates == 1
+    assert collector.retained_count == reversed_collector.retained_count == 1
+    assert collector.exhaustion() == reversed_collector.exhaustion() == (
+        "optimization transition generated transitions budget exhausted (measured 2, configured 1)"
     )
-    retained = collector.schedule()
-    assert retained == expected
-    assert budget.candidates == 12
-    assert collector.retained_count == 12
-    assert collector.exhaustion() is None
 
     request = AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="(x + 1)*(x + 1) + (y + 0)")
     computed = _analyze_computation(request)

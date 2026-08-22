@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
 from fractions import Fraction
 from functools import cmp_to_key
@@ -162,6 +162,15 @@ class _CandidateComputation:
     intermediate_name: str | None = None
     intermediate_expression: Expression | None = None
     intermediate_scope: _EvaluationScope | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _CandidateDescriptor:
+    """Stable lightweight proposal recipe, materialized only by the scheduler."""
+
+    kind: OptimizationKind
+    sort_key: tuple[object, ...]
+    factory: Callable[[], _CandidateComputation]
 
 
 @dataclass(frozen=True, slots=True)
@@ -748,11 +757,11 @@ def _canonical_output_expression(
     return visit(expression, names, ())
 
 
-def _cross_equation_candidates(
+def _cross_equation_descriptors(
     computed: RetainedComputation,
     occurrences_by_target: Mapping[str, tuple[_Occurrence, ...]],
     generated_name: str,
-) -> tuple[_CandidateComputation, ...]:
+) -> tuple[_CandidateDescriptor, ...]:
     if computed.expression is not None or len(computed.equations) < 2:
         return ()
     equations = {item.name: item for item in computed.equations}
@@ -801,7 +810,7 @@ def _cross_equation_candidates(
                 )
             ].append(occurrence)
 
-    result: list[_CandidateComputation] = []
+    result: list[_CandidateDescriptor] = []
     for (_arity, _canonical, _domains), grouped_occurrences in grouped.items():
         by_target: dict[str, _Occurrence] = {}
         for occurrence in grouped_occurrences:
@@ -852,7 +861,7 @@ def _cross_equation_candidates(
         if not compatible:
             continue
         result.append(
-            _CandidateComputation(
+            _descriptor_from_recipe(
                 kind="cross_equation_sharing",
                 target=first.target,
                 original=transformed[0][1],
@@ -1029,7 +1038,7 @@ class _RetainedLaneCollector:
         self.budget = budget
         self._capacity = max(0, budget.config.candidates - budget.candidates)
         self._counts: dict[tuple[object, ...], int] = {}
-        self._retained: dict[tuple[object, ...], list[_CandidateComputation]] = {}
+        self._retained: dict[tuple[object, ...], list[_CandidateDescriptor]] = {}
         self._more_proposals = False
 
     @property
@@ -1053,17 +1062,13 @@ class _RetainedLaneCollector:
             active = following
         return quotas
 
-    def add(self, lane: tuple[object, ...], candidate: _CandidateComputation) -> None:
-        """Admit only the current fair retained prefix without aborting a lane.
+    def add(self, lane: tuple[object, ...], descriptor: _CandidateDescriptor) -> None:
+        """Retain descriptor recipes for the canonical fair prefix.
 
-        A traversal may discover an early lane before a later live lane.  Raising
-        at the first allowance overflow made that incidental discovery order
-        select the population.  Keep only the bounded round-robin prefix and
-        charge transitions when a proposal occupies a retained prefix slot;
-        later lanes can then replace an early excess without materializing an
-        allowance-plus-one transition.
+        Discovery never materializes a transition.  Once every lane has been
+        observed, the scheduler chooses its stable round-robin prefix and is
+        the sole owner of both the transition charge and factory invocation.
         """
-        before = self.retained_count
         self._counts[lane] = self._counts.get(lane, 0) + 1
         self._more_proposals |= sum(self._counts.values()) > self._capacity
         quotas = self._quotas()
@@ -1072,26 +1077,25 @@ class _RetainedLaneCollector:
         values = self._retained.setdefault(lane, [])
         quota = quotas[lane]
         if quota:
-            values.append(candidate)
-            values.sort(key=_proposal_sort_key)
+            values.append(descriptor)
+            values.sort(key=lambda item: item.sort_key)
             del values[quota:]
-        # A newly occupied prefix slot is the only generated transition that
-        # enters the bounded search population.  Replacement is representative
-        # selection, not another materialized transition.
-        if self.retained_count > before:
-            self.budget.candidate()
         assert self.retained_count <= self._capacity
 
     def lanes_for(
         self, lane_prefix: tuple[object, ...]
-    ) -> dict[OptimizationKind, tuple[_CandidateComputation, ...]]:
+    ) -> dict[OptimizationKind, tuple[_CandidateDescriptor, ...]]:
         return {kind: tuple(self._retained.get((*lane_prefix, kind), ())) for kind in _FAMILY_ORDER}
 
     def schedule(self) -> tuple[tuple[tuple[object, ...], _CandidateComputation], ...]:
-        selected = _round_robin_candidates(
-            ((key, tuple(values)) for key, values in self._retained.items()), self.budget
+        selected = _round_robin_descriptors(
+            (key, tuple(values)) for key, values in self._retained.items()
         )
-        return selected
+        materialized: list[tuple[tuple[object, ...], _CandidateComputation]] = []
+        for lane, descriptor in selected:
+            self.budget.candidate()
+            materialized.append((lane, descriptor.factory()))
+        return tuple(materialized)
 
     def exhaustion(self) -> str | None:
         if not self._more_proposals:
@@ -1110,15 +1114,15 @@ def _generate_candidate_lanes(
     budget: _OptimizationBudget,
     collector: _RetainedLaneCollector | None = None,
     lane_prefix: tuple[object, ...] = (),
-) -> tuple[dict[OptimizationKind, tuple[_CandidateComputation, ...]], tuple[str, ...]]:
-    """Enumerate families into a bounded, canonical shared lane collector."""
+) -> tuple[dict[OptimizationKind, tuple[_CandidateDescriptor, ...]], tuple[str, ...]]:
+    """Discover lightweight recipes into a bounded, canonical shared lane collector."""
     collector = collector or _RetainedLaneCollector(budget)
     qualifications: list[str] = []
     generated_name = _generated_name(computed)
     occurrences_by_target: dict[str, tuple[_Occurrence, ...]] = {}
 
-    def append(candidate: _CandidateComputation) -> None:
-        collector.add((*lane_prefix, candidate.kind), candidate)
+    def append(descriptor: _CandidateDescriptor) -> None:
+        collector.add((*lane_prefix, descriptor.kind), descriptor)
 
     try:
         for target, expression, output_indices, output_domains in sorted(
@@ -1164,17 +1168,12 @@ def _generate_candidate_lanes(
                     kind = "repeated_subexpression"
                 intermediate_scope = _smallest_scope(repeated, scope)
                 append(
-                    _CandidateComputation(
+                    _generated_replacement_descriptor(
                         kind=kind,
                         target=target,
                         original=expression,
-                        proposed=_replace_paths(
-                            expression,
-                            (item.path for item in items),
-                            _generated_reference(generated_name, intermediate_scope),
-                        ),
                         occurrences=tuple(items),
-                        intermediate_name=generated_name,
+                        generated_name=generated_name,
                         intermediate_expression=repeated,
                         intermediate_scope=intermediate_scope,
                     )
@@ -1185,23 +1184,23 @@ def _generate_candidate_lanes(
                 replacement = _neutral_replacement(node)
                 if replacement is not None:
                     append(
-                        _CandidateComputation(
+                        _replacement_descriptor(
                             kind="redundant_operation_removal",
                             target=target,
                             original=expression,
-                            proposed=_replace_paths(expression, (occurrence.path,), replacement),
                             occurrences=(occurrence,),
+                            replacement=replacement,
                         )
                     )
                 factored = _factored(node)
                 if factored is not None:
                     append(
-                        _CandidateComputation(
+                        _replacement_descriptor(
                             kind="factoring",
                             target=target,
                             original=expression,
-                            proposed=_replace_paths(expression, (occurrence.path,), factored),
                             occurrences=(occurrence,),
+                            replacement=factored,
                         )
                     )
                 budget.inspect(max(1, expression_node_count(node)))
@@ -1221,17 +1220,20 @@ def _generate_candidate_lanes(
                         detail += f" (measured {horner.observed}, configured {horner.configured})"
                     qualifications.append(detail)
                 elif isinstance(horner, BoundedHornerCandidate):
-                    parsed = parse_expression(horner.rendered)
-                    if not isinstance(parsed, (ParseFailure, Equation, Relationship)):
-                        append(
-                            _CandidateComputation(
-                                kind="horner",
-                                target=target,
-                                original=expression,
-                                proposed=_replace_paths(expression, (occurrence.path,), parsed),
-                                occurrences=(occurrence,),
-                            )
+                    # Rendering is bounded discovery evidence; parsing and structural
+                    # replacement are transition materialization work.
+                    rendered = horner.rendered
+                    path = occurrence.path
+                    append(
+                        _CandidateDescriptor(
+                            "horner",
+                            ("horner", target, render(expression).sympy, path, rendered),
+                            lambda target=target, expression=expression,
+                            occurrence=occurrence, rendered=rendered: _horner_candidate(
+                                target, expression, occurrence, rendered
+                            ),
                         )
+                    )
                 if occurrence.scope.binders:
                     binding = occurrence.scope.binders[-1]
                     raw_symbols = _free_symbols(node)
@@ -1251,23 +1253,18 @@ def _generate_candidate_lanes(
                         )
                         intermediate_scope = _smallest_scope(node, outer_scope)
                         append(
-                            _CandidateComputation(
+                            _generated_replacement_descriptor(
                                 kind="iterator_invariant_hoisting",
                                 target=target,
                                 original=expression,
-                                proposed=_replace_paths(
-                                    expression,
-                                    (occurrence.path,),
-                                    _generated_reference(generated_name, intermediate_scope),
-                                ),
                                 occurrences=(occurrence,),
-                                intermediate_name=generated_name,
+                                generated_name=generated_name,
                                 intermediate_expression=node,
                                 intermediate_scope=intermediate_scope,
                             )
                         )
         try:
-            sharing_candidates = _cross_equation_candidates(
+            sharing_descriptors = _cross_equation_descriptors(
                 computed, occurrences_by_target, generated_name
             )
         except ExpressionTooComplex:
@@ -1277,8 +1274,8 @@ def _generate_candidate_lanes(
                 f"configured {MAX_OPTIMIZATION_TRANSFORM_NODES})"
             )
         else:
-            for candidate in sharing_candidates:
-                append(candidate)
+            for descriptor in sharing_descriptors:
+                append(descriptor)
     except _BudgetExhausted as error:
         qualifications.append(str(error))
     return collector.lanes_for(lane_prefix), tuple(dict.fromkeys(qualifications))
@@ -1311,33 +1308,134 @@ def _scope_sort_key(scope: _EvaluationScope | None) -> tuple[object, ...]:
     )
 
 
-def _proposal_sort_key(candidate: _CandidateComputation) -> tuple[object, ...]:
-    transformations = candidate.transformed_targets or (
-        (candidate.target, candidate.original, candidate.proposed),
-    )
+def _descriptor_sort_key(
+    kind: OptimizationKind,
+    target: str,
+    original: Expression,
+    proposed: Expression,
+    occurrences: tuple[_Occurrence, ...] = (),
+    transformed_targets: tuple[tuple[str, Expression, Expression], ...] = (),
+    intermediate_expression: Expression | None = None,
+    intermediate_scope: _EvaluationScope | None = None,
+) -> tuple[object, ...]:
+    transformations = transformed_targets or ((target, original, proposed),)
     return (
-        candidate.kind,
+        kind,
         tuple(
-            (target, render(original).sympy, render(proposed).sympy)
-            for target, original, proposed in transformations
+            (name, render(before).sympy, render(after).sympy)
+            for name, before, after in transformations
         ),
-        tuple((item.target, item.path, item.binders) for item in candidate.occurrences),
-        render(candidate.intermediate_expression).sympy
-        if candidate.intermediate_expression is not None
-        else "",
-        _scope_sort_key(candidate.intermediate_scope),
+        tuple((item.target, item.path, item.binders) for item in occurrences),
+        render(intermediate_expression).sympy if intermediate_expression is not None else "",
+        _scope_sort_key(intermediate_scope),
     )
 
 
-def _round_robin_candidates(
-    lanes: Iterable[tuple[tuple[object, ...], tuple[_CandidateComputation, ...]]],
-    budget: _OptimizationBudget,
-) -> tuple[tuple[tuple[object, ...], _CandidateComputation], ...]:
-    """Take one canonical proposal per live, already bounded lane per round."""
+def _horner_candidate(
+    target: str, original: Expression, occurrence: _Occurrence, rendered: str
+) -> _CandidateComputation:
+    """Parse the bounded Horner rendering only after scheduler admission."""
+    parsed = parse_expression(rendered)
+    assert not isinstance(parsed, (ParseFailure, Equation, Relationship))
+    return _CandidateComputation(
+        kind="horner",
+        target=target,
+        original=original,
+        proposed=_replace_paths(original, (occurrence.path,), parsed),
+        occurrences=(occurrence,),
+    )
+
+
+def _replacement_descriptor(
+    *,
+    kind: OptimizationKind,
+    target: str,
+    original: Expression,
+    occurrences: tuple[_Occurrence, ...],
+    replacement: Expression,
+) -> _CandidateDescriptor:
+    """Retain a target/path/replacement recipe and defer structural replacement."""
+    paths = tuple(item.path for item in occurrences)
+    return _CandidateDescriptor(
+        kind,
+        (kind, target, render(original).sympy, paths, render(replacement).sympy),
+        lambda: _CandidateComputation(
+            kind=kind,
+            target=target,
+            original=original,
+            proposed=_replace_paths(original, paths, replacement),
+            occurrences=occurrences,
+        ),
+    )
+
+
+def _generated_replacement_descriptor(
+    *,
+    kind: OptimizationKind,
+    target: str,
+    original: Expression,
+    occurrences: tuple[_Occurrence, ...],
+    generated_name: str,
+    intermediate_expression: Expression,
+    intermediate_scope: _EvaluationScope,
+) -> _CandidateDescriptor:
+    """Retain generated-reference placement data until scheduled materialization."""
+    paths = tuple(item.path for item in occurrences)
+    return _CandidateDescriptor(
+        kind,
+        (
+            kind, target, render(original).sympy, paths, generated_name,
+            render(intermediate_expression).sympy, _scope_sort_key(intermediate_scope),
+        ),
+        lambda: _CandidateComputation(
+            kind=kind,
+            target=target,
+            original=original,
+            proposed=_replace_paths(
+                original, paths, _generated_reference(generated_name, intermediate_scope)
+            ),
+            occurrences=occurrences,
+            intermediate_name=generated_name,
+            intermediate_expression=intermediate_expression,
+            intermediate_scope=intermediate_scope,
+        ),
+    )
+
+
+def _descriptor_from_recipe(
+    *,
+    kind: OptimizationKind,
+    target: str,
+    original: Expression,
+    proposed: Expression,
+    occurrences: tuple[_Occurrence, ...] = (),
+    transformed_targets: tuple[tuple[str, Expression, Expression], ...] = (),
+    intermediate_name: str | None = None,
+    intermediate_expression: Expression | None = None,
+    intermediate_scope: _EvaluationScope | None = None,
+) -> _CandidateDescriptor:
+    """Capture a complete candidate recipe without constructing it during discovery."""
+    return _CandidateDescriptor(
+        kind,
+        _descriptor_sort_key(
+            kind, target, original, proposed, occurrences, transformed_targets,
+            intermediate_expression, intermediate_scope,
+        ),
+        lambda: _CandidateComputation(
+            kind, target, original, proposed, occurrences, transformed_targets,
+            intermediate_name, intermediate_expression, intermediate_scope,
+        ),
+    )
+
+
+def _round_robin_descriptors(
+    lanes: Iterable[tuple[tuple[object, ...], tuple[_CandidateDescriptor, ...]]],
+) -> tuple[tuple[tuple[object, ...], _CandidateDescriptor], ...]:
+    """Select one stable descriptor from every live lane in each round."""
     active = [(key, values, 0) for key, values in sorted(lanes, key=lambda item: item[0]) if values]
-    selected: list[tuple[tuple[object, ...], _CandidateComputation]] = []
+    selected: list[tuple[tuple[object, ...], _CandidateDescriptor]] = []
     while active:
-        next_round: list[tuple[tuple[object, ...], tuple[_CandidateComputation, ...], int]] = []
+        next_round: list[tuple[tuple[object, ...], tuple[_CandidateDescriptor, ...], int]] = []
         for key, values, position in active:
             selected.append((key, values[position]))
             position += 1
