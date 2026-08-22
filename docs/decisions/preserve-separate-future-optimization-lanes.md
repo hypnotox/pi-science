@@ -1,7 +1,7 @@
 ---
 format: current-state-v4
 slug: preserve-separate-future-optimization-lanes
-status: Proposed
+status: Implemented
 date: 2026-08-22
 ---
 # ADR-preserve-separate-future-optimization-lanes: Preserve separate future optimization lanes
@@ -41,3 +41,4 @@ Future work must make lane-specific choices before implementation. Those choices
 ## Status history
 
 - 2026-08-22: Proposed
+- 2026-08-22: Implemented; content-sha256: 781520b26fd2e8f88b9da8d913a32e6ef04d6804dedb4cc34fae3470679a3afd

@@ -482,7 +482,7 @@
       "templateId": "",
       "templateHash": "",
       "configHash": "sha256:619a4dec6900da1feb21570a9a316b719f4802bf7686ce13e6cd6114d391b3e6",
-      "outputHash": "sha256:abb2ede56a2af0583bbd8ae34d58239eb127feb7a148fcc30f62c0a768bf7b21",
+      "outputHash": "sha256:e5513f7a3e3e8a243fcac419ea89e0f4bfc46337a851e59e8e9dcb5bc6dca9da",
       "regenChecked": true
     },
     "docs/decisions/README.md": {
@@ -603,8 +603,8 @@
     "docs/topics/product/product-boundary.md": {
       "templateId": "topics/topic.md.tmpl",
       "templateHash": "sha256:25b4ec23c7a22667f9d78b1e5883af8702d82f67896c3a42ac0ad19032d7c7bb",
-      "configHash": "sha256:23b77808124306d1e1e93a3fb61eef1ca4418f808192d608171ae7029a16c401",
-      "outputHash": "sha256:6f63c47ea6ff120515ca5e12c3249f901bf113844fb52dc17718032e7caf5f90"
+      "configHash": "sha256:1925393bacda68f59805d8f9941734f15d7e794461fe08e194633f611f809d20",
+      "outputHash": "sha256:5c11a864a207d28b08e5b68e8b5a6d73c144e9292c8c6e2c6ac58b1f340a9b9c"
     },
     "docs/vision.md": {
       "templateId": "docs/local.md.tmpl",

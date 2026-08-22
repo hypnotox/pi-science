@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-- [ADR-preserve-separate-future-optimization-lanes: Preserve separate future optimization lanes](preserve-separate-future-optimization-lanes.md) (Proposed)
+_No decisions are in flight._
 
 ## History
 
@@ -27,3 +27,4 @@
 - [ADR-0019: Adopt exact weighted optimization objectives](0019-adopt-exact-weighted-optimization-objectives.md) (Implemented)
 - [ADR-0020: Adopt deterministic bounded composed optimization search](0020-adopt-deterministic-bounded-composed-optimization-search.md) (Implemented)
 - [ADR-0021: Adopt opt-in exact algorithmic finite-sum optimization](0021-adopt-opt-in-exact-algorithmic-finite-sum-optimization.md) (Implemented)
+- [ADR-preserve-separate-future-optimization-lanes: Preserve separate future optimization lanes](preserve-separate-future-optimization-lanes.md) (Implemented)
