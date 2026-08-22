@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-- [ADR-adopt-opt-in-exact-algorithmic-finite-sum-optimization: Adopt opt-in exact algorithmic finite-sum optimization](adopt-opt-in-exact-algorithmic-finite-sum-optimization.md) (Implementing)
+- [ADR-0021: Adopt opt-in exact algorithmic finite-sum optimization](0021-adopt-opt-in-exact-algorithmic-finite-sum-optimization.md) (Implementing)
 
 ## History
 

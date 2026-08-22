@@ -4,7 +4,7 @@ slug: adopt-opt-in-exact-algorithmic-finite-sum-optimization
 status: Implementing
 date: 2026-08-22
 ---
-# ADR-adopt-opt-in-exact-algorithmic-finite-sum-optimization: Adopt opt-in exact algorithmic finite-sum optimization
+# ADR-0021: Adopt opt-in exact algorithmic finite-sum optimization
 
 ## Context
 
