@@ -39,7 +39,7 @@ This first algorithmic tier must not become a general aggregate representation. 
 
 Agents can opt into a proved finite-sum algorithm replacement and receive the same complete replay, comparison compatibility, exact objective evidence, and bounded trace structure as existing optimization plans. Explicit family selection prevents a future algorithmic family from silently entering ordinary advice, while explicit per-step tiers make mixed traces understandable without creating a general transformation language.
 
-Sharing the checked derivation boundary avoids duplicating bounded summation mathematics, but independent optimizer verification adds a new proof mode beyond rational expression equivalence. The final verifier must account for every algorithmic identity in a mixed trace; a parent-relative certificate alone remains insufficient. Preserving the surrounding shell keeps structural paths, later algebraic opportunities, and caller computation shape stable.
+Sharing the checked derivation boundary avoids duplicating bounded summation mathematics, but makes query and optimizer behavior depend on one internal contract and adds a new optimizer proof mode beyond rational expression equivalence. Query-parity regressions must protect ADR-0012 behavior while optimizer proof remains independently rerun. The final verifier must account for every algorithmic identity in a mixed trace; a parent-relative certificate alone remains insufficient. Preserving the surrounding shell keeps structural paths, later algebraic opportunities, and caller computation shape stable.
 
 Eligible closed forms are not automatically good optimizations. Symbolic range or work comparisons may be unresolved or nonpositive, so opt-in can still yield no algorithmic plan without a new diagnostic. Fixed sufficiently large bounds or adequate assumptions can prove positive savings, while ordinary work and query reports remain descriptions of the submitted computation rather than the replacement.
 
@@ -54,6 +54,7 @@ Protocol v16 changes Python models, generated schema, adapter, strict Pi validat
 | Use one broad algorithmic-tier toggle | A later family could become enabled without explicit caller selection or family-specific approval. |
 | Infer tier only from family kind | Mixed traces would lack explicit caller-facing tier provenance and require external mapping knowledge. |
 | Treat the query candidate as optimizer proof | Query evidence is not a complete replay proof or whole-computation objective comparison. |
+| Consume the query-result envelope only as an untrusted proposal generator | It would couple optimization to an informational public envelope instead of the approved shared checked derivation contract, while still requiring an independent optimizer proof. |
 | Optimize arbitrary finite `Sum` subtrees | It exceeds ADR-0012's maximal-tree and binder-context contract. |
 | Return a family-specific refusal for every rejected proposal | Existing optimization policy silently omits candidate-local failures; a new diagnostic contract is unnecessary for the initial family. |
 | Introduce a general aggregate or algorithm IR | The bounded finite-sum replacement needs no map/reduce/stage/recurrence model. |
