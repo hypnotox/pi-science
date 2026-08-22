@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-- [ADR-0020: Adopt deterministic bounded composed optimization search](0020-adopt-deterministic-bounded-composed-optimization-search.md) (Implementing)
+_No decisions are in flight._
 
 ## History
 
@@ -25,3 +25,4 @@
 - [ADR-0017: Adopt bounded formula optimization advice](0017-adopt-bounded-formula-optimization-advice.md) (Implemented)
 - [ADR-0018: Adopt stateless replayable formula optimization plans](0018-adopt-stateless-replayable-formula-optimization-plans.md) (Implemented)
 - [ADR-0019: Adopt exact weighted optimization objectives](0019-adopt-exact-weighted-optimization-objectives.md) (Implemented)
+- [ADR-0020: Adopt deterministic bounded composed optimization search](0020-adopt-deterministic-bounded-composed-optimization-search.md) (Implemented)

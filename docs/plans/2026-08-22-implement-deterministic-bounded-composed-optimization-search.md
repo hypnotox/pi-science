@@ -2,7 +2,7 @@
 format: plan-v2
 date: 2026-08-22
 adrs: [adopt-deterministic-bounded-composed-optimization-search]
-status: Proposed
+status: Implemented
 ---
 # Plan: Implement deterministic bounded composed optimization search
 
