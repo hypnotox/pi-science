@@ -1623,6 +1623,42 @@ def test_infinite_output_domain_is_rejected_as_a_finite_computational_bound() ->
     assert "infinite" in outcome.error.message
 
 
+def test_complete_candidate_keeps_untouched_system_serialization_and_replays() -> None:
+    """Complete replay states preserve caller-owned untouched equation bytes."""
+    from py_science.formula import AnalysisFailure
+    from py_science.formula.optimization import (
+        _complete_candidate,
+        _generate_candidates,
+        _OptimizationBudget,
+    )
+    from py_science.formula.service import _analyze_computation
+
+    request = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(
+            EquationRequest(name="a", expression="Eq(a, x*x + 1)"),
+            EquationRequest(name="b", expression="Eq(b, x*x - 1)"),
+            EquationRequest(name="untouched", expression="Eq(untouched, (z + 1))"),
+        ),
+        variables={
+            "x": VariableDeclaration(domain=MathematicalDomain.REAL),
+            "z": VariableDeclaration(domain=MathematicalDomain.REAL),
+        },
+        optimization=OptimizationConfig(max_suggestions=16),
+    )
+    retained = _analyze_computation(request)
+    assert not isinstance(retained, AnalysisFailure)
+    candidates, _ = _generate_candidates(retained, _OptimizationBudget())
+    sharing = next(item for item in candidates if item.kind == "cross_equation_sharing")
+
+    complete = _complete_candidate(sharing, request, retained)
+    untouched = next(item for item in complete.equations or () if item.name == "untouched")
+    assert untouched.expression == "Eq(untouched, (z + 1))"
+    replayed = _analyze_computation(complete)
+    assert not isinstance(replayed, AnalysisFailure)
+    assert replayed.aggregate_analysis.total_work != retained.aggregate_analysis.total_work
+
+
 def test_complete_candidate_replays_sum_and_output_scoped_reuse() -> None:
     from py_science.formula import AnalysisFailure
     from py_science.formula.optimization import (

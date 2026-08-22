@@ -11,6 +11,7 @@ import type {
   DominanceRequest,
   DominanceSuccess,
   OptimizeRequest,
+  OptimizationOperationSuccess,
   SystemReport,
 } from "../src/bridge.js";
 import {
@@ -217,6 +218,23 @@ const exitingResponder = (envelope: unknown, code = 2) =>
 
 function request(expression = "x") {
   return { syntax: "sympy" as const, expression };
+}
+
+function refreshTraceIdentities(plan: {
+  trace: Array<{ candidate: Record<string, unknown>; identity: string }>;
+  candidate: Record<string, unknown>;
+  identity: string;
+}): void {
+  for (const step of plan.trace) {
+    step.identity = JSON.stringify({
+      syntax: "sympy",
+      ...step.candidate,
+      equations: "expression" in step.candidate ? [] : step.candidate.equations,
+    });
+  }
+  const final = plan.trace[plan.trace.length - 1]!;
+  plan.candidate = final.candidate;
+  plan.identity = final.identity;
 }
 
 function optimizationPlan(
@@ -464,6 +482,61 @@ describe("private formula bridge", () => {
         optimization: { max_suggestions: 2 },
       }),
     ).rejects.toMatchObject({ kind: "protocol" });
+    for (const malformedPassive of [
+      {
+        ...disabled,
+        optimization: {
+          ...disabled.optimization,
+          projection_status: "truncated",
+        },
+      },
+      {
+        ...disabled,
+        optimization: {
+          ...disabled.optimization,
+          projection_qualifications: ["unexpected projection"],
+        },
+      },
+    ]) {
+      await expect(
+        invokeAdapter(node, responder(malformedPassive), {
+          ...request(),
+          optimization: { max_suggestions: 0 },
+        }),
+      ).rejects.toMatchObject({ kind: "protocol" });
+    }
+    const failed = {
+      ...disabled,
+      optimization: {
+        ...disabled.optimization,
+        requested_limit: 2,
+        status: "failed",
+        qualifications: ["bounded failure"],
+      },
+    };
+    for (const malformedFailed of [
+      {
+        ...failed,
+        optimization: {
+          ...failed.optimization,
+          projection_status: "truncated",
+        },
+      },
+      {
+        ...failed,
+        optimization: {
+          ...failed.optimization,
+          projection_qualifications: ["unexpected projection"],
+        },
+      },
+    ]) {
+      await expect(
+        invokeAdapter(node, responder(malformedFailed), {
+          ...request(),
+          optimization: { max_suggestions: 2 },
+        }),
+      ).rejects.toMatchObject({ kind: "protocol" });
+    }
 
     const incomplete = {
       ...success,
@@ -1113,6 +1186,22 @@ describe("private formula bridge", () => {
       "uncorrelated_tmp";
     const brokenStepIdentity = structuredClone(composed);
     brokenStepIdentity.plans[planIndex]!.trace[0]!.identity += " ";
+    const brokenIntermediateValue = structuredClone(composed);
+    brokenIntermediateValue.plans[
+      planIndex
+    ]!.trace[0]!.intermediate!.expression.normalized_sympy = "x";
+    const brokenLetValue = structuredClone(composed);
+    const letStep = brokenLetValue.plans[planIndex]!.trace[0]!;
+    if (!("expression" in letStep.candidate))
+      throw new Error("expected expression candidate");
+    const letExpression = letStep.candidate.expression;
+    if (letExpression === undefined)
+      throw new Error("expected expression candidate");
+    letStep.candidate.expression = letExpression.replace(
+      /Let\(([^,]+), [^,]+, /,
+      "Let($1, x, ",
+    );
+    refreshTraceIdentities(brokenLetValue.plans[planIndex]!);
     const brokenFinalEvidence = structuredClone(composed);
     brokenFinalEvidence.plans[planIndex]!.suggestion.objective_before = "999";
     const brokenState = structuredClone(composed);
@@ -1143,6 +1232,8 @@ describe("private formula bridge", () => {
     for (const invalid of [
       brokenChain,
       brokenIntermediate,
+      brokenIntermediateValue,
+      brokenLetValue,
       brokenStepIdentity,
       brokenFinalEvidence,
       brokenState,
@@ -1150,6 +1241,83 @@ describe("private formula bridge", () => {
     ]) {
       await expect(
         invokeAdapter(node, responder(invalid), composedRequest),
+      ).rejects.toMatchObject({ kind: "protocol" });
+    }
+  });
+
+  it("rejects state-correlated system trace mutations from the real adapter", async () => {
+    const adapter = fileURLToPath(
+      new URL("../bridge/formula_adapter.py", import.meta.url),
+    );
+    const systemRequest: OptimizeRequest = {
+      syntax: "sympy",
+      operation: "optimize",
+      equations: [
+        { name: "a", expression: "Eq(a, x*x + 1)" },
+        { name: "b", expression: "Eq(b, x*x - 1)" },
+        { name: "untouched", expression: "Eq(untouched, (z + 1))" },
+      ],
+      variables: { x: { domain: "real" }, z: { domain: "real" } },
+      max_plans: 16,
+    };
+    const system = await invokeAdapter(
+      "uv",
+      ["run", "--locked", "python", adapter],
+      systemRequest,
+    );
+    if (system.status !== "success" || !("plans" in system))
+      throw new Error("expected system optimize success");
+    const optimizedSystem: OptimizationOperationSuccess = system;
+    const planIndex = optimizedSystem.plans.findIndex(
+      (plan) => plan.suggestion.kind === "cross_equation_sharing",
+    );
+    expect(planIndex).toBeGreaterThanOrEqual(0);
+    await expect(
+      invokeAdapter(node, responder(optimizedSystem), systemRequest),
+    ).resolves.toEqual(optimizedSystem);
+
+    const mutate = (
+      change: (plan: (typeof optimizedSystem.plans)[number]) => void,
+    ) => {
+      const malformed = structuredClone(optimizedSystem);
+      const plan = malformed.plans[planIndex]!;
+      change(plan);
+      refreshTraceIdentities(plan);
+      return malformed;
+    };
+    const transformedRhs = mutate((plan) => {
+      const equation = plan.trace[0]!.candidate.equations!.find(
+        (item) => item.name === "a",
+      )!;
+      equation.expression = "Eq(a, fabricated)";
+    });
+    const untouchedSerialization = mutate((plan) => {
+      const equation = plan.trace[0]!.candidate.equations!.find(
+        (item) => item.name === "untouched",
+      )!;
+      equation.expression = "Eq(untouched, z + 1)";
+    });
+    const producerRhs = mutate((plan) => {
+      const producer = plan.trace[0]!.candidate.equations!.find(
+        (item) => item.name === "optimization_tmp_1",
+      )!;
+      producer.expression = "Eq(optimization_tmp_1, fabricated)";
+    });
+    const producerName = mutate((plan) => {
+      const producer = plan.trace[0]!.candidate.equations!.find(
+        (item) => item.name === "optimization_tmp_1",
+      )!;
+      producer.name = "fabricated_producer";
+      producer.expression = "Eq(fabricated_producer, x**2)";
+    });
+    for (const malformed of [
+      transformedRhs,
+      untouchedSerialization,
+      producerRhs,
+      producerName,
+    ]) {
+      await expect(
+        invokeAdapter(node, responder(malformed), systemRequest),
       ).rejects.toMatchObject({ kind: "protocol" });
     }
   });

@@ -197,8 +197,9 @@ describe("formula adapter protocol boundary", () => {
           equations: [
             { name: "a", expression: "Eq(a, x*x + 1)" },
             { name: "b", expression: "Eq(b, x*x - 1)" },
+            { name: "untouched", expression: "Eq(untouched, (z + 1))" },
           ],
-          variables: { x: { domain: "real" } },
+          variables: { x: { domain: "real" }, z: { domain: "real" } },
           max_plans: 16,
         },
       }),
@@ -208,8 +209,15 @@ describe("formula adapter protocol boundary", () => {
       (plan: { suggestion: { kind: string } }) =>
         plan.suggestion.kind === "cross_equation_sharing",
     );
-    expect(systemPlan.candidate.outputs).toEqual(["a", "b"]);
+    expect(systemPlan.candidate.outputs).toEqual(["a", "b", "untouched"]);
     expect(systemPlan.candidate).not.toHaveProperty("expression");
+    // Complete states retain every untouched caller equation verbatim, even
+    // before a retained parent exists for the first replay step.
+    expect(
+      systemPlan.candidate.equations.find(
+        (equation: { name: string }) => equation.name === "untouched",
+      ).expression,
+    ).toBe("Eq(untouched, (z + 1))");
 
     const replayedSystem = invoke(
       JSON.stringify({

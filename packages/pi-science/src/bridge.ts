@@ -3246,129 +3246,302 @@ function candidateAsAnalysisRequest(
   };
 }
 
-function equationWithTargetRhs(expression: string, rhs: string): string | null {
-  // This only preserves the serialized Eq LHS while replacing its top-level
-  // RHS; it is not expression parsing or transformation application.
-  if (!expression.startsWith("Eq(")) return null;
+type SerializedCall = { name: string; arguments: string[] };
+
+/** Split the project-owned restricted SymPy call serialization without parsing math. */
+function splitSerializedCall(value: string): SerializedCall | null {
+  const opening = value.indexOf("(");
+  if (opening <= 0 || value[value.length - 1] !== ")") return null;
+  const name = value.slice(0, opening);
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return null;
+  const arguments_: string[] = [];
   const delimiters: string[] = [];
-  for (let index = 0; index < expression.length; index += 1) {
-    const character = expression[index]!;
-    if ("([{".includes(character)) delimiters.push(character);
-    else if (")] }".replace(" ", "").includes(character)) delimiters.pop();
-    else if (character === "," && delimiters.length === 1)
-      return `${expression.slice(0, index + 2)}${rhs})`;
+  let start = opening + 1;
+  for (let index = opening + 1; index < value.length; index += 1) {
+    const character = value[index]!;
+    if (character === "(" || character === "[" || character === "{") {
+      delimiters.push(character);
+      continue;
+    }
+    if (character === ")" || character === "]" || character === "}") {
+      const openingDelimiter = delimiters.pop();
+      if (openingDelimiter !== undefined) {
+        if (!(
+          (openingDelimiter === "(" && character === ")") ||
+          (openingDelimiter === "[" && character === "]") ||
+          (openingDelimiter === "{" && character === "}")
+        ))
+          return null;
+        continue;
+      }
+      if (character !== ")" || index !== value.length - 1) return null;
+      const argument = value.slice(start, index).trim();
+      if (argument.length === 0) return null;
+      arguments_.push(argument);
+      return { name, arguments: arguments_ };
+    }
+    if (character === "," && delimiters.length === 0) {
+      const argument = value.slice(start, index).trim();
+      if (argument.length === 0) return null;
+      arguments_.push(argument);
+      start = index + 1;
+    }
   }
   return null;
+}
+
+function serializedEquation(value: string): [string, string] | null {
+  const call = splitSerializedCall(value);
+  return call?.name === "Eq" && call.arguments.length === 2
+    ? [call.arguments[0]!, call.arguments[1]!]
+    : null;
+}
+
+function serializedCallEnd(value: string, start: number): number | null {
+  const delimiters: string[] = [];
+  for (let index = start + 4; index < value.length; index += 1) {
+    const character = value[index]!;
+    if (character === "(" || character === "[" || character === "{") {
+      delimiters.push(character);
+      continue;
+    }
+    if (character !== ")" && character !== "]" && character !== "}") continue;
+    const opening = delimiters.pop();
+    if (opening !== undefined) {
+      if (!(
+        (opening === "(" && character === ")") ||
+        (opening === "[" && character === "]") ||
+        (opening === "{" && character === "}")
+      ))
+        return null;
+      continue;
+    }
+    return character === ")" ? index : null;
+  }
+  return null;
+}
+
+function projectDeclaredLet(
+  value: string,
+  name: string,
+  declaredValue: string,
+): { value: string; matches: number; malformed: boolean } {
+  let cursor = 0;
+  let matches = 0;
+  let malformed = false;
+  let projected = "";
+  while (cursor < value.length) {
+    const start = value.indexOf("Let(", cursor);
+    if (start < 0 || (start > 0 && /[A-Za-z0-9_]/.test(value[start - 1]!))) {
+      projected += value.slice(cursor);
+      break;
+    }
+    const end = serializedCallEnd(value, start);
+    if (end === null) return { value, matches: 0, malformed: true };
+    const callText = value.slice(start, end + 1);
+    const call = splitSerializedCall(callText);
+    if (call === null) return { value, matches: 0, malformed: true };
+    projected += value.slice(cursor, start);
+    if (call.arguments.length === 3 && call.arguments[0] === name) {
+      if (call.arguments[1] !== declaredValue) malformed = true;
+      else {
+        projected += call.arguments[2]!;
+        matches += 1;
+      }
+    } else projected += callText;
+    cursor = end + 1;
+  }
+  return { value: projected, matches, malformed };
+}
+
+function correlatedState(
+  candidateValue: string,
+  proposed: string,
+  intermediate: unknown,
+): boolean {
+  if (!isRecord(intermediate)) return candidateValue === proposed;
+  const expression = intermediate.expression;
+  const indices = intermediate.scope_output_indices;
+  if (
+    typeof intermediate.name !== "string" ||
+    !isRecord(expression) ||
+    typeof expression.normalized_sympy !== "string" ||
+    !Array.isArray(indices) ||
+    !indices.every((index) => typeof index === "string")
+  )
+    return false;
+  const projected = projectDeclaredLet(
+    candidateValue,
+    intermediate.name,
+    expression.normalized_sympy,
+  );
+  // Target-local evidence refers to an output-scoped producer as name[index],
+  // while its lexical Let body uses its locally bound bare name.  This is an
+  // exact identifier projection, never a target-match fallback.
+  const scopedName = `${intermediate.name}[${indices.join(", ")}]`;
+  const projectedValue =
+    indices.length === 0
+      ? projected.value
+      : projected.value.replace(
+          new RegExp(
+            `(?<![A-Za-z0-9_])${intermediate.name}(?![A-Za-z0-9_\\[])`,
+            "g",
+          ),
+          scopedName,
+        );
+  return (
+    !projected.malformed &&
+    projected.matches === 1 &&
+    projectedValue === proposed
+  );
 }
 
 function traceStateCorrelates(
   step: Record<string, unknown>,
   parent: AnalysisRequest,
-  parentIsSubmittedRequest: boolean,
+  _parentIsSubmittedRequest: boolean,
 ): boolean {
   const candidate = step.candidate as OptimizationCandidate;
   const transformations = step.transformations as Array<
     Record<string, unknown>
   >;
-  const targets = new Set(
-    transformations.map((transformation) => {
-      const target = transformation.target as Record<string, unknown>;
-      return `${String(target.kind)}:${String(target.name ?? "")}`;
-    }),
-  );
+  const intermediate = step.intermediate;
   if (isExpressionRequest(parent)) {
-    const proposed = transformations.find(
-      (transformation) =>
-        (transformation.target as Record<string, unknown>).kind ===
-        "expression",
-    )?.proposed as Record<string, unknown> | undefined;
-    const intermediate = step.intermediate;
-    // A direct expression step has one complete target state.  A generated
-    // producer deliberately wraps that target in its complete candidate; Pi
-    // correlates the declared producer structurally and never applies it.
-    if (
-      candidate.expression === undefined ||
-      candidate.expression === parent.expression ||
-      typeof proposed?.normalized_sympy !== "string" ||
-      (!isRecord(intermediate) &&
-        candidate.expression !== proposed.normalized_sympy) ||
-      (isRecord(intermediate) &&
-        (typeof intermediate.name !== "string" ||
-          !candidate.expression.startsWith(`Let(${intermediate.name},`)))
-    )
-      return false;
-  } else {
-    if (candidate.equations === undefined) return false;
-    const children = new Map(
-      candidate.equations.map((equation) => [equation.name, equation]),
+    const transformation = transformations.find(
+      (item) => (item.target as Record<string, unknown>).kind === "expression",
     );
-    for (const equation of parent.equations) {
-      const child = children.get(equation.name);
-      if (child === undefined) return false;
-      const transformed = targets.has(`equation:${equation.name}`);
-      // Submitted systems may be normalized by Python before the first
-      // retained candidate.  Once a complete parent exists, untouched states
-      // are byte-stable; transformed states must always differ.
+    const proposed = transformation?.proposed as
+      Record<string, unknown> | undefined;
+    return (
+      typeof candidate.expression === "string" &&
+      typeof proposed?.normalized_sympy === "string" &&
+      candidate.expression !== parent.expression &&
+      correlatedState(
+        candidate.expression,
+        proposed.normalized_sympy,
+        intermediate,
+      )
+    );
+  }
+  if (candidate.equations === undefined) return false;
+  const transformed = new Map(
+    transformations
+      .filter(
+        (item) => (item.target as Record<string, unknown>).kind === "equation",
+      )
+      .map((item) => [
+        String((item.target as Record<string, unknown>).name),
+        item,
+      ]),
+  );
+  const children = new Map(
+    candidate.equations.map((equation) => [equation.name, equation]),
+  );
+  for (const source of parent.equations) {
+    const child = children.get(source.name);
+    if (child === undefined) return false;
+    const transformation = transformed.get(source.name);
+    if (transformation === undefined) {
+      // Adapter candidates materialize absent context defaults, but an
+      // untouched caller expression itself is serialized byte-for-byte.
       if (
-        (!transformed &&
-          !parentIsSubmittedRequest &&
-          !sameJson(child, equation)) ||
-        (transformed && sameJson(child, equation))
+        child.expression !== source.expression ||
+        !sameJson(
+          normalizedEquationContext(child),
+          normalizedEquationContext(source),
+        )
       )
         return false;
-      if (transformed) {
-        const transformation = transformations.find(
-          (item) =>
-            (item.target as Record<string, unknown>).kind === "equation" &&
-            (item.target as Record<string, unknown>).name === equation.name,
-        );
-        const proposed = transformation?.proposed as
-          Record<string, unknown> | undefined;
-        // `proposed` remains the public target-local RHS.  Python serializes
-        // system candidates as normalized `Eq(target, rhs)` states, allowing
-        // exact structural correlation without Pi applying the edit.
-        const rhs =
-          typeof proposed?.normalized_sympy === "string"
-            ? proposed.normalized_sympy
-            : null;
-        const expected =
-          rhs === null ? null : equationWithTargetRhs(equation.expression, rhs);
-        // Candidate binders can be capture-avoidably normalized on the first
-        // replay, but the serialized transformed RHS itself remains exact.
-        if (
-          expected === null ||
-          (!sameJson(child.expression, expected) &&
-            child.expression !== `Eq(${equation.name}, ${rhs})` &&
-            !child.expression.endsWith(`, ${rhs})`) &&
-            !parentIsSubmittedRequest)
-        )
-          return false;
-      }
+      continue;
     }
-    const added = candidate.equations
-      .map((equation) => equation.name)
-      .filter(
-        (name) => !parent.equations.some((equation) => equation.name === name),
-      );
-    const intermediate = step.intermediate;
+    const sourceParts = serializedEquation(source.expression);
+    const childParts = serializedEquation(child.expression);
+    const proposed = transformation.proposed as
+      Record<string, unknown> | undefined;
+    // A global intermediate is correlated through its producer equation;
+    // only lexical scope declares a Let wrapper in a target RHS.
+    const lexicalIntermediate =
+      isRecord(intermediate) &&
+      Array.isArray(intermediate.scope_binders) &&
+      intermediate.scope_binders.length > 0
+        ? intermediate
+        : null;
     if (
-      added.length > 0 &&
-      (!isRecord(intermediate) ||
-        added.length !== 1 ||
-        added[0] !== intermediate.name)
+      sourceParts === null ||
+      childParts === null ||
+      sourceParts[0] !== childParts[0] ||
+      typeof proposed?.normalized_sympy !== "string" ||
+      !correlatedState(
+        childParts[1],
+        proposed.normalized_sympy,
+        lexicalIntermediate,
+      )
     )
       return false;
   }
-  const intermediate = step.intermediate;
-  if (isRecord(intermediate)) {
-    const serialized = canonicalJson(candidate);
-    if (
-      typeof intermediate.name !== "string" ||
-      !serialized.includes(intermediate.name)
+  const added = candidate.equations.filter(
+    (equation) =>
+      !parent.equations.some((source) => source.name === equation.name),
+  );
+  if (!isRecord(intermediate)) return added.length === 0;
+  if (!Array.isArray(intermediate.scope_binders)) return false;
+  if (intermediate.scope_binders.length > 0) return added.length === 0;
+  const expression = intermediate.expression;
+  if (
+    added.length !== 1 ||
+    typeof intermediate.name !== "string" ||
+    added[0]!.name !== intermediate.name ||
+    !isRecord(expression) ||
+    typeof expression.normalized_sympy !== "string"
+  )
+    return false;
+  const producer = serializedEquation(added[0]!.expression);
+  const indices = intermediate.scope_output_indices;
+  if (
+    !Array.isArray(indices) ||
+    !indices.every((item) => typeof item === "string")
+  )
+    return false;
+  const producerDomains = added[0]!.domains ?? {};
+  const producerConstraints = added[0]!.constraints ?? [];
+  // Multi-target sharing may choose any transformed target with the declared
+  // interface; require one exact current parent context rather than assuming
+  // generator traversal selected the first target.
+  const interfaceMatches = transformations
+    .filter(
+      (item) => (item.target as Record<string, unknown>).kind === "equation",
     )
-      return false;
-  }
-  return true;
+    .map((item) =>
+      parent.equations.find(
+        (equation) =>
+          equation.name === (item.target as Record<string, unknown>).name,
+      ),
+    )
+    .some(
+      (target) =>
+        target !== undefined &&
+        sameJson(
+          producerDomains,
+          Object.fromEntries(
+            indices.map((name) => [name, (target.domains ?? {})[name]]),
+          ),
+        ) &&
+        sameJson(
+          producerConstraints,
+          (target.constraints ?? []).filter((constraint) =>
+            indices.includes(constraint.target),
+          ),
+        ),
+    );
+  const producerOutput = `${intermediate.name}${
+    indices.length === 0 ? "" : `[${indices.join(", ")}]`
+  }`;
+  return (
+    producer !== null &&
+    producer[0] === producerOutput &&
+    producer[1] === expression.normalized_sympy &&
+    interfaceMatches
+  );
 }
 
 function validOptimizationTraceStep(

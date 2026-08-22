@@ -979,8 +979,14 @@ def _complete_candidate(
 
     equations: list[EquationRequest] = []
     for source in request.equations:
+        # Untouched equations are transport state, not optimizer output: retain
+        # the caller serialization exactly so every replay step has a stable
+        # parent-child boundary.  Only a local transformation is rendered.
+        if source.name not in transformations:
+            equations.append(source)
+            continue
         parsed = next(item for item in computed.equations if item.name == source.name)
-        right = transformations.get(source.name, parsed.formula.right)
+        right = transformations[source.name]
         if (
             source.name == candidate.target
             and intermediate_expression is not None
@@ -1730,6 +1736,17 @@ def _interpretation(expression: Expression) -> Interpretation:
     return Interpretation(normalized_sympy=rendered.sympy, normalized_latex=rendered.latex)
 
 
+def _intermediate_interpretation(expression: Expression) -> Interpretation:
+    """Return the exact renderer spelling of an intermediate inside a Let state."""
+    marker = "_optimization_binding"
+    lexical = render(Let(marker, expression, Symbol(marker))).sympy
+    prefix = f"Let({marker}, "
+    return Interpretation(
+        normalized_sympy=lexical[len(prefix) : -len(f", {marker})")],
+        normalized_latex=render(expression).latex,
+    )
+
+
 def _verify_candidate(
     candidate: _CandidateComputation,
     request: AnalysisRequest,
@@ -1912,7 +1929,11 @@ def _verify_candidate(
         intermediate = (
             OptimizationIntermediate(
                 name=candidate.intermediate_name,
-                expression=_interpretation(candidate.intermediate_expression),
+                expression=(
+                    _intermediate_interpretation(candidate.intermediate_expression)
+                    if computed.expression is not None or candidate.intermediate_scope.binders
+                    else _interpretation(candidate.intermediate_expression)
+                ),
                 scope_binders=tuple(item.name for item in candidate.intermediate_scope.binders),
                 scope_output_indices=candidate.intermediate_scope.output_indices,
             )
@@ -1957,7 +1978,18 @@ def _verify_candidate(
                 if item.target == target_name
             ),
             original=_interpretation(original_expression),
-            proposed=_interpretation(proposed_expression),
+            proposed=(
+                _intermediate_interpretation(proposed_expression)
+                if candidate.intermediate_name is not None
+                and (
+                    computed.expression is not None
+                    or (
+                        candidate.intermediate_scope is not None
+                        and candidate.intermediate_scope.binders
+                    )
+                )
+                else _interpretation(proposed_expression)
+            ),
         )
         for target_name, original_expression, proposed_expression in raw_transformations
     )
