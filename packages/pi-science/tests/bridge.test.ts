@@ -740,32 +740,120 @@ describe("private formula bridge", () => {
     ).rejects.toMatchObject({ kind: "protocol" });
   });
 
-  it("strictly transports opt-in exact algorithmic plans", async () => {
+  it("strictly correlates opt-in exact algorithmic trace structure", async () => {
     const adapter = fileURLToPath(
       new URL("../bridge/formula_adapter.py", import.meta.url),
     );
+    const algorithmicRequest: OptimizeRequest = {
+      syntax: "sympy",
+      operation: "optimize",
+      expression: "Sum(Sum(i*j + j**2, (j, 0, i)), (i, 0, 100)) + 3",
+      max_plans: 16,
+      enabled_algorithmic_families: ["finite_polynomial_sum_v1"],
+    };
     const result = await invokeAdapter(
       "uv",
       ["run", "--locked", "python", adapter],
-      {
-        syntax: "sympy",
-        operation: "optimize",
-        expression: "3 + Sum(Sum(i*j + j**2, (j, 0, i)), (i, 0, 100))",
-        max_plans: 16,
-        enabled_algorithmic_families: ["finite_polynomial_sum_v1"],
-      },
+      algorithmicRequest,
     );
     expect(result).toMatchObject({ status: "success" });
     if (!("plans" in result)) throw new Error("expected optimization plans");
-    expect(
-      result.plans.some((plan) =>
-        plan.trace.some(
-          (step) =>
-            step.kind === "finite_polynomial_sum_v1" &&
-            step.tier === "exact_algorithmic_v1",
-        ),
+    const planIndex = result.plans.findIndex((plan) =>
+      plan.trace.some(
+        (step) =>
+          step.kind === "finite_polynomial_sum_v1" &&
+          step.tier === "exact_algorithmic_v1",
       ),
-    ).toBe(true);
+    );
+    expect(planIndex).toBeGreaterThanOrEqual(0);
+    await expect(
+      invokeAdapter(node, responder(result), algorithmicRequest),
+    ).resolves.toEqual(result);
+
+    const wrongOriginal = structuredClone(result);
+    wrongOriginal.plans[
+      planIndex
+    ]!.trace[0]!.transformations[0]!.original.normalized_sympy =
+      "4 + Sum(i*j + j**2, (j, 0, i), (i, 0, 100))";
+    wrongOriginal.plans[planIndex]!.suggestion.transformations =
+      wrongOriginal.plans[planIndex]!.trace[0]!.transformations;
+    const wrongPath = structuredClone(result);
+    wrongPath.plans[
+      planIndex
+    ]!.trace[0]!.transformations[0]!.occurrences[0]!.path = [1];
+    wrongPath.plans[planIndex]!.suggestion.transformations =
+      wrongPath.plans[planIndex]!.trace[0]!.transformations;
+    const unreachablePath = structuredClone(result);
+    unreachablePath.plans[
+      planIndex
+    ]!.trace[0]!.transformations[0]!.occurrences[0]!.path = [1, 99];
+    unreachablePath.plans[planIndex]!.suggestion.transformations =
+      unreachablePath.plans[planIndex]!.trace[0]!.transformations;
+    const wrongBinders = structuredClone(result);
+    wrongBinders.plans[
+      planIndex
+    ]!.trace[0]!.transformations[0]!.occurrences[0]!.binders = ["i"];
+    wrongBinders.plans[planIndex]!.suggestion.transformations =
+      wrongBinders.plans[planIndex]!.trace[0]!.transformations;
+    for (const invalid of [
+      wrongOriginal,
+      wrongPath,
+      unreachablePath,
+      wrongBinders,
+    ]) {
+      await expect(
+        invokeAdapter(node, responder(invalid), algorithmicRequest),
+      ).rejects.toMatchObject({ kind: "protocol" });
+    }
+
+    const systemRequest: OptimizeRequest = {
+      syntax: "sympy",
+      operation: "optimize",
+      equations: [
+        {
+          name: "value",
+          expression:
+            "Eq(value[k], 3 + Sum(Sum(i*j + j**2, (j, 0, i)), (i, 0, 100)))",
+          domains: { k: { lower: "0", upper: "3" } },
+        },
+      ],
+      max_plans: 16,
+      enabled_algorithmic_families: ["finite_polynomial_sum_v1"],
+    };
+    const system = await invokeAdapter(
+      "uv",
+      ["run", "--locked", "python", adapter],
+      systemRequest,
+    );
+    if (system.status !== "success" || !("plans" in system))
+      throw new Error("expected system optimization plans");
+    const systemPlanIndex = system.plans.findIndex((plan) =>
+      plan.trace.some((step) => step.kind === "finite_polynomial_sum_v1"),
+    );
+    expect(systemPlanIndex).toBeGreaterThanOrEqual(0);
+    const wrongOutputIndices = structuredClone(system);
+    wrongOutputIndices.plans[
+      systemPlanIndex
+    ]!.trace[0]!.transformations[0]!.occurrences[0]!.output_indices = [];
+    wrongOutputIndices.plans[systemPlanIndex]!.suggestion.transformations =
+      wrongOutputIndices.plans[systemPlanIndex]!.trace[0]!.transformations;
+    const wrongContext = structuredClone(system);
+    const contextPlan = wrongContext.plans[systemPlanIndex]!;
+    const contextCandidate = contextPlan.trace[0]!.candidate;
+    if (
+      !("equations" in contextCandidate) ||
+      contextCandidate.equations === undefined
+    )
+      throw new Error("expected system candidate");
+    const mutatedDomain = contextCandidate.equations[0]?.domains?.k;
+    if (mutatedDomain === undefined) throw new Error("expected output domain");
+    mutatedDomain.upper = "4";
+    refreshTraceIdentities(contextPlan);
+    for (const invalid of [wrongOutputIndices, wrongContext]) {
+      await expect(
+        invokeAdapter(node, responder(invalid), systemRequest),
+      ).rejects.toMatchObject({ kind: "protocol" });
+    }
   });
 
   it("round trips the actual adapter for success, lexical Let, and analysis failure", async () => {

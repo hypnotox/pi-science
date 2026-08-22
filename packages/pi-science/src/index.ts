@@ -95,7 +95,7 @@ function compactToolText(result: BridgeResult): string {
         `- Plan ${index + 1}: ${steps}; outputs: ${plan.candidate.outputs.join(", ")}`,
         `  Candidate: ${compactExpression(computation)}`,
         `  Objective profile: ${objectiveProfile(plan.objective)}`,
-        `  Original-to-final selected-objective savings: ${plan.suggestion.objective_savings}; ${plan.suggestion.finite_precision_qualification}; exact symbolic qualification only—no runtime or finite-precision claim`,
+        `  Original-to-final selected-objective savings: ${plan.suggestion.objective_savings}; ${plan.suggestion.finite_precision_qualification}; exact symbolic qualification only; no runtime or finite-precision claim`,
         ...(index === 0
           ? []
           : [
@@ -290,7 +290,7 @@ function compactToolText(result: BridgeResult): string {
     const additional = report.suggestions.length - 1;
     return [
       "Optimization advice",
-      `- optimization plan: ${transformations}${intermediate}; objective ${objectiveProfile(firstPlan.objective)}: ${suggestion.objective_before} → ${suggestion.objective_after}; original-to-final saving ${suggestion.objective_savings}${conditions}${assumptions}; ${suggestion.finite_precision_qualification}; exact symbolic qualification only—no runtime or finite-precision claim`,
+      `- optimization plan: ${transformations}${intermediate}; objective ${objectiveProfile(firstPlan.objective)}: ${suggestion.objective_before} → ${suggestion.objective_after}; original-to-final saving ${suggestion.objective_savings}${conditions}${assumptions}; ${suggestion.finite_precision_qualification}; exact symbolic qualification only; no runtime or finite-precision claim`,
       ...(additional === 0
         ? []
         : [

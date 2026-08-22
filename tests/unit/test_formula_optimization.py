@@ -2882,28 +2882,43 @@ def test_exact_algorithmic_sum_v1_mixes_with_algebraic_search_deterministically(
         analyze,
     )
 
-    outcome = analyze(
-        AnalysisRequest(
-            syntax=FormulaSyntax.SYMPY,
-            expression="x*y + x*z + Sum(Sum(i*j + j**2, (j, 0, i)), (i, 0, 100))",
-            variables={
-                name: VariableDeclaration(domain=MathematicalDomain.REAL)
-                for name in ("x", "y", "z")
-            },
-            optimization=OptimizationConfig(
-                max_suggestions=16,
-                enabled_algorithmic_families=("finite_polynomial_sum_v1",),
-            ),
+    def plans(source: str, limit: int = 16):
+        outcome = analyze(
+            AnalysisRequest(
+                syntax=FormulaSyntax.SYMPY,
+                expression=source,
+                variables={
+                    name: VariableDeclaration(domain=MathematicalDomain.REAL)
+                    for name in ("x", "y", "z")
+                },
+                optimization=OptimizationConfig(
+                    max_suggestions=limit,
+                    enabled_algorithmic_families=("finite_polynomial_sum_v1",),
+                ),
+            )
         )
-    )
-    assert outcome.status == "success"
-    mixed = next(plan for plan in outcome.optimization.plans if len(plan.trace) == 2)
+        assert outcome.status == "success"
+        return outcome.optimization.plans
+
+    source = "x*y + x*z + Sum(Sum(i*j + j**2, (j, 0, i)), (i, 0, 100))"
+    population = plans(source)
+    mixed = next(plan for plan in population if len(plan.trace) == 2)
     assert tuple((step.kind, step.tier) for step in mixed.trace) == (
         ("finite_polynomial_sum_v1", "exact_algorithmic_v1"),
         ("factoring", "exact_algebraic_v1"),
     )
     assert mixed.candidate.expression == "x*(y + z) + 21591275"
     assert mixed.suggestion.objective_savings == "20604"
+    assert plans(source, 1) == population[:1]
+    alpha_renamed = plans(
+        "x*y + x*z + Sum(Sum(a*b + b**2, (b, 0, a)), (a, 0, 100))"
+    )
+    assert [plan.identity for plan in alpha_renamed] == [
+        plan.identity for plan in population
+    ]
+    assert [tuple(step.kind for step in plan.trace) for plan in alpha_renamed] == [
+        tuple(step.kind for step in plan.trace) for plan in population
+    ]
 
 
 def test_exact_algorithmic_sum_v1_direct_request_keeps_opt_in_out_of_replay() -> None:
@@ -2925,3 +2940,142 @@ def test_exact_algorithmic_sum_v1_direct_request_keeps_opt_in_out_of_replay() ->
     )
     assert "enabled_algorithmic_families" not in plan.identity
     assert plan.trace[0].transformations[0].occurrences[0].path == ()
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "Sum(Sum(k**9, (l, 0, 1)), (k, 0, 100))",
+        "Sum(Sum(k, (l, 0, 1)), (k, 0, oo))",
+        "Sum(Sum(k, (l, 0, 1)), (k, n, 100))",
+        "Sum(Sum(k, (l, 0, 1)), (k, 0, 100)) + "
+        "Sum(Sum(k, (l, 0, 1)), (k, 0, 100))",
+        "Sum(Sum(f(k), (l, 0, 1)), (k, 0, 100))",
+    ),
+)
+def test_exact_algorithmic_sum_v1_refusals_are_silent(source: str) -> None:
+    from py_science.formula import AnalysisRequest, FormulaSyntax, OptimizationConfig, analyze
+
+    outcome = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression=source,
+            optimization=OptimizationConfig(
+                max_suggestions=16,
+                enabled_algorithmic_families=("finite_polynomial_sum_v1",),
+            ),
+        )
+    )
+
+    assert outcome.status == "success"
+    assert all(
+        not any(step.kind == "finite_polynomial_sum_v1" for step in plan.trace)
+        for plan in outcome.optimization.plans
+    )
+    assert not any(
+        "algorithmic" in qualification or "polynomial" in qualification
+        for qualification in outcome.optimization.qualifications
+    )
+
+
+def test_exact_algorithmic_sum_v1_uses_existing_proof_budget() -> None:
+    from dataclasses import replace
+
+    from py_science.formula import (
+        AnalysisFailure,
+        AnalysisRequest,
+        FormulaSyntax,
+        OptimizationConfig,
+    )
+    from py_science.formula.optimization import _optimization_report, _OptimizationBudgetConfig
+    from py_science.formula.service import _analyze_computation
+
+    request = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="3 + Sum(Sum(i*j + j**2, (j, 0, i)), (i, 0, 100))",
+        optimization=OptimizationConfig(
+            max_suggestions=16,
+            enabled_algorithmic_families=("finite_polynomial_sum_v1",),
+        ),
+    )
+    computed = _analyze_computation(request)
+    assert not isinstance(computed, AnalysisFailure)
+
+    report = _optimization_report(
+        request,
+        computed,
+        computed.work_context,
+        replace(_OptimizationBudgetConfig(), proofs=0),
+    )
+
+    assert report.status == "incomplete"
+    assert report.plans == ()
+    assert report.qualifications == (
+        "optimization depth-one proof steps budget exhausted (measured 1, configured 0)",
+    )
+
+
+def test_exact_algorithmic_sum_v1_system_multiplicity_and_weighted_prefix() -> None:
+    from py_science.formula import (
+        AnalysisRequest,
+        OptimizationSuccess,
+        OptimizeRequest,
+        analyze,
+        optimize,
+    )
+
+    source = "3 + Sum(Sum(i*j + j**2, (j, 0, i)), (i, 0, 100))"
+    system = analyze(
+        AnalysisRequest.model_validate_json(
+            """{
+              "syntax": "sympy",
+              "equations": [{
+                "name": "value",
+                "expression": "Eq(value[k], 3 + Sum(Sum(i*j + j**2, (j, 0, i)), (i, 0, 100)))",
+                "domains": {"k": {"lower": "0", "upper": "3"}}
+              }],
+              "optimization": {
+                "max_suggestions": 16,
+                "enabled_algorithmic_families": ["finite_polynomial_sum_v1"]
+              }
+            }"""
+        )
+    )
+    assert system.status == "success"
+    system_plan = next(
+        plan
+        for plan in system.optimization.plans
+        if any(step.kind == "finite_polynomial_sum_v1" for step in plan.trace)
+    )
+    assert system_plan.suggestion.objective_before == "82416"
+    assert system_plan.suggestion.objective_after == "0"
+    assert system_plan.suggestion.objective_savings == "82416"
+    assert system_plan.trace[0].transformations[0].occurrences[0].output_indices == ("k",)
+
+    def weighted(limit: int):
+        return optimize(
+            OptimizeRequest.model_validate_json(
+                f"""{{
+                  "syntax": "sympy",
+                  "operation": "optimize",
+                  "expression": "{source}",
+                  "max_plans": {limit},
+                  "enabled_algorithmic_families": ["finite_polynomial_sum_v1"],
+                  "objective": {{
+                    "kind": "weighted_operations_v1",
+                    "weights": {{
+                      "additions": "2", "subtractions": "2",
+                      "multiplications": "2", "divisions": "2", "powers": "2"
+                    }}
+                  }}
+                }}"""
+            )
+        )
+
+    one, many = weighted(1), weighted(16)
+    assert isinstance(one, OptimizationSuccess)
+    assert isinstance(many, OptimizationSuccess)
+    assert one.plans == many.plans[:1]
+    suggestion = one.plans[0].suggestion
+    assert (suggestion.objective_before, suggestion.objective_after) == ("41208", "0")
+    assert suggestion.objective_savings == "41208"

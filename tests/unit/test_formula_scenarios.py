@@ -13,6 +13,7 @@ from py_science.formula import (
     IndexDomain,
     IntervalBound,
     MathematicalDomain,
+    OptimizationConfig,
     PrimitiveCost,
     Scenario,
     VariableDeclaration,
@@ -92,6 +93,30 @@ def test_nested_sum_scenarios_eliminate_free_bound_indices() -> None:
     for rendered in values:
         assert rendered is not None
         assert_iterators_are_lexically_bound(rendered)
+
+
+def test_exact_algorithmic_sum_v1_does_not_change_scenarios() -> None:
+    source = "3 + Sum(Sum(i*j + j**2, (j, 0, i)), (i, 0, n))"
+    request = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression=source,
+        variables={"n": declared()},
+        scenarios=(Scenario(name="fixed", fixed={"n": 100}),),
+    )
+    baseline = analyze(request)
+    enabled = analyze(
+        request.model_copy(
+            update={
+                "optimization": OptimizationConfig(
+                    max_suggestions=16,
+                    enabled_algorithmic_families=("finite_polynomial_sum_v1",),
+                )
+            }
+        )
+    )
+    assert isinstance(baseline, AnalysisSuccess)
+    assert isinstance(enabled, AnalysisSuccess)
+    assert enabled.scenarios == baseline.scenarios
 
 
 def test_general_queries_do_not_fan_out_across_scenarios() -> None:

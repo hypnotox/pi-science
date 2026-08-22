@@ -844,13 +844,20 @@ def test_result_models_reject_invalid_qualification_truth_tables() -> None:
             )
 
 
-def test_objective_v1_candidate_comparison_rejects_optimizer_controls() -> None:
+@pytest.mark.parametrize(
+    "control",
+    (
+        {"objective": {"kind": "unit_work_v1"}},
+        {"enabled_algorithmic_families": ["finite_polynomial_sum_v1"]},
+    ),
+)
+def test_candidate_comparison_rejects_optimizer_controls(control: dict[str, object]) -> None:
     with pytest.raises(ValidationError):
         CandidateComparisonRequest.model_validate(
             {
                 "syntax": FormulaSyntax.SYMPY,
                 "operation": "compare_candidates",
-                "objective": {"kind": "unit_work_v1"},
+                **control,
                 "candidates": [
                     {"name": "first", "expression": "x"},
                     {"name": "second", "expression": "x + 0"},

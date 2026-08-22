@@ -3418,6 +3418,222 @@ function correlatedState(
   );
 }
 
+function canonicalSerializedSums(value: string): string | null {
+  const compact = value.replace(/\s+/g, "");
+  let projected = "";
+  let cursor = 0;
+  while (cursor < compact.length) {
+    const start = compact.indexOf("Sum(", cursor);
+    if (start < 0) {
+      projected += compact.slice(cursor);
+      break;
+    }
+    projected += compact.slice(cursor, start);
+    const end = serializedCallEnd(compact, start);
+    if (end === null) return null;
+    const call = splitSerializedCall(compact.slice(start, end + 1));
+    if (call === null || call.name !== "Sum" || call.arguments.length < 2)
+      return null;
+    const normalizedArguments: string[] = [];
+    for (const argument of call.arguments) {
+      const normalized = canonicalSerializedSums(argument);
+      if (normalized === null) return null;
+      normalizedArguments.push(normalized);
+    }
+    const nested = splitSerializedCall(normalizedArguments[0]!);
+    projected +=
+      nested?.name === "Sum" && nested.arguments.length >= 2
+        ? `Sum(${[...nested.arguments, ...normalizedArguments.slice(1)].join(",")})`
+        : `Sum(${normalizedArguments.join(",")})`;
+    cursor = end + 1;
+  }
+  return projected;
+}
+
+function serializedTokenFingerprint(value: string): string | null {
+  const normalized = canonicalSerializedSums(value);
+  if (normalized === null) return null;
+  return (
+    normalized.match(/\*\*|[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)?|[^\s]/g) ?? []
+  )
+    .sort()
+    .join("\u0000");
+}
+
+function enclosingSerializedParentheses(value: string): string {
+  let trimmed = value.trim();
+  while (trimmed.startsWith("(") && trimmed.endsWith(")")) {
+    const end = serializedCallEnd(`wrap${trimmed}`, 0);
+    if (end !== trimmed.length + 3) break;
+    trimmed = trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+function splitSerializedTuple(value: string): string[] | null {
+  const tuple = splitSerializedCall(`Tuple${value.trim()}`);
+  return tuple?.name === "Tuple" ? tuple.arguments : null;
+}
+
+type StructuralChildren = {
+  values: string[];
+  binderOnChild: Array<string | null>;
+};
+
+function serializedStructuralChildren(value: string): StructuralChildren {
+  const source = enclosingSerializedParentheses(value);
+  const operators: Array<{ index: number; width: number; precedence: number }> =
+    [];
+  const delimiters: string[] = [];
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index]!;
+    if (character === "(" || character === "[" || character === "{") {
+      delimiters.push(character);
+      continue;
+    }
+    if (character === ")" || character === "]" || character === "}") {
+      delimiters.pop();
+      continue;
+    }
+    if (delimiters.length > 0) continue;
+    const previous = source[index - 1];
+    const unary =
+      index === 0 || previous === undefined || "+-*/^(,[".includes(previous);
+    if ((character === "+" || character === "-") && !unary)
+      operators.push({ index, width: 1, precedence: 1 });
+    else if (character === "*" && source[index + 1] === "*") {
+      operators.push({ index, width: 2, precedence: 3 });
+      index += 1;
+    } else if ((character === "*" || character === "/") && !unary)
+      operators.push({ index, width: 1, precedence: 2 });
+  }
+  if (operators.length > 0) {
+    const minimum = Math.min(
+      ...operators.map((operator) => operator.precedence),
+    );
+    const matching = operators.filter(
+      (operator) => operator.precedence === minimum,
+    );
+    const operator = minimum === 3 ? matching[0]! : matching.at(-1)!;
+    return {
+      values: [
+        source.slice(0, operator.index).trim(),
+        source.slice(operator.index + operator.width).trim(),
+      ],
+      binderOnChild: [null, null],
+    };
+  }
+  const call = splitSerializedCall(source);
+  if (call === null) return { values: [], binderOnChild: [] };
+  if (call.name === "Sum" && call.arguments.length >= 2) {
+    const limit = splitSerializedTuple(call.arguments.at(-1)!);
+    if (limit === null || limit.length !== 3)
+      return {
+        values: call.arguments,
+        binderOnChild: call.arguments.map(() => null),
+      };
+    const body =
+      call.arguments.length === 2
+        ? call.arguments[0]!
+        : `Sum(${call.arguments.slice(0, -1).join(",")})`;
+    return {
+      values: [limit[1]!, limit[2]!, body],
+      binderOnChild: [null, null, limit[0]!],
+    };
+  }
+  if (call.name === "Let" && call.arguments.length === 3)
+    return {
+      values: [call.arguments[1]!, call.arguments[2]!],
+      binderOnChild: [null, call.arguments[0]!],
+    };
+  return {
+    values: call.arguments,
+    binderOnChild: call.arguments.map(() => null),
+  };
+}
+
+function serializedOccurrenceAtPath(
+  value: string,
+  path: number[],
+): { node: string; binders: string[] } | null {
+  let node = enclosingSerializedParentheses(value);
+  const binders: string[] = [];
+  for (const position of path) {
+    const children = serializedStructuralChildren(node);
+    if (position >= children.values.length) return null;
+    const binder = children.binderOnChild[position];
+    if (binder !== null && binder !== undefined) binders.push(binder);
+    node = enclosingSerializedParentheses(children.values[position]!);
+  }
+  return { node, binders };
+}
+
+function equationOutputIndices(expression: string): string[] | null {
+  const equation = serializedEquation(expression);
+  if (equation === null) return null;
+  const match = /^([A-Za-z][A-Za-z0-9_]*)\[([^\]]+)\]$/.exec(
+    equation[0]!.replace(/\s+/g, ""),
+  );
+  return match === null
+    ? []
+    : match[2]!.split(",").filter((index) => index.length > 0);
+}
+
+function algorithmicTransformationCorrelates(
+  step: Record<string, unknown>,
+  parent: AnalysisRequest,
+): boolean {
+  if (step.kind !== "finite_polynomial_sum_v1") return true;
+  const transformations = step.transformations as Array<
+    Record<string, unknown>
+  >;
+  if (transformations.length !== 1 || step.intermediate !== null) return false;
+  const transformation = transformations[0]!;
+  const target = transformation.target as Record<string, unknown>;
+  const original = transformation.original as Record<string, unknown>;
+  const occurrences = transformation.occurrences as Array<
+    Record<string, unknown>
+  >;
+  if (occurrences.length !== 1 || typeof original.normalized_sympy !== "string")
+    return false;
+  let parentTarget: string;
+  let expectedOutputIndices: string[];
+  if (isExpressionRequest(parent)) {
+    parentTarget = parent.expression;
+    expectedOutputIndices = [];
+  } else {
+    const equation = parent.equations.find((item) => item.name === target.name);
+    if (equation === undefined) return false;
+    const parts = serializedEquation(equation.expression);
+    expectedOutputIndices = equationOutputIndices(equation.expression) ?? [];
+    if (parts === null) return false;
+    parentTarget = parts[1]!;
+  }
+  const originalTarget = isExpressionRequest(parent)
+    ? original.normalized_sympy
+    : (serializedEquation(original.normalized_sympy)?.[1] ??
+      original.normalized_sympy);
+  const canonicalParent = canonicalSerializedSums(parentTarget);
+  const canonicalOriginal = canonicalSerializedSums(originalTarget);
+  if (
+    canonicalParent === null ||
+    canonicalOriginal === null ||
+    (canonicalParent !== canonicalOriginal &&
+      serializedTokenFingerprint(parentTarget) !==
+        serializedTokenFingerprint(originalTarget))
+  )
+    return false;
+  const occurrence = occurrences[0]!;
+  const path = occurrence.path as number[];
+  const structuralOccurrence = serializedOccurrenceAtPath(parentTarget, path);
+  return (
+    structuralOccurrence !== null &&
+    structuralOccurrence.node.startsWith("Sum(") &&
+    sameJson(occurrence.binders, structuralOccurrence.binders) &&
+    sameJson(occurrence.output_indices, expectedOutputIndices)
+  );
+}
+
 function traceStateCorrelates(
   step: Record<string, unknown>,
   parent: AnalysisRequest,
@@ -3428,6 +3644,7 @@ function traceStateCorrelates(
     Record<string, unknown>
   >;
   const intermediate = step.intermediate;
+  if (!algorithmicTransformationCorrelates(step, parent)) return false;
   if (isExpressionRequest(parent)) {
     const transformation = transformations.find(
       (item) => (item.target as Record<string, unknown>).kind === "expression",

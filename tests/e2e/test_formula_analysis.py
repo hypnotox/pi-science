@@ -39,6 +39,34 @@ def describe_outcome(outcome: AnalysisOutcome) -> str:
     assert_never(outcome)
 
 
+def test_exact_algorithmic_sum_v1_e2e_replays_without_changing_submitted_work() -> None:
+    source = "3 + Sum(Sum(i*j + j**2, (j, 0, i)), (i, 0, 100))"
+    baseline = analyze(
+        AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=source)
+    )
+    enabled = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression=source,
+            optimization=OptimizationConfig(
+                max_suggestions=16,
+                enabled_algorithmic_families=("finite_polynomial_sum_v1",),
+            ),
+        )
+    )
+    assert isinstance(baseline, AnalysisSuccess) and isinstance(enabled, AnalysisSuccess)
+    assert enabled.abstract_work == baseline.abstract_work
+    plan = next(
+        plan
+        for plan in enabled.optimization.plans
+        if any(step.kind == "finite_polynomial_sum_v1" for step in plan.trace)
+    )
+    replay = analyze(AnalysisRequest.model_validate(plan.candidate.model_dump()))
+    assert isinstance(replay, AnalysisSuccess)
+    assert replay.interpretation.normalized_sympy == "21591278"
+    assert plan.suggestion.finite_precision_qualification == "exact_symbolic_only"
+
+
 def test_general_query_results_do_not_change_submitted_expression_work() -> None:
     baseline = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 1"))
     queried = analyze(

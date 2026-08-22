@@ -136,6 +136,27 @@ def test_generated_pi_schema_has_public_expression_and_system_branches() -> None
             "maximum": 16,
             "type": "integer",
         }
+        assert optimization["properties"]["enabled_algorithmic_families"] == {
+            "type": "array",
+            "items": {"type": "string", "enum": ["finite_polynomial_sum_v1"]},
+            "maxItems": 1,
+        }
+        objective_variants = optimization["properties"]["objective"]["anyOf"]
+        assert {
+            variant["properties"]["kind"]["enum"][0]
+            for variant in objective_variants
+        } == {"unit_work_v1", "weighted_operations_v1"}
+    for direct in (_optimize_expression, _optimize_system):
+        assert direct["properties"]["enabled_algorithmic_families"] == {
+            "type": "array",
+            "items": {"type": "string", "enum": ["finite_polynomial_sum_v1"]},
+            "maxItems": 1,
+        }
+        objective_variants = direct["properties"]["objective"]["anyOf"]
+        assert {
+            variant["properties"]["kind"]["enum"][0]
+            for variant in objective_variants
+        } == {"unit_work_v1", "weighted_operations_v1"}
     assert all(
         "optimization" not in branch["properties"]
         for branch in (comparison, dominance_expression, dominance_system)

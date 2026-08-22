@@ -383,11 +383,13 @@ describe("formula adapter protocol boundary", () => {
     [
       "incompatible protocol",
       JSON.stringify({
-        version: 11,
+        version: 15,
         request: {
           syntax: "sympy",
-          expression: "x*y + x*z",
-          optimization: { max_suggestions: 3 },
+          operation: "optimize",
+          expression: "3 + Sum(Sum(i*j + j**2, (j, 0, i)), (i, 0, 100))",
+          max_plans: 16,
+          enabled_algorithmic_families: ["finite_polynomial_sum_v1"],
         },
       }),
     ],

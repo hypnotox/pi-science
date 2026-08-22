@@ -556,7 +556,14 @@ def test_nonfinite_work_keeps_its_specific_dominance_blocker() -> None:
     assert result.blockers == ("aggregate work is not finite",)
 
 
-def test_objective_v1_dominance_rejects_optimizer_controls() -> None:
+@pytest.mark.parametrize(
+    "control",
+    (
+        {"objective": {"kind": "unit_work_v1"}},
+        {"enabled_algorithmic_families": ["finite_polynomial_sum_v1"]},
+    ),
+)
+def test_dominance_rejects_optimizer_controls(control: dict[str, object]) -> None:
     with pytest.raises(ValidationError):
         DominanceAnalysisRequest.model_validate(
             {
@@ -564,6 +571,6 @@ def test_objective_v1_dominance_rejects_optimizer_controls() -> None:
                 "operation": "analyze_dominance",
                 "expression": "N",
                 "axis": "N",
-                "objective": {"kind": "unit_work_v1"},
+                **control,
             }
         )

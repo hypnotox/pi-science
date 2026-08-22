@@ -1857,6 +1857,39 @@ def test_compatible_cross_equation_sharing_preserves_submitted_system_reports() 
     assert (sharing.work_before, sharing.work_after, sharing.savings) == ("16", "12", "4")
 
 
+def test_exact_algorithmic_sum_v1_e2e_counts_output_multiplicity() -> None:
+    request = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(
+            EquationRequest(
+                name="value",
+                expression=(
+                    "Eq(value[k], 3 + Sum(Sum(i*j + j**2, (j, 0, i)), "
+                    "(i, 0, 100)))"
+                ),
+                domains={"k": {"lower": "0", "upper": "3"}},
+            ),
+        ),
+        optimization=OptimizationConfig(
+            max_suggestions=16,
+            enabled_algorithmic_families=("finite_polynomial_sum_v1",),
+        ),
+    )
+    outcome = analyze(request)
+    assert isinstance(outcome, AnalysisSuccess)
+    plan = next(
+        plan
+        for plan in outcome.optimization.plans
+        if any(step.kind == "finite_polynomial_sum_v1" for step in plan.trace)
+    )
+    assert (
+        plan.suggestion.objective_before,
+        plan.suggestion.objective_after,
+        plan.suggestion.objective_savings,
+    ) == ("82416", "0", "82416")
+    assert plan.trace[0].transformations[0].occurrences[0].output_indices == ("k",)
+
+
 def test_objective_v1_system_selection_preserves_system_work() -> None:
     request = AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,
