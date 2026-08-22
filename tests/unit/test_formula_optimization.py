@@ -616,7 +616,7 @@ def test_candidate_budget_exhaustion_preserves_already_proved_advice(
     assert outcome.status == "success" and outcome.optimization is not None
     assert outcome.optimization.status == "incomplete"
     assert outcome.optimization.qualifications == (
-        "optimization generated candidates budget exhausted (measured 2, configured 1)",
+        "optimization depth-one generated transitions budget exhausted (measured 2, configured 1)",
     )
     assert len(outcome.optimization.suggestions) == 1
 
@@ -701,13 +701,14 @@ def test_comparable_symbolic_savings_rank_by_proof_before_stable_ties() -> None:
     )
     assert outcome.status == "success" and outcome.optimization is not None
     sharing = [
-        item for item in outcome.optimization.suggestions if item.kind == "cross_equation_sharing"
+        plan.trace[0]
+        for plan in outcome.optimization.plans
+        if len(plan.trace) == 1 and plan.trace[0].kind == "cross_equation_sharing"
     ]
-    assert [(item.transformations[0].target.name, item.savings) for item in sharing][:2] == [
+    assert [(item.transformations[0].target.name, item.objective_savings) for item in sharing] == [
         ("c", "2*N + 1"),
         ("a", "N + 1"),
     ]
-    assert len(sharing) >= 2
 
 
 def test_output_multiplicity_and_intermediate_scope_are_charged_directly() -> None:
@@ -938,12 +939,13 @@ def test_oversized_advice_truncates_without_replacing_base_success() -> None:
         )
     )
     assert bounded.status == "success"
-    assert bounded.optimization.status == "incomplete"
+    assert bounded.optimization.status == outcome.optimization.status
     assert bounded.optimization.suggestions == ()
-    assert bounded.optimization.qualifications[0].startswith(
+    assert bounded.optimization.projection_status == "truncated"
+    assert bounded.optimization.projection_qualifications[0].startswith(
         "optimization advice bytes budget exhausted (measured "
     )
-    assert "configured 262144" in bounded.optimization.qualifications[0]
+    assert "configured 262144" in bounded.optimization.projection_qualifications[0]
 
 
 def test_exact_base_and_maximum_field_contribution_preserve_success() -> None:
@@ -996,10 +998,13 @@ def test_exact_base_and_maximum_field_contribution_preserve_success() -> None:
     bounded = formula_service._bound_result(combined)  # pyright: ignore[reportPrivateUsage]
     assert bounded.status == "success"
     assert bounded.optimization.status == "incomplete"
-    assert bounded.optimization.qualifications[0].startswith(
-        "optimization advice bytes budget exhausted (measured "
+    assert bounded.optimization.qualifications == (
+        "optimization search qualifications truncated by output projection",
     )
-    assert "configured 262144" in bounded.optimization.qualifications[0]
+    assert bounded.optimization.projection_status == "truncated"
+    assert bounded.optimization.projection_qualifications == (
+        "optimization advice bytes budget exhausted",
+    )
 
 
 def test_unexpected_reasoning_and_verifier_defects_propagate(
@@ -1130,7 +1135,7 @@ def test_independent_budget_qualifications_report_measured_and_configured(
     assert outcome.status == "success" and outcome.optimization is not None
     assert outcome.optimization.status == "incomplete"
     qualification = outcome.optimization.qualifications[0]
-    assert "candidate" in qualification
+    assert "generated transitions" in qualification
     assert "measured 2" in qualification
     assert "configured 1" in qualification
     assert outcome.optimization.suggestions
@@ -1157,17 +1162,13 @@ def test_cross_equation_canonical_binders_do_not_capture_user_symbols() -> None:
                     expression="Eq(free, Sum(optimization_sum_0, (i, 0, 3)))",
                 ),
             ),
-            variables={
-                "optimization_sum_0": VariableDeclaration(domain=MathematicalDomain.REAL)
-            },
+            variables={"optimization_sum_0": VariableDeclaration(domain=MathematicalDomain.REAL)},
             optimization=OptimizationConfig(max_suggestions=16),
         )
     )
 
     assert outcome.status == "success"
-    assert all(
-        item.kind != "cross_equation_sharing" for item in outcome.optimization.suggestions
-    )
+    assert all(item.kind != "cross_equation_sharing" for item in outcome.optimization.suggestions)
 
 
 def test_cross_equation_domains_distinguish_dependent_and_free_bounds() -> None:
@@ -1215,9 +1216,7 @@ def test_cross_equation_domains_distinguish_dependent_and_free_bounds() -> None:
     )
 
     assert outcome.status == "success"
-    assert all(
-        item.kind != "cross_equation_sharing" for item in outcome.optimization.suggestions
-    )
+    assert all(item.kind != "cross_equation_sharing" for item in outcome.optimization.suggestions)
 
 
 def test_sharing_covers_scalar_lexical_predecessor_and_producer_dependencies() -> None:
@@ -1314,7 +1313,12 @@ def test_sharing_covers_scalar_lexical_predecessor_and_producer_dependencies() -
         assert sharing.intermediate is not None
         assert sharing.intermediate.scope_output_indices == expected_scope
         assert int(sharing.savings) > 0 if sharing.savings.isdigit() else sharing.savings
-        assert sharing.evidence.statement.endswith("every transformed retained output")
+        matching_plan = next(
+            plan for plan in outcome.optimization.plans if plan.suggestion is sharing
+        )
+        assert matching_plan.trace[-1].evidence.statement.endswith(
+            "every transformed retained output"
+        )
 
 
 def test_sharing_refuses_unequal_arity_constraints_and_uses_collision_free_name() -> None:
@@ -1498,8 +1502,9 @@ def test_recursive_horner_inspection_is_charged_before_backend_descent(
     assert outcome.interpretation.normalized_sympy == "4*x + 5 + 3*x**2 + 2*x**3"
     assert outcome.optimization.status == "incomplete"
     assert any(
-        item == (
-            "optimization inspected nodes budget exhausted "
+        item
+        == (
+            "optimization depth-one inspected nodes budget exhausted "
             f"(measured {initial_nodes * 2}, configured {initial_nodes})"
         )
         for item in outcome.optimization.qualifications
@@ -1559,7 +1564,7 @@ def test_limits_and_repeated_process_json_are_deterministic() -> None:
         )
         assert outcome.status == "success" and outcome.optimization is not None
         assert len(outcome.optimization.suggestions) <= limit
-        assert outcome.optimization.status == ("disabled" if limit == 0 else "complete")
+        assert outcome.optimization.status == ("disabled" if limit == 0 else "incomplete")
 
     empty = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x"))
     assert empty.status == "success" and empty.optimization is not None
@@ -1613,8 +1618,8 @@ def test_multibyte_advice_limit_measures_encoded_bytes() -> None:
         )
     )
     assert bounded.status == "success" and bounded.optimization is not None
-    assert bounded.optimization.status == "incomplete"
-    qualification = bounded.optimization.qualifications[0]
+    assert bounded.optimization.projection_status == "truncated"
+    qualification = bounded.optimization.projection_qualifications[0]
     assert "advice bytes" in qualification
     assert "measured" in qualification and "configured 262144" in qualification
 
@@ -1655,9 +1660,7 @@ def test_retained_analysis_disables_optimization() -> None:
     from py_science.formula import AnalysisFailure, AnalysisRequest, FormulaSyntax
     from py_science.formula.service import _analyze_computation
 
-    retained = _analyze_computation(
-        AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 0")
-    )
+    retained = _analyze_computation(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 0"))
 
     assert not isinstance(retained, AnalysisFailure)
     assert retained.success.optimization.model_dump() == {
@@ -1669,9 +1672,10 @@ def test_retained_analysis_disables_optimization() -> None:
         "projection_status": "complete",
         "projection_qualifications": (),
     }
-    assert type(retained.success).model_validate_json(
-        retained.success.model_dump_json()
-    ).optimization == retained.success.optimization
+    assert (
+        type(retained.success).model_validate_json(retained.success.model_dump_json()).optimization
+        == retained.success.optimization
+    )
 
 
 def test_complete_candidate_replays_expression_local_reuse_and_neutral_removal() -> None:
@@ -1719,13 +1723,9 @@ def test_complete_candidate_proof_reads_the_replayed_output(
             {**complete.model_dump(mode="python"), "expression": "0"}
         )
 
-    monkeypatch.setattr(
-        optimization_service, "_complete_candidate", falsified_complete_candidate
-    )
+    monkeypatch.setattr(optimization_service, "_complete_candidate", falsified_complete_candidate)
 
-    outcome = analyze(
-        AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x*y + x*z")
-    )
+    outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x*y + x*z"))
 
     assert outcome.status == "success"
     assert all(item.kind != "factoring" for item in outcome.optimization.suggestions)
@@ -2000,19 +2000,29 @@ def test_optimize_operation_bounds_duplicated_plan_output(
 def test_objective_v1_default_and_weighted_request_shapes() -> None:
     from py_science.formula import AnalysisRequest, FormulaSyntax, OptimizeRequest
 
-    ordinary = AnalysisRequest.model_validate({
-        "syntax": FormulaSyntax.SYMPY,
-        "expression": "x + 1",
-        "optimization": {"objective": {"kind": "unit_work_v1"}},
-    })
-    direct = OptimizeRequest.model_validate({
-        "syntax": FormulaSyntax.SYMPY,
-        "expression": "x + 1",
-        "objective": {"kind": "weighted_operations_v1", "weights": {
-            "additions": "1", "subtractions": "1", "multiplications": "1",
-            "divisions": "1", "powers": "5/2",
-        }},
-    })
+    ordinary = AnalysisRequest.model_validate(
+        {
+            "syntax": FormulaSyntax.SYMPY,
+            "expression": "x + 1",
+            "optimization": {"objective": {"kind": "unit_work_v1"}},
+        }
+    )
+    direct = OptimizeRequest.model_validate(
+        {
+            "syntax": FormulaSyntax.SYMPY,
+            "expression": "x + 1",
+            "objective": {
+                "kind": "weighted_operations_v1",
+                "weights": {
+                    "additions": "1",
+                    "subtractions": "1",
+                    "multiplications": "1",
+                    "divisions": "1",
+                    "powers": "5/2",
+                },
+            },
+        }
+    )
     assert ordinary.optimization.objective.kind == "unit_work_v1"
     assert direct.objective.kind == "weighted_operations_v1"
     assert direct.objective.weights.powers == "5/2"
@@ -2023,13 +2033,24 @@ def test_objective_v1_rejects_nonpositive_or_malformed_weights(weight: object) -
     from py_science.formula import AnalysisRequest, FormulaSyntax
 
     with pytest.raises(ValueError):
-        AnalysisRequest.model_validate({
-            "syntax": FormulaSyntax.SYMPY, "expression": "x + 1",
-            "optimization": {"objective": {"kind": "weighted_operations_v1", "weights": {
-                "additions": weight, "subtractions": "1", "multiplications": "1",
-                "divisions": "1", "powers": "1",
-            }}},
-        })
+        AnalysisRequest.model_validate(
+            {
+                "syntax": FormulaSyntax.SYMPY,
+                "expression": "x + 1",
+                "optimization": {
+                    "objective": {
+                        "kind": "weighted_operations_v1",
+                        "weights": {
+                            "additions": weight,
+                            "subtractions": "1",
+                            "multiplications": "1",
+                            "divisions": "1",
+                            "powers": "1",
+                        },
+                    }
+                },
+            }
+        )
 
 
 def test_objective_v1_rejects_incomplete_extra_and_over_bound_weights() -> None:
@@ -2037,15 +2058,16 @@ def test_objective_v1_rejects_incomplete_extra_and_over_bound_weights() -> None:
     from pydantic import ValidationError
 
     weights: dict[str, object] = {
-        "additions": "1", "subtractions": "1", "multiplications": "1",
-        "divisions": "1", "powers": "1",
+        "additions": "1",
+        "subtractions": "1",
+        "multiplications": "1",
+        "divisions": "1",
+        "powers": "1",
     }
     base = {
         "syntax": FormulaSyntax.SYMPY,
         "expression": "x + 1",
-        "optimization": {
-            "objective": {"kind": "weighted_operations_v1", "weights": weights}
-        },
+        "optimization": {"objective": {"kind": "weighted_operations_v1", "weights": weights}},
     }
     assert AnalysisRequest.model_validate(base).optimization.objective.kind == (
         "weighted_operations_v1"
@@ -2083,8 +2105,11 @@ def test_objective_v1_default_all_one_parity_and_stable_identity() -> None:
                     "objective": {
                         "kind": "weighted_operations_v1",
                         "weights": {
-                            "additions": "1", "subtractions": "1",
-                            "multiplications": "1", "divisions": "1", "powers": "1",
+                            "additions": "1",
+                            "subtractions": "1",
+                            "multiplications": "1",
+                            "divisions": "1",
+                            "powers": "1",
                         },
                     }
                 },
@@ -2117,8 +2142,11 @@ def test_objective_v1_weighted_power_reverses_plan_order() -> None:
                     "objective": {
                         "kind": "weighted_operations_v1",
                         "weights": {
-                            "additions": "1", "subtractions": "1",
-                            "multiplications": "1", "divisions": "1", "powers": "5/2",
+                            "additions": "1",
+                            "subtractions": "1",
+                            "multiplications": "1",
+                            "divisions": "1",
+                            "powers": "5/2",
                         },
                     }
                 },
@@ -2129,7 +2157,8 @@ def test_objective_v1_weighted_power_reverses_plan_order() -> None:
     assert default.optimization.plans[0].objective.kind == "unit_work_v1"
     assert weighted.optimization.plans[0].objective.kind == "weighted_operations_v1"
     assert weighted.optimization.plans[1].suggestion.ordering.relation_to_previous in {
-        "previous_proved_superior", "deterministic_non_superiority"
+        "previous_proved_superior",
+        "deterministic_non_superiority",
     }
 
 
@@ -2146,8 +2175,11 @@ def test_objective_v1_opaque_work_keeps_fixed_coefficient_one() -> None:
                     "objective": {
                         "kind": "weighted_operations_v1",
                         "weights": {
-                            "additions": "2", "subtractions": "2",
-                            "multiplications": "2", "divisions": "2", "powers": "2",
+                            "additions": "2",
+                            "subtractions": "2",
+                            "multiplications": "2",
+                            "divisions": "2",
+                            "powers": "2",
                         },
                     }
                 },
@@ -2167,21 +2199,36 @@ def test_objective_v1_opaque_work_keeps_fixed_coefficient_one() -> None:
 def test_objective_v1_plans_carry_canonical_provenance_and_evidence() -> None:
     from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
 
-    outcome = analyze(AnalysisRequest.model_validate({
-        "syntax": FormulaSyntax.SYMPY,
-        "expression": "(x + 1)*(x + 1) + (y*z + y*w)",
-        "optimization": {"objective": {"kind": "weighted_operations_v1", "weights": {
-            "additions": "1", "subtractions": "1", "multiplications": "1",
-            "divisions": "1", "powers": "5/2",
-        }}},
-    }))
+    outcome = analyze(
+        AnalysisRequest.model_validate(
+            {
+                "syntax": FormulaSyntax.SYMPY,
+                "expression": "(x + 1)*(x + 1) + (y*z + y*w)",
+                "optimization": {
+                    "objective": {
+                        "kind": "weighted_operations_v1",
+                        "weights": {
+                            "additions": "1",
+                            "subtractions": "1",
+                            "multiplications": "1",
+                            "divisions": "1",
+                            "powers": "5/2",
+                        },
+                    }
+                },
+            }
+        )
+    )
     assert outcome.status == "success"
     plan = outcome.optimization.plans[0]
     assert plan.objective.model_dump() == {
         "kind": "weighted_operations_v1",
         "weights": {
-            "additions": "1", "subtractions": "1", "multiplications": "1",
-            "divisions": "1", "powers": "5/2",
+            "additions": "1",
+            "subtractions": "1",
+            "multiplications": "1",
+            "divisions": "1",
+            "powers": "5/2",
         },
     }
     assert plan.suggestion.objective_before
@@ -2211,25 +2258,22 @@ def test_objective_v1_qualified_mismatches_never_claim_adjacent_superiority() ->
     assert outcome.status == "success" and len(outcome.optimization.plans) >= 2
     previous, current = outcome.optimization.plans[:2]
     mismatches = (
-        current.suggestion.model_copy(
-            update={"conclusion": "proved_under_assumptions"}
-        ),
+        current.suggestion.model_copy(update={"conclusion": "proved_under_assumptions"}),
         current.suggestion.model_copy(update={"conditions": ("x != 0",)}),
         current.suggestion.model_copy(
-            update={
-                "assumptions_used": (
-                    RelationshipUse(name="positive", relationship="x > 0"),
-                )
-            }
+            update={"assumptions_used": (RelationshipUse(name="positive", relationship="x > 0"),)}
         ),
     )
     for qualified in mismatches:
-        assert _adjacent_ordering_relation(
-            _Accepted(previous.suggestion, request, IntegerLiteral(2)),
-            _Accepted(qualified, request, IntegerLiteral(1)),
-            None,  # type: ignore[arg-type]
-            _OptimizationBudget(),
-        ) == "deterministic_non_superiority"
+        assert (
+            _adjacent_ordering_relation(
+                _Accepted(previous.suggestion, request, IntegerLiteral(2)),
+                _Accepted(qualified, request, IntegerLiteral(1)),
+                None,  # type: ignore[arg-type]
+                _OptimizationBudget(),
+            )
+            == "deterministic_non_superiority"
+        )
 
 
 def test_objective_v1_comparison_qualifications_never_claim_superiority(
@@ -2253,26 +2297,28 @@ def test_objective_v1_comparison_qualifications_never_claim_superiority(
     outcome = analyze(request)
     assert outcome.status == "success" and len(outcome.optimization.plans) >= 2
     previous, current = outcome.optimization.plans[:2]
+
     def qualified_relation(*_args: object, **_kwargs: object) -> SimpleNamespace:
-        return SimpleNamespace(
-            status="second_lower", conditions=("N > M",), assumptions_used=()
-        )
+        return SimpleNamespace(status="second_lower", conditions=("N > M",), assumptions_used=())
 
     monkeypatch.setattr(optimization, "compare_aggregate_work", qualified_relation)
-    assert _adjacent_ordering_relation(
-        _Accepted(
-            previous.suggestion.model_copy(update={"objective_savings": "N"}),
-            request,
-            Symbol("N"),
-        ),
-        _Accepted(
-            current.suggestion.model_copy(update={"objective_savings": "M"}),
-            request,
-            Symbol("M"),
-        ),
-        None,  # type: ignore[arg-type]
-        _OptimizationBudget(),
-    ) == "deterministic_non_superiority"
+    assert (
+        _adjacent_ordering_relation(
+            _Accepted(
+                previous.suggestion.model_copy(update={"objective_savings": "N"}),
+                request,
+                Symbol("N"),
+            ),
+            _Accepted(
+                current.suggestion.model_copy(update={"objective_savings": "M"}),
+                request,
+                Symbol("M"),
+            ),
+            None,  # type: ignore[arg-type]
+            _OptimizationBudget(),
+        )
+        == "deterministic_non_superiority"
+    )
 
 
 def test_objective_v1_result_models_reject_population_drift() -> None:
@@ -2297,11 +2343,7 @@ def test_objective_v1_result_models_reject_population_drift() -> None:
     drifted_second = plans[1].model_copy(
         update={
             "suggestion": plans[1].suggestion.model_copy(
-                update={
-                    "ordering": plans[1].suggestion.ordering.model_copy(
-                        update={"position": 3}
-                    )
-                }
+                update={"ordering": plans[1].suggestion.ordering.model_copy(update={"position": 3})}
             )
         }
     )
@@ -2324,8 +2366,11 @@ def test_objective_v1_result_models_reject_population_drift() -> None:
             "objective": {
                 "kind": "weighted_operations_v1",
                 "weights": {
-                    "additions": "1", "subtractions": "1",
-                    "multiplications": "1", "divisions": "1", "powers": "1",
+                    "additions": "1",
+                    "subtractions": "1",
+                    "multiplications": "1",
+                    "divisions": "1",
+                    "powers": "1",
                 },
             }
         }
@@ -2354,3 +2399,187 @@ def test_composed_search_v1_emits_replayable_trace() -> None:
     assert outcome.status == "success"
     # Protocol v15 replaces the former single-family suggestion payload.
     assert any(len(plan.trace) == 2 for plan in outcome.optimization.plans)
+
+
+def test_composed_search_v1_budget_seams_distinguish_transition_and_final_proofs() -> None:
+    """The injected counters qualify the owning search phase, not a generic budget."""
+    from dataclasses import replace
+
+    from py_science.formula import AnalysisFailure, AnalysisRequest, FormulaSyntax
+    from py_science.formula.optimization import (
+        _generate_candidate_lanes,
+        _optimization_report,
+        _OptimizationBudget,
+        _OptimizationBudgetConfig,
+        _RetainedLaneCollector,
+    )
+    from py_science.formula.service import _analyze_computation
+
+    request = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY, expression="(x + 1)*(x + 1) + 0"
+    )
+    computed = _analyze_computation(request)
+    assert not isinstance(computed, AnalysisFailure)
+    materialization_budget = _OptimizationBudget(
+        replace(_OptimizationBudgetConfig(), candidates=1), "depth-one"
+    )
+    collector = _RetainedLaneCollector(materialization_budget)
+    lanes, qualifications = _generate_candidate_lanes(
+        computed, materialization_budget, collector
+    )
+    assert sum(map(len, lanes.values())) == collector.retained_count == 1
+    assert materialization_budget.candidates == 0
+    assert qualifications == ()
+    collector.schedule()
+    assert materialization_budget.candidates == 1
+    assert collector.exhaustion() == (
+        "optimization depth-one generated transitions budget exhausted "
+        "(measured 2, configured 1)"
+    )
+
+    transition = _optimization_report(
+        request,
+        computed,
+        computed.work_context,
+        replace(_OptimizationBudgetConfig(), proofs=0),
+    )
+    final = _optimization_report(
+        request,
+        computed,
+        computed.work_context,
+        replace(_OptimizationBudgetConfig(), final_proofs=0),
+    )
+
+    assert transition.status == final.status == "incomplete"
+    assert transition.qualifications == (
+        "optimization depth-one proof steps budget exhausted (measured 1, configured 0)",
+    )
+    assert final.qualifications == (
+        "optimization final-acceptance proof steps budget exhausted (measured 1, configured 0)",
+    )
+
+
+def test_composed_search_v1_max_plans_is_an_exact_ranked_prefix() -> None:
+    """Changing the output limit neither changes nor reruns the search population."""
+    from py_science.formula import AnalysisRequest, FormulaSyntax, OptimizationConfig, analyze
+
+    def plans(limit: int):
+        outcome = analyze(
+            AnalysisRequest(
+                syntax=FormulaSyntax.SYMPY,
+                expression="(x + 1)*(x + 1) + 0",
+                optimization=OptimizationConfig(max_suggestions=limit),
+            )
+        )
+        assert outcome.status == "success" and outcome.optimization is not None
+        return outcome.optimization.plans
+
+    full = plans(16)
+    assert len(full) >= 2
+    assert plans(1) == full[:1]
+    assert plans(2) == full[:2]
+
+
+def test_composed_search_v1_trace_objectives_are_continuous_and_replayable() -> None:
+    """Every local transition connects its parent objective to the final proof."""
+    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+
+    outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="(x + 1)*(x + 1) + 0"))
+    assert outcome.status == "success" and outcome.optimization is not None
+    plan = next(item for item in outcome.optimization.plans if len(item.trace) == 2)
+
+    assert plan.trace[0].objective_before == plan.suggestion.objective_before
+    assert plan.trace[-1].objective_after == plan.suggestion.objective_after
+    assert plan.trace[0].objective_after == plan.trace[1].objective_before
+    assert plan.trace[-1].candidate == plan.candidate
+    for step in plan.trace:
+        replayed = analyze(AnalysisRequest.model_validate(step.candidate.model_dump()))
+        assert replayed.status == "success"
+
+
+def test_composed_search_v1_alpha_renamed_binders_keep_population_order() -> None:
+    """Search-only canonicalization makes alpha-equivalent binders rank identically."""
+    from py_science.formula import AnalysisRequest, FormulaSyntax, OptimizationConfig, analyze
+
+    def population(index: str) -> list[tuple[tuple[str, ...], str]]:
+        outcome = analyze(
+            AnalysisRequest(
+                syntax=FormulaSyntax.SYMPY,
+                expression=f"Sum((x + 1)*(x + 1), ({index}, 0, 3))",
+                optimization=OptimizationConfig(max_suggestions=16),
+            )
+        )
+        assert outcome.status == "success" and outcome.optimization is not None
+        return [
+            (tuple(step.kind for step in plan.trace), plan.suggestion.objective_savings)
+            for plan in outcome.optimization.plans
+        ]
+
+    assert population("i") == population("j")
+
+
+def test_composed_search_v1_retained_lanes_are_round_robin_and_order_invariant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The bounded depth population is independent of family and emission order."""
+    from dataclasses import replace
+
+    from py_science.formula import AnalysisFailure, AnalysisRequest, FormulaSyntax
+    from py_science.formula import optimization as optimization_service
+    from py_science.formula.optimization import (
+        _CandidateComputation,
+        _optimization_report,
+        _OptimizationBudget,
+        _OptimizationBudgetConfig,
+        _proposal_sort_key,
+        _RetainedLaneCollector,
+        _round_robin_candidates,
+    )
+    from py_science.formula.service import _analyze_computation
+
+    families = tuple(reversed(optimization_service._FAMILY_ORDER[:3]))
+
+    def proposal(kind: str, value: int) -> _CandidateComputation:
+        expression = _expression(f"x + {value}")
+        return _CandidateComputation(
+            kind=cast("object", kind),  # type: ignore[arg-type]
+            target="expression",
+            original=expression,
+            proposed=_expression("x"),
+            occurrences=(),
+        )
+
+    population = {
+        family: tuple(proposal(family, value) for value in range(4)) for family in families
+    }
+    budget = _OptimizationBudget(replace(_OptimizationBudgetConfig(), candidates=4))
+    collector = _RetainedLaneCollector(budget)
+    # Reverse both family registration and each lane's generator emission.
+    for family in reversed(families):
+        for candidate in reversed(population[family]):
+            collector.add((family,), candidate)
+            assert collector.retained_count <= 4
+    expected = _round_robin_candidates(
+        (
+            ((family,), tuple(sorted(candidates, key=_proposal_sort_key)))
+            for family, candidates in population.items()
+        ),
+        _OptimizationBudget(),
+    )[:4]
+    retained = collector.schedule()
+    assert retained == expected
+    assert budget.candidates == collector.retained_count == 4
+    assert collector.exhaustion() == (
+        "optimization transition generated transitions budget exhausted (measured 5, configured 4)"
+    )
+
+    request = AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="(x + 1)*(x + 1) + (y + 0)")
+    computed = _analyze_computation(request)
+    assert not isinstance(computed, AnalysisFailure)
+    seam = replace(_OptimizationBudgetConfig(), candidates=2, complete_reanalyses=2)
+    baseline = _optimization_report(request, computed, computed.work_context, seam)
+    monkeypatch.setattr(
+        optimization_service, "_FAMILY_ORDER", tuple(reversed(optimization_service._FAMILY_ORDER))
+    )
+    reversed_families = _optimization_report(request, computed, computed.work_context, seam)
+    assert reversed_families == baseline

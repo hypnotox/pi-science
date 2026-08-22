@@ -95,8 +95,14 @@ function optimizationPlan(
     assumptions?: unknown[];
   } = {},
 ) {
+  const transformations = suggestion.transformations as Array<{
+    proposed: { normalized_sympy: string };
+  }>;
   const candidate = {
-    expression: options.expression ?? "x",
+    expression:
+      options.expression ??
+      transformations[0]?.proposed.normalized_sympy ??
+      "x",
     variables: options.variables ?? {},
     functions: [],
     primitive_costs: [],

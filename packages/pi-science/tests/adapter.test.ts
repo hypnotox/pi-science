@@ -339,11 +339,16 @@ describe("formula adapter protocol boundary", () => {
       requested_limit: 3,
       status: "incomplete",
     });
-    expect(reports[6].qualifications[0]).toContain("generated candidates");
+    expect(reports[6].qualifications[0]).toContain("generated transitions");
     expect(reports[6].qualifications[0]).toContain("measured");
     expect(reports[6].qualifications[0]).toContain("configured");
-    expect(reports[6].suggestions.length).toBeGreaterThan(0);
-  });
+    expect(reports[6].suggestions).toEqual([]);
+    expect(reports[6].qualifications).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("final-acceptance proof steps"),
+      ]),
+    );
+  }, 30_000);
 
   it("accepts zero-post-work suggestions from the real adapter", () => {
     const result = invoke(

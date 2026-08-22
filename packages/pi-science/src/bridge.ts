@@ -3229,16 +3229,102 @@ function analysisRequestForTrace(
     : request;
 }
 
+function candidateAsAnalysisRequest(
+  candidate: OptimizationCandidate,
+): AnalysisRequest {
+  return {
+    syntax: "sympy",
+    ...(candidate.expression !== undefined
+      ? { expression: candidate.expression }
+      : { equations: candidate.equations }),
+    variables: candidate.variables,
+    functions: candidate.functions,
+    primitive_costs: candidate.primitive_costs,
+    assumptions: candidate.assumptions,
+    definitions: candidate.definitions,
+    optimization: { max_suggestions: 0 },
+  };
+}
+
+function traceStateCorrelates(
+  step: Record<string, unknown>,
+  parent: AnalysisRequest,
+  parentIsSubmittedRequest: boolean,
+): boolean {
+  const candidate = step.candidate as OptimizationCandidate;
+  const transformations = step.transformations as Array<
+    Record<string, unknown>
+  >;
+  const targets = new Set(
+    transformations.map((transformation) => {
+      const target = transformation.target as Record<string, unknown>;
+      return `${String(target.kind)}:${String(target.name ?? "")}`;
+    }),
+  );
+  if (isExpressionRequest(parent)) {
+    if (
+      candidate.expression === undefined ||
+      candidate.expression === parent.expression
+    )
+      return false;
+  } else {
+    if (candidate.equations === undefined) return false;
+    const children = new Map(
+      candidate.equations.map((equation) => [equation.name, equation]),
+    );
+    for (const equation of parent.equations) {
+      const child = children.get(equation.name);
+      if (child === undefined) return false;
+      const transformed = targets.has(`equation:${equation.name}`);
+      // Python candidates use normalized complete equations, so the first
+      // candidate may legitimately normalize untouched submitted equations.
+      // Later parents are already candidate states and must remain byte-stable
+      // outside the explicitly named targets.
+      if (
+        !parentIsSubmittedRequest &&
+        transformed === sameJson(child, equation)
+      )
+        return false;
+    }
+    const added = candidate.equations
+      .map((equation) => equation.name)
+      .filter(
+        (name) => !parent.equations.some((equation) => equation.name === name),
+      );
+    const intermediate = step.intermediate;
+    if (
+      added.length > 0 &&
+      (!isRecord(intermediate) ||
+        added.length !== 1 ||
+        added[0] !== intermediate.name)
+    )
+      return false;
+  }
+  const intermediate = step.intermediate;
+  if (isRecord(intermediate)) {
+    const serialized = canonicalJson(candidate);
+    if (
+      typeof intermediate.name !== "string" ||
+      !serialized.includes(intermediate.name)
+    )
+      return false;
+  }
+  return true;
+}
+
 function validOptimizationTraceStep(
   step: Record<string, unknown>,
-  parent: AnalysisRequest | OptimizeRequest,
+  parent: AnalysisRequest,
+  parentIsSubmittedRequest: boolean,
 ): boolean {
-  // A step has suggestion fields except public ranking; validate that exact
-  // shape against the concrete preceding candidate without inventing policy.
+  // Validate the local evidence against its concrete preceding state, then
+  // correlate state changes structurally without applying the transformation.
   const { candidate: _candidate, identity: _identity, ...suggestion } = step;
-  return validOptimizationSuggestion(
-    { ...suggestion, ordering: { position: 1, relation_to_previous: null } },
-    analysisRequestForTrace(parent),
+  return (
+    validOptimizationSuggestion(
+      { ...suggestion, ordering: { position: 1, relation_to_previous: null } },
+      parent,
+    ) && traceStateCorrelates(step, parent, parentIsSubmittedRequest)
   );
 }
 
@@ -3293,9 +3379,11 @@ function validOptimizationPlan(
     finalStep.identity !== value.identity
   )
     return false;
-  let parent: AnalysisRequest | OptimizeRequest =
-    analysisRequestForTrace(request);
-  for (const step of trace) {
+  let parent: AnalysisRequest = analysisRequestForTrace(request);
+  let previousAfter: string | null = null;
+  let localRationalSavings = { numerator: 0n, denominator: 1n };
+  let allSavingsRational = true;
+  for (const [stepIndex, step] of trace.entries()) {
     if (
       !isRecord(step) ||
       !exactKeys(step, [
@@ -3327,17 +3415,63 @@ function validOptimizationPlan(
       ...(step.candidate as Record<string, unknown>),
     };
     if ("expression" in stepCandidate) stepCandidate.equations = [];
-    if (!sameJson(stepIdentity, { syntax: "sympy", ...stepCandidate }))
+    if (
+      JSON.stringify(stepIdentity) !== step.identity ||
+      !sameJson(stepIdentity, { syntax: "sympy", ...stepCandidate })
+    )
       return false;
-    // Trace-local transformations must name targets in their actual parent.  This
-    // is correlation only: Python remains the owner of replay and proof policy.
-    if (!validOptimizationTraceStep(step, parent)) return false;
-    parent = step.candidate as AnalysisRequest;
+    // Trace-local transformations must name targets in their actual parent.
+    // Objective totals must form one contiguous original-to-final chain.
+    if (
+      !validOptimizationTraceStep(step, parent, stepIndex === 0) ||
+      (previousAfter !== null && step.objective_before !== previousAfter)
+    )
+      return false;
+    previousAfter = String(step.objective_after);
+    const localSavings = exactRational(step.objective_savings);
+    if (localSavings === null) {
+      allSavingsRational = false;
+    } else if (allSavingsRational) {
+      localRationalSavings = {
+        numerator:
+          localRationalSavings.numerator * localSavings.denominator +
+          localSavings.numerator * localRationalSavings.denominator,
+        denominator:
+          localRationalSavings.denominator * localSavings.denominator,
+      };
+    }
+    parent = candidateAsAnalysisRequest(
+      step.candidate as OptimizationCandidate,
+    );
   }
   const analysisRequest = analysisRequestForTrace(request);
+  if (!validOptimizationSuggestion(value.suggestion, analysisRequest))
+    return false;
+  const suggestion = value.suggestion as OptimizationSuggestion;
+  const firstStep = trace[0] as Record<string, unknown>;
+  const lastStep = trace[trace.length - 1] as Record<string, unknown>;
+  if (
+    firstStep.objective_before !== suggestion.objective_before ||
+    lastStep.objective_after !== suggestion.objective_after ||
+    !sameJson(lastStep.kind, suggestion.kind) ||
+    !sameJson(lastStep.transformations, suggestion.transformations) ||
+    !sameJson(lastStep.intermediate, suggestion.intermediate) ||
+    !trace.every(
+      (step) =>
+        isRecord(step) &&
+        Array.isArray(step.conditions) &&
+        step.conditions.every((condition) =>
+          suggestion.conditions.includes(String(condition)),
+        ),
+    )
+  )
+    return false;
+  const finalSavings = exactRational(suggestion.objective_savings);
   return (
-    validOptimizationObjective(value.objective) &&
-    validOptimizationSuggestion(value.suggestion, analysisRequest)
+    !allSavingsRational ||
+    finalSavings === null ||
+    localRationalSavings.numerator * finalSavings.denominator ===
+      finalSavings.numerator * localRationalSavings.denominator
   );
 }
 

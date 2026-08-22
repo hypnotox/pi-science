@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fractions import Fraction
 from functools import cmp_to_key
 from typing import Literal
@@ -41,6 +42,7 @@ from py_science.formula.models import (
     Interpretation,
     OptimizationCandidate,
     OptimizationIntermediate,
+    OptimizationKind,
     OptimizationOccurrence,
     OptimizationOrdering,
     OptimizationPlan,
@@ -79,13 +81,24 @@ from py_science.formula.work import (
 from pydantic import ValidationError
 
 MAX_OPTIMIZATION_INSPECTIONS = 16_384
+MAX_OPTIMIZATION_DEPTH_TWO_INSPECTIONS = 131_072
+MAX_OPTIMIZATION_WHOLE_INSPECTIONS = 147_456
 MAX_OPTIMIZATION_CANDIDATES = 256
 MAX_OPTIMIZATION_COMPLETE_REANALYSES = 8
+MAX_OPTIMIZATION_EXPANDED_PARENTS = 8
+MAX_OPTIMIZATION_RETAINED_STATES = 8
 MAX_OPTIMIZATION_TRANSFORM_NODES = 8_192
 MAX_OPTIMIZATION_AGGREGATE_TRANSFORM_NODES = 32_768
 MAX_OPTIMIZATION_PROOFS = 256
 MAX_OPTIMIZATION_PROOF_NODES = 32_768
 MAX_OPTIMIZATION_WORK_NODES = 32_768
+MAX_OPTIMIZATION_WHOLE_PROOFS = 512
+MAX_OPTIMIZATION_WHOLE_PROOF_NODES = 65_536
+MAX_OPTIMIZATION_WHOLE_WORK_NODES = 65_536
+MAX_OPTIMIZATION_FINAL_STATES = 16
+MAX_OPTIMIZATION_FINAL_PROOFS = 16
+MAX_OPTIMIZATION_FINAL_PROOF_NODES = 32_768
+MAX_OPTIMIZATION_FINAL_WORK_NODES = 32_768
 MAX_HORNER_TARGET_NODES = 512
 MAX_HORNER_VARIABLES = 1
 MAX_HORNER_DEGREE = 8
@@ -159,6 +172,21 @@ class _Accepted:
 
 
 @dataclass(frozen=True, slots=True)
+class _SearchState:
+    """One verified complete computation in the bounded canonical frontier."""
+
+    request: AnalysisRequest
+    computed: RetainedComputation
+    objective_total: Expression
+    canonical_key: tuple[object, ...]
+    depth: int
+    generated_names: tuple[str, ...]
+    trace: tuple[tuple[OptimizationSuggestion, AnalysisRequest], ...]
+    concrete_identity: str
+    local_savings: Expression
+
+
+@dataclass(frozen=True, slots=True)
 class _Rejected:
     reason: str
 
@@ -173,71 +201,168 @@ type _CandidateOutcome = _Accepted | _Rejected | _Exhausted
 
 @dataclass(frozen=True, slots=True)
 class _OptimizationBudgetConfig:
-    """Private test seam for the fixed search and final-acceptance allowances."""
+    """Private test seam for every fixed composed-search allowance."""
 
     inspections: int = MAX_OPTIMIZATION_INSPECTIONS
+    depth_two_inspections: int = MAX_OPTIMIZATION_DEPTH_TWO_INSPECTIONS
+    whole_inspections: int = MAX_OPTIMIZATION_WHOLE_INSPECTIONS
     candidates: int = MAX_OPTIMIZATION_CANDIDATES
     complete_reanalyses: int = MAX_OPTIMIZATION_COMPLETE_REANALYSES
+    expanded_parents: int = MAX_OPTIMIZATION_EXPANDED_PARENTS
+    retained_states: int = MAX_OPTIMIZATION_RETAINED_STATES
     aggregate_transform_nodes: int = MAX_OPTIMIZATION_AGGREGATE_TRANSFORM_NODES
     proofs: int = MAX_OPTIMIZATION_PROOFS
     proof_nodes: int = MAX_OPTIMIZATION_PROOF_NODES
     work_nodes: int = MAX_OPTIMIZATION_WORK_NODES
-    retained_states: int = 8
+    whole_proofs: int = MAX_OPTIMIZATION_WHOLE_PROOFS
+    whole_proof_nodes: int = MAX_OPTIMIZATION_WHOLE_PROOF_NODES
+    whole_work_nodes: int = MAX_OPTIMIZATION_WHOLE_WORK_NODES
+    final_states: int = MAX_OPTIMIZATION_FINAL_STATES
+    final_proofs: int = MAX_OPTIMIZATION_FINAL_PROOFS
+    final_proof_nodes: int = MAX_OPTIMIZATION_FINAL_PROOF_NODES
+    final_work_nodes: int = MAX_OPTIMIZATION_FINAL_WORK_NODES
 
 
 def _default_budget_config() -> _OptimizationBudgetConfig:
-    """Read module limits at request time so the private regression seam works."""
+    """Read module limits at request time so monkeypatched private seams remain useful."""
     return _OptimizationBudgetConfig(
         inspections=MAX_OPTIMIZATION_INSPECTIONS,
+        depth_two_inspections=MAX_OPTIMIZATION_DEPTH_TWO_INSPECTIONS,
+        whole_inspections=MAX_OPTIMIZATION_WHOLE_INSPECTIONS,
         candidates=MAX_OPTIMIZATION_CANDIDATES,
         complete_reanalyses=MAX_OPTIMIZATION_COMPLETE_REANALYSES,
+        expanded_parents=MAX_OPTIMIZATION_EXPANDED_PARENTS,
+        retained_states=MAX_OPTIMIZATION_RETAINED_STATES,
         aggregate_transform_nodes=MAX_OPTIMIZATION_AGGREGATE_TRANSFORM_NODES,
         proofs=MAX_OPTIMIZATION_PROOFS,
         proof_nodes=MAX_OPTIMIZATION_PROOF_NODES,
         work_nodes=MAX_OPTIMIZATION_WORK_NODES,
+        whole_proofs=MAX_OPTIMIZATION_WHOLE_PROOFS,
+        whole_proof_nodes=MAX_OPTIMIZATION_WHOLE_PROOF_NODES,
+        whole_work_nodes=MAX_OPTIMIZATION_WHOLE_WORK_NODES,
+        final_states=MAX_OPTIMIZATION_FINAL_STATES,
+        final_proofs=MAX_OPTIMIZATION_FINAL_PROOFS,
+        final_proof_nodes=MAX_OPTIMIZATION_FINAL_PROOF_NODES,
+        final_work_nodes=MAX_OPTIMIZATION_FINAL_WORK_NODES,
     )
+
+
+@dataclass(slots=True)
+class _WholeTransitionBudget:
+    """Whole-request transition ceilings shared by both search depths."""
+
+    config: _OptimizationBudgetConfig
+    inspections: int = 0
+    proofs: int = 0
+    proof_nodes: int = 0
+    work_nodes: int = 0
+
+    @staticmethod
+    def _accept(resource: str, measured: int, configured: int) -> None:
+        if measured > configured:
+            raise _BudgetExhausted(resource, measured, configured)
+
+    def inspect(self, amount: int) -> None:
+        self.inspections += amount
+        self._accept(
+            "whole-request inspected nodes", self.inspections, self.config.whole_inspections
+        )
+
+    def proof(self, nodes: int) -> None:
+        self.proofs += 1
+        self._accept("whole-request proof steps", self.proofs, self.config.whole_proofs)
+        self.proof_nodes += nodes
+        self._accept("whole-request proof nodes", self.proof_nodes, self.config.whole_proof_nodes)
+
+    def work(self, nodes: int) -> None:
+        self.work_nodes += nodes
+        self._accept(
+            "whole-request work-comparison nodes",
+            self.work_nodes,
+            self.config.whole_work_nodes,
+        )
 
 
 @dataclass(slots=True)
 class _OptimizationBudget:
     config: _OptimizationBudgetConfig = _OptimizationBudgetConfig()
+    label: str = "transition"
+    whole: _WholeTransitionBudget | None = None
     inspections: int = 0
     candidates: int = 0
+    complete_reanalyses: int = 0
+    expanded_parents: int = 0
+    retained_states: int = 0
     aggregate_transform_nodes: int = 0
     proofs: int = 0
     proof_nodes: int = 0
     work_nodes: int = 0
 
-    def _accept(self, resource: str, measured: int, configured: int) -> None:
+    def resource(self, resource: str) -> str:
+        return f"{self.label} {resource}" if self.label else resource
+
+    @staticmethod
+    def _accept(resource: str, measured: int, configured: int) -> None:
         if measured > configured:
             raise _BudgetExhausted(resource, measured, configured)
 
     def inspect(self, amount: int = 1) -> None:
-        self.inspections += amount
-        self._accept("inspected nodes", self.inspections, self.config.inspections)
+        measured = self.inspections + amount
+        self._accept(self.resource("inspected nodes"), measured, self.config.inspections)
+        if self.whole is not None:
+            self.whole.inspect(amount)
+        self.inspections = measured
 
     def candidate(self) -> None:
-        self.candidates += 1
-        self._accept("generated candidates", self.candidates, self.config.candidates)
+        measured = self.candidates + 1
+        self._accept(self.resource("generated transitions"), measured, self.config.candidates)
+        self.candidates = measured
+
+    def reanalysis(self) -> None:
+        measured = self.complete_reanalyses + 1
+        self._accept(
+            self.resource("complete candidate reanalyses"),
+            measured,
+            self.config.complete_reanalyses,
+        )
+        self.complete_reanalyses = measured
+
+    def parent(self) -> None:
+        measured = self.expanded_parents + 1
+        self._accept(self.resource("expanded parents"), measured, self.config.expanded_parents)
+        self.expanded_parents = measured
+
+    def retain(self) -> None:
+        measured = self.retained_states + 1
+        self._accept(self.resource("retained states"), measured, self.config.retained_states)
+        self.retained_states = measured
 
     def transformation(self, nodes: int) -> None:
         self._accept("per-candidate transformation nodes", nodes, MAX_OPTIMIZATION_TRANSFORM_NODES)
-        self.aggregate_transform_nodes += nodes
+        measured = self.aggregate_transform_nodes + nodes
         self._accept(
-            "aggregate transformation nodes",
-            self.aggregate_transform_nodes,
+            self.resource("aggregate transformation nodes"),
+            measured,
             self.config.aggregate_transform_nodes,
         )
+        self.aggregate_transform_nodes = measured
 
     def proof(self, nodes: int) -> None:
-        self.proofs += 1
-        self._accept("proof steps", self.proofs, self.config.proofs)
-        self.proof_nodes += nodes
-        self._accept("proof nodes", self.proof_nodes, self.config.proof_nodes)
+        measured = self.proofs + 1
+        self._accept(self.resource("proof steps"), measured, self.config.proofs)
+        measured_nodes = self.proof_nodes + nodes
+        self._accept(self.resource("proof nodes"), measured_nodes, self.config.proof_nodes)
+        if self.whole is not None:
+            self.whole.proof(nodes)
+        self.proofs = measured
+        self.proof_nodes = measured_nodes
 
     def work(self, nodes: int) -> None:
-        self.work_nodes += nodes
-        self._accept("work-comparison nodes", self.work_nodes, self.config.work_nodes)
+        measured = self.work_nodes + nodes
+        self._accept(self.resource("work-comparison nodes"), measured, self.config.work_nodes)
+        if self.whole is not None:
+            self.whole.work(nodes)
+        self.work_nodes = measured
 
 
 class _BudgetExhausted(RuntimeError):
@@ -548,6 +673,7 @@ def _canonical_output_expression(
     output_indices: tuple[str, ...],
     reserved_names: set[str] | None = None,
     canonical_output_indices: tuple[str, ...] | None = None,
+    free_names: Mapping[str, str] | None = None,
 ) -> Expression:
     """Normalize positional output and lexical binder names without algebra."""
     reserved = set(reserved_names or ()) | _all_symbol_names(expression)
@@ -615,7 +741,8 @@ def _canonical_output_expression(
             )
         return value
 
-    names = dict(zip(output_indices, canonical_output_indices, strict=True))
+    names = dict(free_names or {})
+    names.update(zip(output_indices, canonical_output_indices, strict=True))
     return visit(expression, names, ())
 
 
@@ -881,20 +1008,107 @@ def _complete_candidate(
     return AnalysisRequest.model_validate(complete.model_dump(mode="python"))
 
 
-def _generate_candidates(
-    computed: RetainedComputation, budget: _OptimizationBudget
-) -> tuple[tuple[_CandidateComputation, ...], tuple[str, ...]]:
-    candidates: list[_CandidateComputation] = []
+_FAMILY_ORDER: tuple[OptimizationKind, ...] = (
+    "repeated_subexpression",
+    "repeated_call",
+    "reciprocal_reuse",
+    "factoring",
+    "redundant_operation_removal",
+    "iterator_invariant_hoisting",
+    "cross_equation_sharing",
+    "horner",
+)
+
+
+class _RetainedLaneCollector:
+    """Retain the canonical round-robin prefix without materializing all proposals."""
+
+    def __init__(self, budget: _OptimizationBudget) -> None:
+        self.budget = budget
+        self._capacity = max(0, budget.config.candidates - budget.candidates)
+        self._counts: dict[tuple[object, ...], int] = {}
+        self._retained: dict[tuple[object, ...], list[_CandidateComputation]] = {}
+        self._more_proposals = False
+
+    @property
+    def retained_count(self) -> int:
+        return sum(map(len, self._retained.values()))
+
+    def _quotas(self) -> dict[tuple[object, ...], int]:
+        quotas = {key: 0 for key in self._counts}
+        active = [(key, 0) for key in sorted(self._counts) if self._counts[key]]
+        remaining = self._capacity
+        while active and remaining:
+            following: list[tuple[tuple[object, ...], int]] = []
+            for key, position in active:
+                quotas[key] += 1
+                remaining -= 1
+                position += 1
+                if position < self._counts[key]:
+                    following.append((key, position))
+                if not remaining:
+                    break
+            active = following
+        return quotas
+
+    def add(self, lane: tuple[object, ...], candidate: _CandidateComputation) -> None:
+        self._counts[lane] = self._counts.get(lane, 0) + 1
+        self._more_proposals |= sum(self._counts.values()) > self._capacity
+        quotas = self._quotas()
+        for key, values in self._retained.items():
+            del values[quotas[key] :]
+        values = self._retained.setdefault(lane, [])
+        quota = quotas[lane]
+        if quota:
+            values.append(candidate)
+            values.sort(key=_proposal_sort_key)
+            del values[quota:]
+        assert self.retained_count <= self._capacity
+
+    def lanes_for(
+        self, lane_prefix: tuple[object, ...]
+    ) -> dict[OptimizationKind, tuple[_CandidateComputation, ...]]:
+        return {kind: tuple(self._retained.get((*lane_prefix, kind), ())) for kind in _FAMILY_ORDER}
+
+    def schedule(self) -> tuple[tuple[tuple[object, ...], _CandidateComputation], ...]:
+        selected = _round_robin_candidates(
+            ((key, tuple(values)) for key, values in self._retained.items()), self.budget
+        )
+        for _key, _candidate in selected:
+            self.budget.candidate()
+        return selected
+
+    def exhaustion(self) -> str | None:
+        if not self._more_proposals:
+            return None
+        return str(
+            _BudgetExhausted(
+                self.budget.resource("generated transitions"),
+                self._capacity + 1,
+                self.budget.config.candidates,
+            )
+        )
+
+
+def _generate_candidate_lanes(
+    computed: RetainedComputation,
+    budget: _OptimizationBudget,
+    collector: _RetainedLaneCollector | None = None,
+    lane_prefix: tuple[object, ...] = (),
+) -> tuple[dict[OptimizationKind, tuple[_CandidateComputation, ...]], tuple[str, ...]]:
+    """Enumerate families into a bounded, canonical shared lane collector."""
+    collector = collector or _RetainedLaneCollector(budget)
     qualifications: list[str] = []
     generated_name = _generated_name(computed)
     occurrences_by_target: dict[str, tuple[_Occurrence, ...]] = {}
 
     def append(candidate: _CandidateComputation) -> None:
-        budget.candidate()
-        candidates.append(candidate)
+        collector.add((*lane_prefix, candidate.kind), candidate)
 
     try:
-        for target, expression, output_indices, output_domains in _target_inputs(computed):
+        for target, expression, output_indices, output_domains in sorted(
+            _target_inputs(computed), key=lambda item: item[0]
+        ):
             try:
                 occurrences = _detect_occurrences(
                     target,
@@ -902,12 +1116,12 @@ def _generate_candidates(
                     computed.producers,
                     output_indices=output_indices,
                     output_domains=output_domains,
-                    max_nodes=max(1, MAX_OPTIMIZATION_INSPECTIONS - budget.inspections),
+                    max_nodes=max(1, budget.config.inspections - budget.inspections),
                 )
             except _TraversalExhausted:
                 measured = budget.inspections + expression_node_count(expression)
                 raise _BudgetExhausted(
-                    "inspected nodes", measured, MAX_OPTIMIZATION_INSPECTIONS
+                    budget.resource("inspected nodes"), measured, budget.config.inspections
                 ) from None
             budget.inspect(max(1, expression_node_count(expression)))
             occurrences_by_target[target] = occurrences
@@ -975,8 +1189,6 @@ def _generate_candidates(
                             occurrences=(occurrence,),
                         )
                     )
-                # Horner recursively inspects its target independently of occurrence
-                # traversal; charge it before descending into the backend seam.
                 budget.inspect(max(1, expression_node_count(node)))
                 horner = bounded_horner_candidate(
                     node,
@@ -1005,8 +1217,6 @@ def _generate_candidates(
                                 occurrences=(occurrence,),
                             )
                         )
-                # A body subtree independent of the innermost active iterator can be
-                # evaluated immediately outside that iterator. Bounds stay outside it.
                 if occurrence.scope.binders:
                     binding = occurrence.scope.binders[-1]
                     raw_symbols = _free_symbols(node)
@@ -1056,7 +1266,83 @@ def _generate_candidates(
                 append(candidate)
     except _BudgetExhausted as error:
         qualifications.append(str(error))
-    return tuple(candidates), tuple(dict.fromkeys(qualifications))
+    return collector.lanes_for(lane_prefix), tuple(dict.fromkeys(qualifications))
+
+
+def _scope_sort_key(scope: _EvaluationScope | None) -> tuple[object, ...]:
+    if scope is None:
+        return ()
+    return (
+        scope.output_indices,
+        tuple(
+            (
+                binding.name,
+                binding.path,
+                render(binding.lower).sympy if binding.lower is not None else "",
+                render(binding.upper).sympy if binding.upper is not None else "",
+            )
+            for binding in scope.output_bindings
+        ),
+        tuple(
+            (
+                binding.name,
+                binding.path,
+                render(binding.lower).sympy if binding.lower is not None else "",
+                render(binding.upper).sympy if binding.upper is not None else "",
+                render(binding.value).sympy if binding.value is not None else "",
+            )
+            for binding in scope.binders
+        ),
+    )
+
+
+def _proposal_sort_key(candidate: _CandidateComputation) -> tuple[object, ...]:
+    transformations = candidate.transformed_targets or (
+        (candidate.target, candidate.original, candidate.proposed),
+    )
+    return (
+        candidate.kind,
+        tuple(
+            (target, render(original).sympy, render(proposed).sympy)
+            for target, original, proposed in transformations
+        ),
+        tuple((item.target, item.path, item.binders) for item in candidate.occurrences),
+        render(candidate.intermediate_expression).sympy
+        if candidate.intermediate_expression is not None
+        else "",
+        _scope_sort_key(candidate.intermediate_scope),
+    )
+
+
+def _round_robin_candidates(
+    lanes: Iterable[tuple[tuple[object, ...], tuple[_CandidateComputation, ...]]],
+    budget: _OptimizationBudget,
+) -> tuple[tuple[tuple[object, ...], _CandidateComputation], ...]:
+    """Take one canonical proposal per live, already bounded lane per round."""
+    active = [(key, values, 0) for key, values in sorted(lanes, key=lambda item: item[0]) if values]
+    selected: list[tuple[tuple[object, ...], _CandidateComputation]] = []
+    while active:
+        next_round: list[tuple[tuple[object, ...], tuple[_CandidateComputation, ...], int]] = []
+        for key, values, position in active:
+            selected.append((key, values[position]))
+            position += 1
+            if position < len(values):
+                next_round.append((key, values, position))
+        active = next_round
+    return tuple(selected)
+
+
+def _generate_candidates(  # pyright: ignore[reportUnusedFunction]
+    computed: RetainedComputation, budget: _OptimizationBudget
+) -> tuple[tuple[_CandidateComputation, ...], tuple[str, ...]]:
+    """Compatibility projection over the stable built-in family lanes."""
+    collector = _RetainedLaneCollector(budget)
+    _lanes, qualifications = _generate_candidate_lanes(computed, budget, collector)
+    scheduled = collector.schedule()
+    exhaustion = collector.exhaustion()
+    if exhaustion is not None:
+        qualifications = (*qualifications, exhaustion)
+    return tuple(candidate for _key, candidate in scheduled), tuple(qualifications)
 
 
 def _neutral_replacement(expression: Expression) -> Expression | None:
@@ -1247,6 +1533,72 @@ def _reasoning(request: AnalysisRequest, computed: RetainedComputation) -> Reaso
         )
     except ExpressionTooComplex:
         return None
+
+
+def _abstract_opaque_atoms(left: Expression, right: Expression) -> tuple[Expression, Expression]:
+    """Give opaque aggregate/call atoms stable proof-local identities."""
+    atoms: dict[object, Symbol] = {}
+    reserved = _all_symbol_names(left) | _all_symbol_names(right)
+
+    def atom(value: Expression) -> Symbol:
+        try:
+            key: object = (type(value).__name__, render(value).sympy)
+        except NormalizationError:
+            key = value
+        existing = atoms.get(key)
+        if existing is not None:
+            return existing
+        position = len(atoms)
+        name = f"optimization_proof_atom_{position}"
+        while name in reserved:
+            position += 1
+            name = f"optimization_proof_atom_{position}"
+        reserved.add(name)
+        result = Symbol(name)
+        atoms[key] = result
+        return result
+
+    def visit(value: Expression) -> Expression:
+        if isinstance(value, (Call, IndexedValue, Sum)):
+            return atom(value)
+        if isinstance(value, BinaryExpression):
+            return BinaryExpression(value.operator, visit(value.left), visit(value.right))
+        if isinstance(value, Let):
+            return Let(value.name, visit(value.value), visit(value.body))
+        return value
+
+    return visit(left), visit(right)
+
+
+def _exact_output_equivalence(
+    left: Expression,
+    right: Expression,
+    reasoning: ReasoningContext | None,
+) -> QueryAnswer:
+    """Use the same bounded exact normalization for transition and final proofs."""
+    reserved = _all_symbol_names(left) | _all_symbol_names(right)
+    left_canonical = _canonical_output_expression(left, (), reserved)
+    right_canonical = _canonical_output_expression(right, (), reserved)
+    try:
+        normalized_equal = (
+            left_canonical == right_canonical
+            or render(left_canonical).sympy == render(right_canonical).sympy
+        )
+    except NormalizationError:
+        normalized_equal = False
+    if normalized_equal:
+        return QueryAnswer(
+            conclusion="proved",
+            evidence=IdentityEvidence(
+                statement="checked complete candidate reconstructs every retained output"
+            ),
+        )
+    answer = equivalence_answer(left, right, reasoning)
+    if answer.conclusion in {"proved", "proved_under_assumptions"}:
+        return answer
+    abstracted_left, abstracted_right = _abstract_opaque_atoms(left_canonical, right_canonical)
+    abstracted = equivalence_answer(abstracted_left, abstracted_right, reasoning)
+    return abstracted if not abstracted.conditions else answer
 
 
 def _unique_uses(values: Iterable[RelationshipUse]) -> tuple[RelationshipUse, ...]:
@@ -1520,8 +1872,12 @@ def _original_final_suggestion(
     request: AnalysisRequest,
     reasoning: ReasoningContext,
     budget: _OptimizationBudget,
-) -> OptimizationSuggestion | None:
+) -> tuple[OptimizationSuggestion, Expression] | _Rejected | _Exhausted:
     """Independently prove and measure a retained final against the submitted root."""
+    try:
+        budget.retain()
+    except _BudgetExhausted as error:
+        return _Exhausted(str(error))
     root_work = _as_work(root.aggregate_analysis)
     final_work = _as_work(final.aggregate_analysis)
     if (
@@ -1532,13 +1888,13 @@ def _original_final_suggestion(
         or final_work.unresolved
         or final_work.direct_work_blockers
     ):
-        return None
+        return _Rejected("final aggregate work is unavailable")
     root_objective = project_optimization_objective(root_work, request.optimization.objective)
     final_objective = project_optimization_objective(final_work, request.optimization.objective)
     try:
         budget.work(expression_node_count(root_objective) + expression_node_count(final_objective))
-    except _BudgetExhausted:
-        return None
+    except _BudgetExhausted as error:
+        return _Exhausted(str(error))
     relation = compare_aggregate_work(
         AggregateWorkComparisonInput(work=final_objective),
         AggregateWorkComparisonInput(work=root_objective),
@@ -1546,7 +1902,9 @@ def _original_final_suggestion(
         semantic_established=True,
     )
     if relation.status != "first_lower" or relation.delta is None:
-        return None
+        return _Rejected("final has no proved positive original-relative reduction")
+    if exact_work_sign(root_objective) in {-1, 0} or exact_work_sign(final_objective) == -1:
+        return _Rejected("final work before must be positive and work after nonnegative")
     reserved: set[str] = set()
     for _target, expression, _indices, _domains in _target_inputs(root):
         reserved.update(_all_symbol_names(expression))
@@ -1571,42 +1929,56 @@ def _original_final_suggestion(
                 final, ExpansionBudget(remaining=MAX_OPTIMIZATION_TRANSFORM_NODES), set(reserved)
             ).expand(final_outputs[target])
             budget.proof(expression_node_count(left) + expression_node_count(right))
-            answer = equivalence_answer(left, right, reasoning)
+            answer = _exact_output_equivalence(left, right, reasoning)
             if answer.conclusion not in {"proved", "proved_under_assumptions"} or not isinstance(
                 answer.evidence, IdentityEvidence
             ):
-                return None
+                return _Rejected("final output equivalence is not proved")
             answers.append(answer)
         render_budget = WorkRenderBudget()
         conditions = tuple(
             dict.fromkeys(
-                (*[item for answer in answers for item in answer.conditions], *relation.conditions)
+                (
+                    *local.conditions,
+                    *[item for answer in answers for item in answer.conditions],
+                    *relation.conditions,
+                )
             )
         )
         assumptions = _unique_uses(
             (
+                *local.assumptions_used,
                 *[item for answer in answers for item in answer.assumptions_used],
                 *relation.assumptions_used,
             )
         )
-        return local.model_copy(
-            update={
-                "conclusion": "proved_under_assumptions" if conditions or assumptions else "proved",
-                "evidence": IdentityEvidence(
-                    statement=(
-                        "checked exact symbolic equivalence from submitted computation "
-                        "to final candidate"
-                    )
-                ),
-                "conditions": conditions,
-                "assumptions_used": assumptions,
-                "objective_before": render_work(root_objective, render_budget),
-                "objective_after": render_work(final_objective, render_budget),
-                "objective_savings": render_work(relation.delta, render_budget),
-            }
+        return (
+            local.model_copy(
+                update={
+                    "conclusion": (
+                        "proved_under_assumptions" if conditions or assumptions else "proved"
+                    ),
+                    "evidence": IdentityEvidence(
+                        statement=(
+                            "checked exact symbolic equivalence from submitted computation "
+                            "to final candidate"
+                        )
+                    ),
+                    "conditions": conditions,
+                    "assumptions_used": assumptions,
+                    "objective_before": render_work(root_objective, render_budget),
+                    "objective_after": render_work(final_objective, render_budget),
+                    "objective_savings": render_work(relation.delta, render_budget),
+                }
+            ),
+            relation.delta,
         )
-    except (ExpressionTooComplex, NormalizationError, _BudgetExhausted):
-        return None
+    except _BudgetExhausted as error:
+        return _Exhausted(str(error))
+    except (ExpressionTooComplex, NormalizationError):
+        # These backend refusals are candidate-local verification failures, not
+        # evidence that one of the explicit search counters was exhausted.
+        return _Rejected("final candidate exact proof could not be normalized")
 
 
 def _suggestion_order(left: OptimizationSuggestion, right: OptimizationSuggestion) -> int:
@@ -1718,7 +2090,10 @@ def _adjacent_ordering_relation(
     )
 
 
-def _candidate_semantic_key(candidate: _CandidateComputation) -> tuple[object, ...]:
+def _candidate_semantic_key(  # pyright: ignore[reportUnusedFunction]
+    candidate: _CandidateComputation,
+) -> tuple[object, ...]:
+    """Legacy local-proposal identity retained for focused generator tests only."""
     transformations = candidate.transformed_targets or (
         (candidate.target, candidate.original, candidate.proposed),
     )
@@ -1729,7 +2104,142 @@ def _candidate_semantic_key(candidate: _CandidateComputation) -> tuple[object, .
     )
 
 
-def _complete_candidate_schedule(
+def _stable_json(value: object) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _canonical_state_key(
+    request: AnalysisRequest,
+    computed: RetainedComputation,
+    generated_names: tuple[str, ...],
+) -> tuple[object, ...]:
+    """Serialize complete computation semantics independently of search history."""
+    generated = {
+        name: f"optimization_generated_{position}"
+        for position, name in enumerate(dict.fromkeys(generated_names))
+    }
+    context = (
+        request.syntax.value,
+        _stable_json(
+            {name: value.model_dump(mode="json") for name, value in request.variables.items()}
+        ),
+        _stable_json([value.model_dump(mode="json") for value in request.functions]),
+        _stable_json([value.model_dump(mode="json") for value in request.primitive_costs]),
+        _stable_json([value.model_dump(mode="json") for value in request.assumptions]),
+        _stable_json([value.model_dump(mode="json") for value in request.definitions]),
+        tuple(request.outputs),
+    )
+    if computed.expression is not None:
+        canonical = _canonical_output_expression(computed.expression, (), free_names=generated)
+        return (*context, "expression", render(canonical).sympy)
+
+    equations: list[tuple[object, ...]] = []
+    for equation in sorted(
+        computed.equations, key=lambda item: generated.get(item.name, item.name)
+    ):
+        reserved = _all_symbol_names(equation.formula.right)
+        for domain in equation.output_domains:
+            reserved.update(_all_symbol_names(domain.lower))
+            reserved.update(_all_symbol_names(domain.upper))
+        canonical_indices = _canonical_output_index_names(len(equation.domain_order), reserved)
+        index_names = dict(zip(equation.domain_order, canonical_indices, strict=True))
+        canonical_right = _canonical_output_expression(
+            equation.formula.right,
+            equation.domain_order,
+            reserved,
+            canonical_indices,
+            generated,
+        )
+        domains = tuple(
+            (
+                index_names[domain.index],
+                render(
+                    _canonical_output_expression(
+                        domain.lower,
+                        equation.domain_order,
+                        reserved,
+                        canonical_indices,
+                        generated,
+                    )
+                ).sympy,
+                render(
+                    _canonical_output_expression(
+                        domain.upper,
+                        equation.domain_order,
+                        reserved,
+                        canonical_indices,
+                        generated,
+                    )
+                ).sympy,
+            )
+            for domain in equation.output_domains
+        )
+        constraints = tuple(
+            sorted(
+                (
+                    name,
+                    index_names[target],
+                    relationship.operator.value,
+                    render(
+                        _canonical_output_expression(
+                            relationship.left,
+                            equation.domain_order,
+                            reserved,
+                            canonical_indices,
+                            generated,
+                        )
+                    ).sympy,
+                    render(
+                        _canonical_output_expression(
+                            relationship.right,
+                            equation.domain_order,
+                            reserved,
+                            canonical_indices,
+                            generated,
+                        )
+                    ).sympy,
+                )
+                for name, target, relationship in equation.constraints
+            )
+        )
+        equations.append(
+            (
+                generated.get(equation.name, equation.name),
+                tuple(canonical_indices),
+                render(canonical_right).sympy,
+                domains,
+                constraints,
+            )
+        )
+    return (*context, "system", tuple(equations))
+
+
+def _trace_key(
+    trace: tuple[tuple[OptimizationSuggestion, AnalysisRequest], ...],
+) -> tuple[object, ...]:
+    return tuple(
+        (
+            suggestion.kind,
+            tuple(
+                (
+                    item.target.kind,
+                    item.target.name or "",
+                    tuple(occurrence.path for occurrence in item.occurrences),
+                    item.proposed.normalized_sympy,
+                )
+                for item in suggestion.transformations
+            ),
+            candidate.model_dump_json(exclude_none=True),
+        )
+        for suggestion, candidate in trace
+    )
+
+
+def _state_preference(state: _SearchState) -> tuple[object, ...]:
+    return state.depth, _trace_key(state.trace), state.concrete_identity
+
+
+def _complete_candidate_schedule(  # pyright: ignore[reportUnusedFunction]
     candidates: tuple[_CandidateComputation, ...],
 ) -> tuple[_CandidateComputation, ...]:
     """Bound reanalysis without starving a shipped family or the candidate tail."""
@@ -1787,26 +2297,27 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
     if limit == 0:
         return OptimizationReport(requested_limit=0, status="disabled")
     configuration = budget_config or _default_budget_config()
-    # Transition accounting is partitioned by search depth. Final direct
-    # acceptance uses its own bounded proof/work ledger.
-    budget = _OptimizationBudget(configuration)
-    depth_two_budget = _OptimizationBudget(configuration)
-    final_budget = _OptimizationBudget(
-        _OptimizationBudgetConfig(
-            inspections=configuration.inspections,
-            candidates=configuration.candidates,
-            complete_reanalyses=configuration.complete_reanalyses,
-            aggregate_transform_nodes=configuration.aggregate_transform_nodes,
-            proofs=min(16, configuration.proofs),
-            proof_nodes=configuration.proof_nodes,
-            work_nodes=configuration.work_nodes,
-            retained_states=min(16, configuration.retained_states),
-        )
+    whole = _WholeTransitionBudget(configuration)
+    depth_one_config = replace(
+        configuration, inspections=configuration.inspections, expanded_parents=1
     )
-    accepted: list[_Accepted] = []
+    depth_two_config = replace(
+        configuration,
+        inspections=configuration.depth_two_inspections,
+        expanded_parents=configuration.expanded_parents,
+    )
+    final_config = replace(
+        configuration,
+        retained_states=configuration.final_states,
+        proofs=configuration.final_proofs,
+        proof_nodes=configuration.final_proof_nodes,
+        work_nodes=configuration.final_work_nodes,
+    )
+    depth_one_budget = _OptimizationBudget(depth_one_config, "depth-one", whole)
+    depth_two_budget = _OptimizationBudget(depth_two_config, "depth-two", whole)
+    final_budget = _OptimizationBudget(final_config, "final-acceptance")
+    ranking_budget = _OptimizationBudget(configuration, "ranking")
     qualifications: list[str] = []
-    candidates, generation_qualifications = _generate_candidates(computed, budget)
-    qualifications.extend(generation_qualifications)
     reasoning = _reasoning(request, computed)
     if reasoning is None:
         return OptimizationReport(
@@ -1818,86 +2329,166 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
                 f"configured {MAX_OPTIMIZATION_PROOF_NODES})",
             ),
         )
-    seen: set[tuple[object, ...]] = set()
-    scheduled = _complete_candidate_schedule(candidates[: configuration.candidates])
-    if len(scheduled) < len(candidates):
-        qualifications.append(
-            "optimization complete candidate reanalyses budget exhausted "
-            f"(measured {len(candidates)}, configured {configuration.complete_reanalyses})"
+
+    def generated_names(
+        parent: _SearchState | None, candidate: _CandidateComputation
+    ) -> tuple[str, ...]:
+        names = parent.generated_names if parent is not None else ()
+        if candidate.intermediate_name is None or candidate.intermediate_name in names:
+            return names
+        return (*names, candidate.intermediate_name)
+
+    def state_from(
+        outcome: _Accepted,
+        parent: _SearchState | None,
+        candidate: _CandidateComputation,
+        depth: int,
+    ) -> _SearchState:
+        assert outcome.computed is not None
+        names = generated_names(parent, candidate)
+        trace = (
+            *(parent.trace if parent is not None else ()),
+            (outcome.suggestion, outcome.candidate),
         )
-    for candidate in scheduled:
-        outcome = _verify_candidate(candidate, request, computed, context, reasoning, budget)
+        after = _as_work(outcome.computed.aggregate_analysis)
+        return _SearchState(
+            request=outcome.candidate,
+            computed=outcome.computed,
+            objective_total=project_optimization_objective(after, request.optimization.objective),
+            canonical_key=_canonical_state_key(outcome.candidate, outcome.computed, names),
+            depth=depth,
+            generated_names=names,
+            trace=trace,
+            concrete_identity=outcome.candidate.model_dump_json(exclude_none=True),
+            local_savings=outcome.savings_expression,
+        )
+
+    def admit(
+        population: dict[tuple[object, ...], _SearchState],
+        state: _SearchState,
+        budget: _OptimizationBudget,
+    ) -> None:
+        existing = population.get(state.canonical_key)
+        if existing is not None:
+            if _state_preference(state) < _state_preference(existing):
+                population[state.canonical_key] = state
+            return
+        try:
+            budget.retain()
+        except _BudgetExhausted as error:
+            qualifications.append(str(error))
+            return
+        population[state.canonical_key] = state
+
+    # Depth one expands exactly the unreturned root through the eight fixed lanes.
+    depth_one: dict[tuple[object, ...], _SearchState] = {}
+    try:
+        depth_one_budget.parent()
+        root_collector = _RetainedLaneCollector(depth_one_budget)
+        _root_lanes, generation_qualifications = _generate_candidate_lanes(
+            computed, depth_one_budget, root_collector
+        )
+        qualifications.extend(generation_qualifications)
+        root_schedule = root_collector.schedule()
+        exhaustion = root_collector.exhaustion()
+        if exhaustion is not None:
+            qualifications.append(exhaustion)
+        for _lane, candidate in root_schedule:
+            try:
+                depth_one_budget.reanalysis()
+            except _BudgetExhausted as error:
+                qualifications.append(str(error))
+                break
+            outcome = _verify_candidate(
+                candidate, request, computed, context, reasoning, depth_one_budget
+            )
+            if isinstance(outcome, _Exhausted):
+                qualifications.append(outcome.reason)
+            elif not isinstance(outcome, _Rejected):
+                admit(depth_one, state_from(outcome, None, candidate, 1), depth_one_budget)
+    except _BudgetExhausted as error:
+        qualifications.append(str(error))
+
+    # Depth two schedules canonical parent-family lanes globally, one proposal per
+    # live lane per round, rather than letting any parent or family consume the depth.
+    depth_two: dict[tuple[object, ...], _SearchState] = {}
+    parent_by_lane: dict[tuple[object, ...], _SearchState] = {}
+    depth_two_collector = _RetainedLaneCollector(depth_two_budget)
+    for parent in sorted(depth_one.values(), key=lambda item: item.canonical_key):
+        try:
+            depth_two_budget.parent()
+            _lanes, generation_qualifications = _generate_candidate_lanes(
+                parent.computed, depth_two_budget, depth_two_collector, (parent.canonical_key,)
+            )
+            qualifications.extend(generation_qualifications)
+        except _BudgetExhausted as error:
+            qualifications.append(str(error))
+            break
+        for kind in _FAMILY_ORDER:
+            parent_by_lane[(parent.canonical_key, kind)] = parent
+    depth_two_schedule = depth_two_collector.schedule()
+    exhaustion = depth_two_collector.exhaustion()
+    if exhaustion is not None:
+        qualifications.append(exhaustion)
+    for lane_key, candidate in depth_two_schedule:
+        try:
+            depth_two_budget.reanalysis()
+        except _BudgetExhausted as error:
+            qualifications.append(str(error))
+            break
+        parent = parent_by_lane[lane_key]
+        outcome = _verify_candidate(
+            candidate,
+            parent.request,
+            parent.computed,
+            context,
+            reasoning,
+            depth_two_budget,
+        )
         if isinstance(outcome, _Exhausted):
             qualifications.append(outcome.reason)
-            continue
-        if isinstance(outcome, _Rejected):
-            continue
-        key = _candidate_semantic_key(candidate)
-        if key not in seen:
-            seen.add(key)
-            # A depth-one transition is already directly root-relative; execute
-            # final accounting when possible while retaining the independently
-            # verified transition if bounded direct normalization cannot improve it.
-            assert outcome.computed is not None
-            _original_final_suggestion(
-                outcome.suggestion, computed, outcome.computed, request, reasoning, final_budget
-            )
-            accepted.append(
-                _Accepted(
-                    outcome.suggestion,
-                    outcome.candidate,
-                    outcome.savings_expression,
-                    outcome.computed,
-                    ((outcome.suggestion, outcome.candidate),),
-                )
-            )
+        elif not isinstance(outcome, _Rejected):
+            admit(depth_two, state_from(outcome, parent, candidate, 2), depth_two_budget)
 
-    # Breadth-first depth two: each retained depth-one parent gets stable family
-    # proposals through the same independent replay/proof seam.  The root itself
-    # is deliberately never returned.
-    depth_one = tuple(accepted[: configuration.complete_reanalyses])
-    for parent in depth_one:
-        assert parent.computed is not None
-        children, child_qualifications = _generate_candidates(parent.computed, depth_two_budget)
-        qualifications.extend(child_qualifications)
-        for child in _complete_candidate_schedule(children[: configuration.candidates]):
-            child_outcome = _verify_candidate(
-                child, parent.candidate, parent.computed, context, reasoning, depth_two_budget
+    # Equal finals collapse across both depths before direct root-relative acceptance;
+    # the lower depth, canonical trace, and concrete candidate choose the representative.
+    final_states = dict(depth_one)
+    for key, state in depth_two.items():
+        existing = final_states.get(key)
+        if existing is None or _state_preference(state) < _state_preference(existing):
+            final_states[key] = state
+
+    accepted: list[_Accepted] = []
+    for state in sorted(final_states.values(), key=lambda item: item.canonical_key):
+        final = _original_final_suggestion(
+            state.trace[-1][0],
+            computed,
+            state.computed,
+            request,
+            reasoning,
+            final_budget,
+        )
+        if isinstance(final, _Exhausted):
+            qualifications.append(final.reason)
+            continue
+        if isinstance(final, _Rejected):
+            continue
+        final_suggestion, final_savings = final
+        accepted.append(
+            _Accepted(
+                final_suggestion,
+                state.request,
+                final_savings,
+                state.computed,
+                state.trace,
             )
-            if isinstance(child_outcome, _Exhausted):
-                qualifications.append(child_outcome.reason)
-                continue
-            if isinstance(child_outcome, _Rejected):
-                continue
-            key = _candidate_semantic_key(child)
-            if key in seen:
-                continue
-            seen.add(key)
-            trace = parent.trace or ((parent.suggestion, parent.candidate),)
-            assert child_outcome.computed is not None
-            final_suggestion = _original_final_suggestion(
-                child_outcome.suggestion,
-                computed,
-                child_outcome.computed,
-                request,
-                reasoning,
-                final_budget,
-            )
-            if final_suggestion is None:
-                continue
-            accepted.append(
-                _Accepted(
-                    final_suggestion,
-                    child_outcome.candidate,
-                    child_outcome.savings_expression,
-                    child_outcome.computed,
-                    (*trace, (child_outcome.suggestion, child_outcome.candidate)),
-                )
-            )
+        )
 
     try:
         accepted.sort(
-            key=cmp_to_key(lambda left, right: _accepted_order(left, right, reasoning, budget))
+            key=cmp_to_key(
+                lambda left, right: _accepted_order(left, right, reasoning, ranking_budget)
+            )
         )
     except _BudgetExhausted as error:
         qualifications.append(str(error))
@@ -1937,7 +2528,7 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
                 definitions=step_request.definitions,
                 outputs=("expression",)
                 if step_request.expression is not None
-                else tuple(equation.name for equation in step_request.equations),
+                else tuple(equation.name for equation in computed.equations),
             )
             step_identity = step_candidate.model_dump_json(exclude_none=True)
             trace.append(
@@ -1956,8 +2547,6 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
                     identity=step_identity,
                 )
             )
-        # The final complete candidate and identity are authoritative.
-        trace[-1] = trace[-1].model_copy(update={"candidate": candidate, "identity": identity})
         return OptimizationPlan(
             identity=identity,
             objective=request.optimization.objective,
@@ -1972,7 +2561,7 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
         if position > 1:
             try:
                 relation_to_previous = _adjacent_ordering_relation(
-                    ordered[-1], item, reasoning, budget
+                    ordered[-1], item, reasoning, ranking_budget
                 )
             except _BudgetExhausted:
                 relation_to_previous = "deterministic_non_superiority"

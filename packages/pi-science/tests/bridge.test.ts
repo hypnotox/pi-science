@@ -1074,6 +1074,60 @@ describe("private formula bridge", () => {
     ).rejects.toMatchObject({ kind: "protocol" });
   });
 
+  it("rejects broken parent, state, identity, and objective correlations in two-step traces", async () => {
+    const adapter = fileURLToPath(
+      new URL("../bridge/formula_adapter.py", import.meta.url),
+    );
+    const composedRequest: OptimizeRequest = {
+      syntax: "sympy",
+      operation: "optimize",
+      expression: "(x + 1)*(x + 1) + 0",
+    };
+    const composed = await invokeAdapter(
+      "uv",
+      ["run", "--locked", "python", adapter],
+      composedRequest,
+    );
+    if (composed.status !== "success" || !("plans" in composed))
+      throw new Error("expected optimize success");
+    const planIndex = composed.plans.findIndex(
+      (plan) => plan.trace.length === 2,
+    );
+    expect(planIndex).toBeGreaterThanOrEqual(0);
+
+    const brokenChain = structuredClone(composed);
+    brokenChain.plans[planIndex]!.trace[1]!.objective_before = "999";
+    const brokenIntermediate = structuredClone(composed);
+    brokenIntermediate.plans[planIndex]!.trace[0]!.intermediate!.name =
+      "uncorrelated_tmp";
+    const brokenStepIdentity = structuredClone(composed);
+    brokenStepIdentity.plans[planIndex]!.trace[0]!.identity += " ";
+    const brokenFinalEvidence = structuredClone(composed);
+    brokenFinalEvidence.plans[planIndex]!.suggestion.objective_before = "999";
+    const brokenState = structuredClone(composed);
+    const first = brokenState.plans[planIndex]!.trace[0]!;
+    if (!("expression" in first.candidate))
+      throw new Error("expected expression candidate");
+    first.candidate.expression = "x";
+    first.identity = JSON.stringify({
+      syntax: "sympy",
+      ...first.candidate,
+      equations: [],
+    });
+
+    for (const invalid of [
+      brokenChain,
+      brokenIntermediate,
+      brokenStepIdentity,
+      brokenFinalEvidence,
+      brokenState,
+    ]) {
+      await expect(
+        invokeAdapter(node, responder(invalid), composedRequest),
+      ).rejects.toMatchObject({ kind: "protocol" });
+    }
+  });
+
   it("preserves canonical null systems for expression candidate reports", async () => {
     const adapter = fileURLToPath(
       new URL("../bridge/formula_adapter.py", import.meta.url),

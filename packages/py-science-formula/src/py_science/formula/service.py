@@ -2999,22 +2999,52 @@ def _bound_result(outcome: AnalysisOutcome) -> AnalysisOutcome:
             len(outcome.model_dump_json().encode("utf-8")) - base_bytes
         )
         if advice_contribution > MAX_OPTIMIZATION_BYTES:
-            outcome = outcome.model_copy(
-                update={
-                    "optimization": advice.model_copy(
-                        update={
-                            "suggestions": (),
-                            "plans": (),
-                            "status": "incomplete",
-                            "qualifications": (
-                                "optimization advice bytes budget exhausted "
-                                f"(measured {advice_contribution}, "
-                                f"configured {MAX_OPTIMIZATION_BYTES})",
-                            ),
-                        }
-                    )
-                }
+            qualification = (
+                "optimization advice bytes budget exhausted "
+                f"(measured {advice_contribution}, configured {MAX_OPTIMIZATION_BYTES})"
             )
+            for retained in range(len(advice.plans), -1, -1):
+                bounded_advice = advice.model_copy(
+                    update={
+                        "suggestions": advice.suggestions[:retained],
+                        "plans": advice.plans[:retained],
+                        "projection_status": "truncated",
+                        "projection_qualifications": tuple(
+                            dict.fromkeys((*advice.projection_qualifications, qualification))
+                        ),
+                    }
+                )
+                bounded_outcome = outcome.model_copy(
+                    update={"optimization": bounded_advice}
+                )
+                bounded_contribution = (
+                    len(bounded_outcome.model_dump_json().encode("utf-8")) - base_bytes
+                )
+                if bounded_contribution <= MAX_OPTIMIZATION_BYTES:
+                    outcome = bounded_outcome
+                    break
+            else:
+                # A pathological pre-existing qualification can consume the entire
+                # optimization allowance. Preserve the valid base analysis and both
+                # diagnostic classes with bounded summaries rather than promoting a
+                # passive presentation limit to a whole-analysis failure.
+                search_qualifications = advice.qualifications
+                if advice.status == "incomplete":
+                    search_qualifications = (
+                        "optimization search qualifications truncated by output projection",
+                    )
+                bounded_advice = advice.model_copy(
+                    update={
+                        "suggestions": (),
+                        "plans": (),
+                        "qualifications": search_qualifications,
+                        "projection_status": "truncated",
+                        "projection_qualifications": (
+                            "optimization advice bytes budget exhausted",
+                        ),
+                    }
+                )
+                outcome = outcome.model_copy(update={"optimization": bounded_advice})
         if len(outcome.model_dump_json().encode("utf-8")) > MAX_COMBINED_RESULT_BYTES:
             return _complexity_failure("analysis result exceeds its combined size bound")
     return outcome

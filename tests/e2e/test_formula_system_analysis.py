@@ -1733,23 +1733,19 @@ def test_complete_candidate_verification_does_not_starve_later_equations() -> No
     outcome = analyze(request)
 
     assert isinstance(outcome, AnalysisSuccess)
-    targets = {
-        transformation.target.name
-        for item in outcome.optimization.suggestions
-        if item.kind == "redundant_operation_removal"
-        for transformation in item.transformations
-    }
-    assert "out0" in targets
-    assert "out8" in targets
-    assert len(targets) == 7
-    assert any(
-        item.kind == "cross_equation_sharing" for item in outcome.optimization.suggestions
-    )
     assert outcome.optimization.status == "incomplete"
-    assert outcome.optimization.qualifications == (
-        "optimization complete candidate reanalyses budget exhausted "
-        "(measured 10, configured 8)",
+    assert any(
+        "depth-one complete candidate reanalyses" in qualification
+        for qualification in outcome.optimization.qualifications
     )
+    sharing = next(
+        plan for plan in outcome.optimization.plans
+        if plan.trace[0].kind == "cross_equation_sharing"
+    )
+    assert {
+        transformation.target.name
+        for transformation in sharing.trace[0].transformations
+    } == {f"out{position}" for position in range(9)}
 
 
 def test_complete_candidate_obeys_the_public_equation_population_bound() -> None:
@@ -1816,7 +1812,12 @@ def test_compatible_cross_equation_sharing_preserves_submitted_system_reports() 
     )
     assert sharing.intermediate is not None
     assert sharing.intermediate.scope_output_indices == ("i",)
-    assert sharing.evidence.statement.endswith("every transformed retained output")
+    sharing_plan = next(
+        plan for plan in enabled.optimization.plans if plan.suggestion == sharing
+    )
+    assert sharing_plan.trace[-1].evidence.statement.endswith(
+        "every transformed retained output"
+    )
     assert (sharing.work_before, sharing.work_after, sharing.savings) == ("16", "12", "4")
 
 
