@@ -296,6 +296,19 @@ def test_contract_owners_and_compatibility_facades_preserve_object_identity() ->
                 assert getattr(formula, name) is defining_object, name
 
 
+def test_service_entry_points_preserve_root_facade_and_owner_identity() -> None:
+    from py_science.formula import service
+    from py_science.formula._service import optimization, orchestration
+
+    assert formula.analyze is service.analyze is orchestration.analyze
+    assert formula.optimize is service.optimize is optimization.optimize
+    assert (
+        formula.analyze_dominance
+        is service.analyze_dominance
+        is orchestration.analyze_dominance
+    )
+
+
 def test_models_wildcard_surface_excludes_private_compatibility_aliases() -> None:
     expected = {
         name

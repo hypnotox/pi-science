@@ -1,7 +1,9 @@
+from hashlib import sha256
 from typing import Any, cast
 
 import pytest
 from py_science.formula import (
+    AnalysisFailure,
     AnalysisRequest,
     AnalysisSuccess,
     Assumption,
@@ -16,6 +18,7 @@ from py_science.formula import (
     OptimizationConfig,
     PrimitiveCost,
     Scenario,
+    ScenarioResult,
     VariableDeclaration,
     analyze,
 )
@@ -64,6 +67,98 @@ def test_lexical_binding_scenario_substitution_preserves_work_once() -> None:
     assert isinstance(result, AnalysisSuccess)
     assert result.interpretation.normalized_sympy == "Let(t, x*x, t + t)"
     assert result.scenarios[0].substituted_work == "2"
+
+
+def test_scenario_report_serialization_remains_exact_across_service_enrichment() -> None:
+    result = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="x + 1",
+            variables={"x": declared()},
+            scenarios=(Scenario(name="fixed", fixed={"x": 2}),),
+            optimization=OptimizationConfig(max_suggestions=0),
+        )
+    )
+
+    assert isinstance(result, AnalysisSuccess)
+    assert sha256(result.model_dump_json().encode()).hexdigest() == (
+        "2da5062395ed482276da0da6efbf66aff4008742a3395b41ed104b86719f40ea"
+    )
+
+
+def test_scenario_definitions_are_parsed_once_before_service_enrichment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from py_science.formula._analysis import computation
+
+    original = computation.parse_expression
+    calls = 0
+
+    def count(source: str):
+        nonlocal calls
+        if source == "x + 1":
+            calls += 1
+        return original(source)
+
+    monkeypatch.setattr(computation, "parse_expression", count)
+    result = analyze(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="y",
+            variables={"x": declared(), "y": declared()},
+            scenarios=(
+                Scenario(
+                    name="defined",
+                    definitions=(DirectedDefinition(variable="y", expression="x + 1"),),
+                    fixed={"x": 2},
+                ),
+            ),
+            optimization=OptimizationConfig(max_suggestions=0),
+        )
+    )
+
+    assert isinstance(result, AnalysisSuccess)
+    assert calls == 1
+
+
+def test_scenario_enricher_receives_deeply_immutable_prepared_state() -> None:
+    from py_science.formula._analysis.computation import analyze_retained
+    from py_science.formula._analysis.retained import PreparedScenarioState
+    from py_science.formula.work import WorkRenderBudget
+
+    captured: list[PreparedScenarioState] = []
+
+    def capture(
+        state: PreparedScenarioState, _budget: WorkRenderBudget
+    ) -> tuple[ScenarioResult, ...]:
+        captured.append(state)
+        return ()
+
+    computed = analyze_retained(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="y",
+            variables={"x": declared(), "y": declared()},
+            scenarios=(
+                Scenario(
+                    name="defined",
+                    definitions=(DirectedDefinition(variable="y", expression="x + 1"),),
+                    fixed={"x": 2},
+                ),
+            ),
+        ),
+        result_enricher=capture,
+    )
+
+    assert not isinstance(computed, AnalysisFailure)
+    state = captured[0]
+    scenario = state.scenarios[0]
+    with pytest.raises(TypeError):
+        state.variable_domains["x"] = MathematicalDomain.REAL  # pyright: ignore[reportIndexIssue]
+    with pytest.raises(TypeError):
+        scenario.fixed["x"] = "3"  # pyright: ignore[reportIndexIssue]
+    with pytest.raises(TypeError):
+        scenario.definitions["y"] = scenario.definitions["y"]  # pyright: ignore[reportIndexIssue]
 
 
 def test_nested_sum_scenarios_eliminate_free_bound_indices() -> None:

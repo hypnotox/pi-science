@@ -71,30 +71,26 @@ def scenario_results(
     prepared: PreparedScenarioState, budget: WorkRenderBudget
 ) -> tuple[ScenarioResult, ...]:
     """Specialize validated scenario state without reparsing request definitions."""
-    request = prepared.request
     general = prepared.general_analysis.as_work_analysis()
     general_relationships = prepared.general_relationships
     knowledge = prepared.knowledge
     equations = prepared.equations
     results: list[ScenarioResult] = []
     global_replacements = _resolved_knowledge_definitions(knowledge)
-    declared = set(request.variables)
+    declared = set(prepared.variable_domains)
     indexed_values = _indexed_value_names(general.total_work)
-    for prepared_scenario in prepared.scenarios:
-        scenario = prepared_scenario.scenario
+    for scenario in prepared.scenarios:
         treated = (
             set(scenario.fixed)
             | set(scenario.choices)
-            | {item.variable for item in scenario.definitions}
+            | set(scenario.definitions)
             | set(scenario.asymptotic)
             | set(scenario.bounds)
         )
         unresolved: set[str] = set(general.unresolved)
         qualifications = ["exact general symbolic work preserved"]
         indexed_treatments = (
-            set(scenario.fixed)
-            | set(scenario.choices)
-            | {item.variable for item in scenario.definitions}
+            set(scenario.fixed) | set(scenario.choices) | set(scenario.definitions)
         ) & indexed_values
         if indexed_treatments:
             unresolved.add(
@@ -113,8 +109,8 @@ def scenario_results(
         }
         replacements = _compose_replacements(global_replacements, scenario_fixed)
         relationships: list[RelationshipUse] = []
-        parsed_definitions = dict(prepared_scenario.definitions)
-        definition_qualifications = dict(prepared_scenario.definition_qualifications)
+        parsed_definitions = dict(scenario.definitions)
+        definition_qualifications = dict(scenario.definition_qualifications)
         definition_names = set(parsed_definitions)
         graph = {
             name: _symbol_names(parsed) & definition_names
@@ -182,7 +178,7 @@ def scenario_results(
             unresolved.add("multivariate asymptotic dominance is unsupported")
         elif scenario.asymptotic:
             variable = scenario.asymptotic[0]
-            declaration = request.variables.get(variable)
+            domain = prepared.variable_domains.get(variable)
             untreated = relevant - treated
             if variable in indexed_values:
                 unresolved.add(
@@ -193,13 +189,14 @@ def scenario_results(
                     "untreated symbols block asymptotic classification: "
                     + ", ".join(sorted(untreated))
                 )
-            elif declaration is None or declaration.domain not in {
+            elif domain not in {
                 MathematicalDomain.NONNEGATIVE_INTEGER,
                 MathematicalDomain.POSITIVE_INTEGER,
                 MathematicalDomain.POSITIVE_REAL,
             }:
                 unresolved.add(f"asymptotic variable {variable} lacks a nonnegative domain")
             else:
+                assert domain is not None
                 degree = polynomial_degree(expression, variable)
                 if degree is None or not is_nondecreasing_polynomial(expression, variable):
                     unresolved.add(f"asymptotic classification for {variable} is unsupported")
@@ -212,7 +209,7 @@ def scenario_results(
                     relationships.append(
                         RelationshipUse(
                             name=f"domain:{variable}",
-                            relationship=f"{variable} in {declaration.domain.value}",
+                            relationship=f"{variable} in {domain.value}",
                         )
                     )
                     qualifications.append(
@@ -297,7 +294,7 @@ def scenario_results(
                 substitutions={
                     name: render_work(replacements[name], budget)
                     for name in sorted(
-                        set(scenario.fixed) | {item.variable for item in scenario.definitions}
+                        set(scenario.fixed) | set(scenario.definitions)
                     )
                     if name in replacements
                 },

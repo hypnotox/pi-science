@@ -528,6 +528,67 @@ def _cycle(graph: dict[str, set[str]]) -> tuple[str, ...] | None:
     return None
 
 
+_SERVICE_PACKAGE = "py_science.formula._service"
+_SERVICE_NAMES = frozenset(
+    {"optimization", "orchestration", "query_execution", "result_bounds", "scenario_execution"}
+)
+_SERVICE_OWNERS = frozenset(f"{_SERVICE_PACKAGE}.{name}" for name in _SERVICE_NAMES)
+
+
+def _service_dag_violations(source: str) -> set[str]:
+    edges = _owner_import_edges(source, _SERVICE_PACKAGE)
+    violations: set[str] = set()
+    for edge in edges:
+        if edge == _SERVICE_PACKAGE:
+            violations.add(f"barrel:{edge}")
+        elif edge == "py_science.formula.service" or edge.startswith(
+            "py_science.formula.service."
+        ):
+            violations.add(f"facade:{edge}")
+        elif edge == "py_science.formula.optimization" or edge.startswith(
+            "py_science.formula.optimization."
+        ):
+            violations.add(f"optimizer-facade:{edge}")
+    return violations
+
+
+def test_service_owner_dag_uses_direct_acyclic_seams_and_falsified_regressions() -> None:
+    from py_science.formula._service import orchestration
+
+    root = Path(orchestration.__file__).parent
+    paths = {name: root / f"{name}.py" for name in _SERVICE_NAMES}
+    sources = {name: path.read_text() for name, path in paths.items()}
+    assert all(_service_dag_violations(source) == set() for source in sources.values())
+
+    graph = {
+        f"{_SERVICE_PACKAGE}.{name}": _owner_import_edges(source, _SERVICE_PACKAGE)
+        & _SERVICE_OWNERS
+        for name, source in sources.items()
+    }
+    assert _cycle(graph) is None
+    assert {
+        f"{_SERVICE_PACKAGE}.optimization",
+        f"{_SERVICE_PACKAGE}.query_execution",
+        f"{_SERVICE_PACKAGE}.result_bounds",
+        f"{_SERVICE_PACKAGE}.scenario_execution",
+    } <= graph[f"{_SERVICE_PACKAGE}.orchestration"]
+    assert f"{_SERVICE_PACKAGE}.result_bounds" in graph[f"{_SERVICE_PACKAGE}.optimization"]
+    assert _service_dag_violations("from py_science.formula.service import analyze\n") == {
+        "facade:py_science.formula.service",
+        "facade:py_science.formula.service.analyze",
+    }
+    assert _service_dag_violations(
+        "from py_science.formula.optimization import _optimization_report\n"
+    ) == {
+        "optimizer-facade:py_science.formula.optimization",
+        "optimizer-facade:py_science.formula.optimization._optimization_report",
+    }
+    assert _service_dag_violations("from . import orchestration\n") == {
+        f"barrel:{_SERVICE_PACKAGE}"
+    }
+    assert _cycle({"a": {"b"}, "b": {"a"}}) == ("a", "b", "a")
+
+
 def test_owner_dag_covers_all_families_and_falsifies_every_rule() -> None:
     """The source census enforces required seams, layer direction, and acyclicity."""
     from py_science.formula._optimization import search

@@ -9,11 +9,11 @@ from types import MappingProxyType
 from py_science.formula.domains import OutputDomain
 from py_science.formula.expressions import Equation, Expression, Relationship
 from py_science.formula.models import (
-    AnalysisRequest,
     AnalysisSuccess,
     DomainConstraint,
+    IntervalBound,
+    MathematicalDomain,
     RelationshipUse,
-    Scenario,
 )
 from py_science.formula.work import SymbolicTally, WorkAnalysis, WorkContext
 
@@ -98,18 +98,22 @@ class RetainedWorkAnalysis:
 
 @dataclass(frozen=True, slots=True)
 class PreparedScenario:
-    """Immutable neutral state handed once to service scenario enrichment."""
+    """Deeply immutable neutral state for one service-owned specialization."""
 
-    scenario: Scenario
+    name: str
+    fixed: Mapping[str, str | int]
+    choices: Mapping[str, tuple[str | int, ...]]
     definitions: Mapping[str, tuple[str, Expression]]
     definition_qualifications: Mapping[str, str | None]
+    asymptotic: tuple[str, ...]
+    bounds: Mapping[str, IntervalBound]
 
 
 @dataclass(frozen=True, slots=True)
 class PreparedScenarioState:
     """Scenario inputs prepared during neutral validation without service policy."""
 
-    request: AnalysisRequest
+    variable_domains: Mapping[str, MathematicalDomain]
     scenarios: tuple[PreparedScenario, ...]
     general_analysis: RetainedWorkAnalysis
     general_relationships: tuple[RelationshipUse, ...]
@@ -130,7 +134,6 @@ class RetainedComputation:
     aggregate_analysis: RetainedWorkAnalysis
     knowledge: Knowledge
     work_context: WorkContext
-    scenario_state: PreparedScenarioState | None = None
 
 
 def retained_computation(
@@ -144,7 +147,6 @@ def retained_computation(
     aggregate_analysis: RetainedWorkAnalysis,
     knowledge: Knowledge,
     work_context: WorkContext,
-    scenario_state: PreparedScenarioState | None = None,
 ) -> RetainedComputation:
     """Construct the one immutable retained-analysis handoff."""
     return RetainedComputation(
@@ -157,5 +159,4 @@ def retained_computation(
         aggregate_analysis=aggregate_analysis,
         knowledge=knowledge,
         work_context=work_context,
-        scenario_state=scenario_state,
     )

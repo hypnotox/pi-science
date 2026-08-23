@@ -188,7 +188,7 @@ def analyze_retained(
     knowledge_or_failure = _parse_knowledge(request, loader, context)
     if isinstance(knowledge_or_failure, AnalysisFailure):
         return knowledge_or_failure
-    knowledge = knowledge_or_failure
+    knowledge, prepared_scenarios = knowledge_or_failure
     if request.scenarios:
         try:
             scenario_reasoning = ReasoningContext.build(
@@ -198,7 +198,9 @@ def analyze_retained(
             )
         except ExpressionTooComplex:
             return _complexity_failure("scenario assumptions exceed the reasoning bound")
-        scenario_failure = _scenario_domain_failure(request, scenario_reasoning)
+        scenario_failure = _scenario_domain_failure(
+            request, prepared_scenarios, knowledge, scenario_reasoning
+        )
         if scenario_failure is not None:
             return scenario_failure
     try:
@@ -210,6 +212,7 @@ def analyze_retained(
                 context,
                 request_unknown_arities,
                 knowledge,
+                prepared_scenarios,
                 result_enricher,
             )
         else:
@@ -219,6 +222,7 @@ def analyze_retained(
                 context,
                 request_unknown_arities,
                 knowledge,
+                prepared_scenarios,
                 result_enricher,
             )
     except ExpressionTooComplex as error:
@@ -232,7 +236,7 @@ def _parse_knowledge(
     request: AnalysisRequest,
     loader: FormulaLoader,
     context: WorkContext,
-) -> Knowledge | AnalysisFailure:
+) -> tuple[Knowledge, tuple[PreparedScenario, ...]] | AnalysisFailure:
     assumptions: list[NamedRelationship] = []
     for position, item in enumerate(request.assumptions):
         parsed = loader.parse(item.relationship, f"assumptions[{position}].relationship")
@@ -295,6 +299,7 @@ def _parse_knowledge(
             return domain_result
         resolved_definitions[name] = resolved
         definitions.append(NamedDefinition(name, f"{name} = {source}", expression, domain_result))
+    prepared_scenarios: list[PreparedScenario] = []
     for scenario_position, scenario in enumerate(request.scenarios):
         scenario_expressions: dict[str, Expression] = {}
         for definition_position, definition in enumerate(scenario.definitions):
@@ -351,11 +356,35 @@ def _parse_knowledge(
                 f"scenario {scenario.name}: {scenario_qualifications.error.message}",
                 source=scenario_qualifications.error.source,
             )
+        prepared_scenarios.append(
+            PreparedScenario(
+                name=scenario.name,
+                fixed=MappingProxyType(dict(scenario.fixed)),
+                choices=MappingProxyType(
+                    {name: tuple(values) for name, values in scenario.choices.items()}
+                ),
+                definitions=MappingProxyType(
+                    {
+                        definition.variable: (
+                            definition.expression,
+                            scenario_expressions[definition.variable],
+                        )
+                        for definition in scenario.definitions
+                    }
+                ),
+                definition_qualifications=MappingProxyType(dict(scenario_qualifications)),
+                asymptotic=tuple(scenario.asymptotic),
+                bounds=MappingProxyType(dict(scenario.bounds)),
+            )
+        )
     by_name = {item.name: item for item in definitions}
     contradiction = _direct_contradiction(tuple(assumptions), request)
     if contradiction is not None:
         return _invalid(contradiction)
-    return Knowledge(tuple(assumptions), tuple(by_name[name] for name in order))
+    return (
+        Knowledge(tuple(assumptions), tuple(by_name[name] for name in order)),
+        tuple(prepared_scenarios),
+    )
 
 
 def _scenario_literal(value: str | int) -> Expression:
@@ -764,6 +793,7 @@ def _analyze_single(
     context: WorkContext,
     request_unknown_arities: dict[str, int],
     knowledge: Knowledge,
+    prepared_scenarios: tuple[PreparedScenario, ...],
     result_enricher: ResultEnricher | None,
 ) -> RetainedComputation | AnalysisFailure:
     parsed = loader.parse(source, "expression")
@@ -871,7 +901,14 @@ def _analyze_single(
         direct_work_blockers=blockers,
         system=system,
         scenarios=_scenario_results(
-            request, analysis, work_render_budget, relationships, knowledge, (), result_enricher
+            request,
+            prepared_scenarios,
+            analysis,
+            work_render_budget,
+            relationships,
+            knowledge,
+            (),
+            result_enricher,
         ),
     )
     retained_analysis = _retain_work_analysis(analysis)
@@ -894,6 +931,7 @@ def _analyze_system(
     context: WorkContext,
     request_unknown_arities: dict[str, int],
     knowledge: Knowledge,
+    prepared_scenarios: tuple[PreparedScenario, ...],
     result_enricher: ResultEnricher | None,
 ) -> RetainedComputation | AnalysisFailure:
     parsed_or_failure = _parse_equations(request, loader)
@@ -1072,6 +1110,7 @@ def _analyze_system(
         system=system,
         scenarios=_scenario_results(
             request,
+            prepared_scenarios,
             combined,
             work_render_budget,
             used_relationships,
@@ -1806,15 +1845,6 @@ def _apply_knowledge(
     return result, tuple(uses)
 
 
-def _resolved_knowledge_definitions(knowledge: Knowledge) -> dict[str, Expression]:
-    replacements: dict[str, Expression] = {}
-    for definition in knowledge.definitions:
-        replacements[definition.name] = substitute(
-            definition.expression, replacements, max_nodes=MAX_WORK_NODES
-        )
-    return replacements
-
-
 def _compose_replacements(
     base: dict[str, Expression],
     overrides: dict[str, Expression],
@@ -1827,6 +1857,7 @@ def _compose_replacements(
 
 def _scenario_results(
     request: AnalysisRequest,
+    prepared_scenarios: tuple[PreparedScenario, ...],
     general: WorkAnalysis,
     budget: WorkRenderBudget,
     general_relationships: tuple[RelationshipUse, ...],
@@ -1834,44 +1865,15 @@ def _scenario_results(
     equations: tuple[ParsedEquation, ...],
     result_enricher: ResultEnricher | None,
 ) -> tuple[ScenarioResult, ...]:
-    """Prepare immutable neutral state and invoke only the per-call service seam."""
+    """Invoke the per-call service seam with already validated immutable facts."""
     if result_enricher is None:
         return ()
-    global_replacements = _resolved_knowledge_definitions(knowledge)
-    definition_context = WorkContext(
-        definitions={},
-        primitives={},
-        variable_domains={
-            name: declaration.domain for name, declaration in request.variables.items()
-        },
-    )
-    prepared: list[PreparedScenario] = []
-    for scenario in request.scenarios:
-        definitions: dict[str, tuple[str, Expression]] = {}
-        for definition in scenario.definitions:
-            parsed = parse_expression(definition.expression)
-            if not isinstance(parsed, (ParseFailure, Equation, Relationship)):
-                definitions[definition.variable] = (definition.expression, parsed)
-        qualifications = _scenario_definition_qualifications(
-            scenario,
-            {name: parsed for name, (_, parsed) in definitions.items()},
-            request,
-            definition_context,
-            global_replacements,
-        )
-        prepared.append(
-            PreparedScenario(
-                scenario=scenario,
-                definitions=MappingProxyType(definitions),
-                definition_qualifications=MappingProxyType(
-                    {} if isinstance(qualifications, AnalysisFailure) else qualifications
-                ),
-            )
-        )
     return result_enricher(
         PreparedScenarioState(
-            request=request,
-            scenarios=tuple(prepared),
+            variable_domains=MappingProxyType(
+                {name: declaration.domain for name, declaration in request.variables.items()}
+            ),
+            scenarios=prepared_scenarios,
             general_analysis=_retain_work_analysis(general),
             general_relationships=general_relationships,
             knowledge=knowledge,
@@ -1977,7 +1979,10 @@ def _topological(edges: dict[str, set[str]]) -> list[str] | None:
 
 
 def _scenario_domain_failure(
-    request: AnalysisRequest, reasoning: ReasoningContext
+    request: AnalysisRequest,
+    prepared_scenarios: tuple[PreparedScenario, ...],
+    knowledge: Knowledge,
+    reasoning: ReasoningContext,
 ) -> AnalysisFailure | None:
     def valid(value: str | int, domain: MathematicalDomain) -> bool:
         exact = _exact_fraction(value)
@@ -1987,7 +1992,9 @@ def _scenario_domain_failure(
             return exact >= 0 and (not domain.is_integer or exact.denominator == 1)
         return not domain.is_integer or exact.denominator == 1
 
-    for position, scenario in enumerate(request.scenarios):
+    for position, (scenario, prepared) in enumerate(
+        zip(request.scenarios, prepared_scenarios, strict=True)
+    ):
         treatment_names = (
             set(scenario.fixed)
             | set(scenario.choices)
@@ -2067,11 +2074,9 @@ def _scenario_domain_failure(
                     for name, value in zip(choice_names, choice_values, strict=True)
                 },
             }
-            parsed_definitions: dict[str, Expression] = {}
-            for definition in scenario.definitions:
-                parsed = parse_expression(definition.expression)
-                if not isinstance(parsed, (ParseFailure, Equation, Relationship)):
-                    parsed_definitions[definition.variable] = parsed
+            parsed_definitions = {
+                name: expression for name, (_, expression) in prepared.definitions.items()
+            }
             definition_order = (
                 _topological(
                     {
@@ -2085,20 +2090,19 @@ def _scenario_domain_failure(
                 replacements[name] = substitute(
                     parsed_definitions[name], replacements, max_nodes=MAX_WORK_NODES
                 )
-            for assumption in request.assumptions:
-                parsed = parse_expression(assumption.relationship)
-                if isinstance(parsed, Relationship):
-                    truth = _literal_relationship_truth(
-                        Relationship(
-                            parsed.operator,
-                            substitute(parsed.left, replacements, max_nodes=MAX_WORK_NODES),
-                            substitute(parsed.right, replacements, max_nodes=MAX_WORK_NODES),
-                        )
+            for assumption in knowledge.assumptions:
+                parsed = assumption.value
+                truth = _literal_relationship_truth(
+                    Relationship(
+                        parsed.operator,
+                        substitute(parsed.left, replacements, max_nodes=MAX_WORK_NODES),
+                        substitute(parsed.right, replacements, max_nodes=MAX_WORK_NODES),
                     )
-                    if truth is False:
-                        return _invalid(
-                            f"scenario {scenario.name} treatment contradicts assumption {assumption.name}"
-                        )
+                )
+                if truth is False:
+                    return _invalid(
+                        f"scenario {scenario.name} treatment contradicts assumption {assumption.name}"
+                    )
         for name, bound in scenario.bounds.items():
             if not _interval_intersects_assumptions(name, bound, reasoning):
                 return _invalid(

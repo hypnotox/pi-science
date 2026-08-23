@@ -367,14 +367,16 @@ def test_optimize_result_bound_keeps_every_plan_that_fits(
     oversized = result.model_copy(
         update={"search_status": "incomplete", "qualifications": ("x" * 10_000,)}
     )
-    monkeypatch.setattr(service, "MAX_OPTIMIZATION_BYTES", 30_000)
+    from py_science.formula._service import result_bounds
+
+    monkeypatch.setattr(result_bounds, "MAX_OPTIMIZATION_BYTES", 30_000)
 
     bounded = service._bound_optimization_result(oversized)
 
     assert bounded.search_status == "incomplete"
     assert bounded.projection_status == "complete"
     assert len(bounded.plans) == len(result.plans)
-    assert len(bounded.model_dump_json().encode("utf-8")) <= service.MAX_OPTIMIZATION_BYTES
+    assert len(bounded.model_dump_json().encode("utf-8")) <= result_bounds.MAX_OPTIMIZATION_BYTES
 
 
 def test_optimize_result_bound_keeps_largest_fitting_prefix(
@@ -408,7 +410,7 @@ def test_optimize_result_bound_keeps_largest_fitting_prefix(
 
     assert bounded.projection_status == "truncated"
     assert len(bounded.plans) < len(result.plans)
-    assert len(bounded.model_dump_json().encode("utf-8")) <= service.MAX_OPTIMIZATION_BYTES
+    assert len(bounded.model_dump_json().encode("utf-8")) <= result_bounds.MAX_OPTIMIZATION_BYTES
 
 
 def test_optimize_result_bound_handles_oversized_empty_population(
@@ -429,7 +431,7 @@ def test_optimize_result_bound_handles_oversized_empty_population(
 
     assert bounded.plans == ()
     assert bounded.search_status == "incomplete"
-    assert len(bounded.model_dump_json().encode("utf-8")) <= service.MAX_OPTIMIZATION_BYTES
+    assert len(bounded.model_dump_json().encode("utf-8")) <= result_bounds.MAX_OPTIMIZATION_BYTES
 
 
 def test_optimize_operation_bounds_duplicated_plan_output(
@@ -440,7 +442,6 @@ def test_optimize_operation_bounds_duplicated_plan_output(
         OptimizationSuccess,
         OptimizeRequest,
         optimize,
-        service,
     )
     from py_science.formula._service import result_bounds
 
@@ -457,7 +458,7 @@ def test_optimize_operation_bounds_duplicated_plan_output(
     assert result.search_status == "complete"
     assert result.projection_status == "truncated"
     assert result.projection_qualifications
-    assert len(result.model_dump_json().encode("utf-8")) <= service.MAX_OPTIMIZATION_BYTES
+    assert len(result.model_dump_json().encode("utf-8")) <= result_bounds.MAX_OPTIMIZATION_BYTES
 
 
 def test_composed_search_v1_budget_seams_distinguish_transition_and_final_proofs() -> None:

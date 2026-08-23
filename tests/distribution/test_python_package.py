@@ -75,12 +75,17 @@ from py_science.formula.contracts import (
 from py_science.formula.contracts._base import StructuredModel
 import py_science.formula._optimization as optimization_package
 import py_science.formula._optimization.families as families_package
+import py_science.formula._service as service_package
 from py_science.formula._optimization import (
     budgets, canonical, candidates, objectives, plans, replay, search, verifier,
 )
 from py_science.formula._optimization.families import (
     repeated_structure, call_reuse, factoring, redundant_operations, invariant_hoisting,
     cross_equation_sharing, horner, finite_polynomial_sum,
+)
+from py_science.formula._service import (
+    optimization as service_optimization, orchestration, query_execution, result_bounds,
+    scenario_execution,
 )
 
 assert other.MARKER == "other"
@@ -129,6 +134,17 @@ assert tuple(
     "py_science.formula._optimization.families.cross_equation_sharing",
     "py_science.formula._optimization.families.horner",
     "py_science.formula._optimization.families.finite_polynomial_sum",
+)
+assert tuple(module.__name__ for module in (
+    service_package, service_optimization, orchestration, query_execution, result_bounds,
+    scenario_execution,
+)) == (
+    "py_science.formula._service",
+    "py_science.formula._service.optimization",
+    "py_science.formula._service.orchestration",
+    "py_science.formula._service.query_execution",
+    "py_science.formula._service.result_bounds",
+    "py_science.formula._service.scenario_execution",
 )
 outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="n + 1"))
 assert isinstance(outcome, AnalysisSuccess)
