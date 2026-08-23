@@ -1,0 +1,5 @@
+title: Formula Component Boundaries
+summary: Internal responsibility ownership and dependency direction across formula analysis and Pi transport.
+paths:
+    - packages/py-science-formula/src/py_science/formula/**
+    - packages/pi-science/src/**

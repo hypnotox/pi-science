@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-_No decisions are in flight._
+- [ADR-separate-formula-responsibilities-behind-compatibility-facades: Separate Formula Responsibilities Behind Compatibility Facades](separate-formula-responsibilities-behind-compatibility-facades.md) (Proposed)
 
 ## History
 
