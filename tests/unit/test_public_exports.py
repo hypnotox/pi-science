@@ -296,6 +296,16 @@ def test_contract_owners_and_compatibility_facades_preserve_object_identity() ->
                 assert getattr(formula, name) is defining_object, name
 
 
+def test_models_wildcard_surface_excludes_private_compatibility_aliases() -> None:
+    expected = {
+        name
+        for names in CONTRACT_OWNERS.values()
+        for name in names
+        if not name.startswith("_")
+    }
+    assert set(models.__all__) == expected
+
+
 CONTRACT_DEPENDENCIES: dict[str, set[str]] = {
     "_base": set(),
     "common": {"_base"},
@@ -320,38 +330,45 @@ FORBIDDEN_CONTRACT_IMPORTS = (
 
 def _contract_import_violations(module_name: str, source: str) -> list[str]:
     violations: list[str] = []
-    prefix = "py_science.formula.contracts."
+    formula_root = "py_science.formula"
+    contracts_root = f"{formula_root}.contracts"
+    prefix = f"{contracts_root}."
     for node in ast.walk(ast.parse(source)):
         imported: list[str] = []
-        dependency: str | None = None
+        dependencies: set[str] = set()
         if isinstance(node, ast.Import):
             imported = [alias.name for alias in node.names]
+            for imported_name in imported:
+                if imported_name.startswith(prefix):
+                    dependencies.add(imported_name.removeprefix(prefix).split(".", 1)[0])
         elif isinstance(node, ast.ImportFrom):
             if node.level == 0:
                 base = node.module or ""
             elif node.level == 1:
-                base = prefix.removesuffix(".")
+                base = contracts_root
                 if node.module:
                     base = f"{base}.{node.module}"
-                elif len(node.names) == 1:
-                    dependency = node.names[0].name
             elif node.level == 2:
-                base = "py_science.formula"
+                base = formula_root
                 if node.module:
                     base = f"{base}.{node.module}"
             else:
                 base = "py_science"
             imported = [base, *(f"{base}.{alias.name}" for alias in node.names)]
-            if dependency is None and base.startswith(prefix):
-                dependency = base.removeprefix(prefix).split(".", 1)[0]
+            if base == contracts_root:
+                violations.append(contracts_root)
+                dependencies.update(alias.name for alias in node.names)
+            elif base.startswith(prefix):
+                dependencies.add(base.removeprefix(prefix).split(".", 1)[0])
         for imported_name in imported:
-            if any(
+            if imported_name == formula_root or any(
                 imported_name == forbidden or imported_name.startswith(f"{forbidden}.")
                 for forbidden in FORBIDDEN_CONTRACT_IMPORTS
             ):
                 violations.append(imported_name)
-        if dependency is not None and dependency not in CONTRACT_DEPENDENCIES[module_name]:
-            violations.append(f"contracts.{dependency}")
+        for dependency in dependencies:
+            if dependency not in CONTRACT_DEPENDENCIES[module_name]:
+                violations.append(f"contracts.{dependency}")
     return violations
 
 
@@ -366,8 +383,12 @@ def test_contract_import_graph_probe_rejects_every_forbidden_edge_form() -> None
     prohibited = (
         "import sympy",
         "import pi_science",
+        "import py_science.formula",
+        "import py_science.formula.contracts.dominance",
+        "from py_science.formula import AnalysisRequest",
         "from py_science.formula import models",
         "from py_science.formula import optimization",
+        "from py_science.formula.contracts import dominance",
         "from py_science.formula.parser import parse_expression",
         "from .. import service",
         "from ..optimizer import optimize",
