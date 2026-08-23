@@ -279,3 +279,72 @@ def test_private_accounting_distinguishes_empty_and_nonpositive_outcomes() -> No
         nonpositive.rejected_before_final_acceptance,
     ) == (1, 1, 1)
     assert not empty.blockers and not nonpositive.blockers
+
+
+def test_private_accounting_omits_unrelated_unresolved_assumptions() -> None:
+    from py_science.formula import AnalysisFailure, AnalysisRequest, Assumption, FormulaSyntax
+    from py_science.formula._analysis.computation import analyze_retained
+    from py_science.formula._optimization.diagnostics import _OutcomeAccounting
+    from py_science.formula._optimization.search import _optimization_report
+
+    request = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="(x + 1) * (x + 1)",
+        assumptions=(Assumption(name="positive", relationship="x > 0"),),
+    )
+    computed = analyze_retained(request)
+    assert not isinstance(computed, AnalysisFailure)
+    accounting = _OutcomeAccounting()
+
+    _optimization_report(
+        request,
+        computed,
+        computed.work_context,
+        analyzer=analyze_retained,
+        accounting=accounting,
+    )
+
+    assert accounting.proposals == accounting.transition_verifications == 1
+    assert accounting.rejected_before_final_acceptance == 1
+    assert not accounting.blockers
+
+
+def test_private_accounting_omits_unknown_cost_from_another_system_output() -> None:
+    from py_science.formula import (
+        AnalysisFailure,
+        AnalysisRequest,
+        EquationRequest,
+        FormulaSyntax,
+        MathematicalDomain,
+        VariableDeclaration,
+    )
+    from py_science.formula._analysis.computation import analyze_retained
+    from py_science.formula._optimization.diagnostics import _OutcomeAccounting
+    from py_science.formula._optimization.search import _optimization_report
+
+    request = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        equations=(
+            EquationRequest(name="target", expression="Eq(target, x*y + x*z)"),
+            EquationRequest(name="other", expression="Eq(other, opaque(x))"),
+        ),
+        variables={
+            name: VariableDeclaration(domain=MathematicalDomain.REAL)
+            for name in ("x", "y", "z")
+        },
+    )
+    computed = analyze_retained(request)
+    assert not isinstance(computed, AnalysisFailure)
+    accounting = _OutcomeAccounting()
+
+    _optimization_report(
+        request,
+        computed,
+        computed.work_context,
+        analyzer=analyze_retained,
+        accounting=accounting,
+    )
+
+    assert accounting.proposals == accounting.transition_verifications == 1
+    assert accounting.rejected_before_final_acceptance == 1
+    assert not accounting.blockers

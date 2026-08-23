@@ -32,6 +32,7 @@ from py_science.formula.models import (
     IdentityEvidence,
     Interpretation,
     OptimizationIntermediate,
+    OptimizationKind,
     OptimizationOccurrence,
     OptimizationOrdering,
     OptimizationSuggestion,
@@ -103,6 +104,37 @@ def _as_work(analysis: RetainedWorkAnalysis) -> WorkAnalysis:
         unresolved=set(analysis.unresolved),
         direct_work_blockers=set(analysis.direct_work_blockers),
     )
+
+
+_DOMAIN_OR_CARDINALITY_UNRESOLVED_SUFFIXES = (
+    "cardinality requires integral bounds",
+    "ordering or finiteness is unproved",
+    "declared-domain preservation is unproved",
+)
+
+
+def _record_localized_work_blocker(
+    accounting: _OutcomeAccounting | None,
+    family: OptimizationKind,
+    target: str,
+    *computations: RetainedComputation,
+) -> None:
+    """Record only target-local facts already retained by analysis."""
+    if accounting is None:
+        return
+    analyses = tuple(
+        analysis
+        for computation in computations
+        if (analysis := computation.equation_analyses.get(target)) is not None
+    )
+    if any(analysis.unknown_costs for analysis in analyses):
+        accounting.missing_primitive_cost(family, target)
+    elif any(
+        unresolved.endswith(_DOMAIN_OR_CARDINALITY_UNRESOLVED_SUFFIXES)
+        for analysis in analyses
+        for unresolved in analysis.unresolved
+    ):
+        accounting.unproved_domain_or_cardinality(family, target)
 
 
 def _aggregate_scope(  # pyright: ignore[reportUnusedFunction]
@@ -498,18 +530,14 @@ def _verify_candidate(
     after = _as_work(replayed.aggregate_analysis)
     before = _as_work(computed.aggregate_analysis)
     if after.unknown_costs or after.unresolved or after.direct_work_blockers:
-        if accounting is not None:
-            if after.unknown_costs:
-                accounting.missing_primitive_cost(candidate.kind, candidate.target)
-            elif after.unresolved:
-                accounting.unproved_domain_or_cardinality(candidate.kind, candidate.target)
+        _record_localized_work_blocker(
+            accounting, candidate.kind, candidate.target, computed, replayed
+        )
         return _Rejected("candidate aggregate work is unavailable")
     if before.unknown_costs or before.unresolved or before.direct_work_blockers:
-        if accounting is not None:
-            if before.unknown_costs:
-                accounting.missing_primitive_cost(candidate.kind, candidate.target)
-            elif before.unresolved:
-                accounting.unproved_domain_or_cardinality(candidate.kind, candidate.target)
+        _record_localized_work_blocker(
+            accounting, candidate.kind, candidate.target, computed, replayed
+        )
         return _Rejected("retained aggregate work is unavailable")
     try:
         budget.work(
@@ -693,13 +721,13 @@ def _original_final_suggestion(
     root_work = _as_work(root.aggregate_analysis)
     final_work = _as_work(final.aggregate_analysis)
     target = local.transformations[0].target.name or "expression"
-    if root_work.unknown_costs or final_work.unknown_costs:
-        if accounting is not None:
-            accounting.missing_primitive_cost(local.kind, target)
-        return _Rejected("final aggregate work is unavailable")
-    if root_work.unresolved or final_work.unresolved:
-        if accounting is not None:
-            accounting.unproved_domain_or_cardinality(local.kind, target)
+    if (
+        root_work.unknown_costs
+        or final_work.unknown_costs
+        or root_work.unresolved
+        or final_work.unresolved
+    ):
+        _record_localized_work_blocker(accounting, local.kind, target, root, final)
         return _Rejected("final aggregate work is unavailable")
     if root_work.direct_work_blockers or final_work.direct_work_blockers:
         return _Rejected("final aggregate work is unavailable")
