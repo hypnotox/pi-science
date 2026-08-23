@@ -358,6 +358,56 @@ describe("formula adapter protocol boundary", () => {
     );
   }, 30_000);
 
+  it("round trips the remaining local algebraic families through the real adapter", () => {
+    const cases = [
+      {
+        kind: "repeated_call",
+        request: {
+          syntax: "sympy",
+          expression: "f(x) + f(x)",
+          variables: { x: { domain: "real" } },
+          functions: [{ name: "f", parameters: ["z"], body: "z*z" }],
+          optimization: { max_suggestions: 16 },
+        },
+      },
+      {
+        kind: "reciprocal_reuse",
+        request: {
+          syntax: "sympy",
+          expression: "1/x + 1/x",
+          variables: { x: { domain: "real" } },
+          optimization: { max_suggestions: 16 },
+        },
+      },
+      {
+        kind: "iterator_invariant_hoisting",
+        request: {
+          syntax: "sympy",
+          expression: "Sum(x*x + i, (i, 0, 3))",
+          variables: { x: { domain: "real" } },
+          optimization: { max_suggestions: 16 },
+        },
+      },
+    ];
+
+    for (const item of cases) {
+      const result = invoke(
+        JSON.stringify({ version: 16, request: item.request }),
+      );
+      expect(result.status).toBe(0);
+      const suggestion = JSON.parse(
+        result.stdout,
+      ).result.optimization.suggestions.find(
+        (candidate: { kind: string }) => candidate.kind === item.kind,
+      );
+      expect(suggestion).toMatchObject({
+        kind: item.kind,
+        tier: "exact_algebraic_v1",
+        transformations: [{ target: { kind: "expression", name: null } }],
+      });
+    }
+  });
+
   it("accepts zero-post-work suggestions from the real adapter", () => {
     const result = invoke(
       JSON.stringify({
