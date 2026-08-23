@@ -69,8 +69,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[1])))
 from py_science import other
 from py_science.formula import AnalysisRequest, AnalysisSuccess, FormulaSyntax, analyze
+from py_science.formula.contracts import (
+    common, comparison, dominance, evidence, optimization, queries, reports, requests
+)
+from py_science.formula.contracts._base import StructuredModel
 
 assert other.MARKER == "other"
+assert all(module.__name__.startswith("py_science.formula.contracts.") for module in (
+    common, comparison, dominance, evidence, optimization, queries, reports, requests
+))
+assert StructuredModel.__module__ == "py_science.formula.contracts._base"
 outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="n + 1"))
 assert isinstance(outcome, AnalysisSuccess)
 assert outcome.operation_counts.additions == 1
