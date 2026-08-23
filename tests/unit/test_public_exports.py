@@ -296,32 +296,82 @@ def test_contract_owners_and_compatibility_facades_preserve_object_identity() ->
                 assert getattr(formula, name) is defining_object, name
 
 
+CONTRACT_DEPENDENCIES: dict[str, set[str]] = {
+    "_base": set(),
+    "common": {"_base"},
+    "evidence": {"_base", "common"},
+    "queries": {"_base", "common", "evidence"},
+    "optimization": {"_base", "common", "evidence"},
+    "requests": {"_base", "common", "queries", "optimization"},
+    "reports": {"_base", "common", "queries", "optimization"},
+    "comparison": {"_base", "common", "evidence", "queries", "requests", "reports"},
+    "dominance": {"_base", "common", "requests", "reports"},
+}
+FORBIDDEN_CONTRACT_IMPORTS = (
+    "pi_science",
+    "sympy",
+    "py_science.formula.models",
+    "py_science.formula.optimization",
+    "py_science.formula.optimizer",
+    "py_science.formula.parser",
+    "py_science.formula.service",
+)
+
+
+def _contract_import_violations(module_name: str, source: str) -> list[str]:
+    violations: list[str] = []
+    prefix = "py_science.formula.contracts."
+    for node in ast.walk(ast.parse(source)):
+        imported: list[str] = []
+        dependency: str | None = None
+        if isinstance(node, ast.Import):
+            imported = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            if node.level == 0:
+                base = node.module or ""
+            elif node.level == 1:
+                base = prefix.removesuffix(".")
+                if node.module:
+                    base = f"{base}.{node.module}"
+                elif len(node.names) == 1:
+                    dependency = node.names[0].name
+            elif node.level == 2:
+                base = "py_science.formula"
+                if node.module:
+                    base = f"{base}.{node.module}"
+            else:
+                base = "py_science"
+            imported = [base, *(f"{base}.{alias.name}" for alias in node.names)]
+            if dependency is None and base.startswith(prefix):
+                dependency = base.removeprefix(prefix).split(".", 1)[0]
+        for imported_name in imported:
+            if any(
+                imported_name == forbidden or imported_name.startswith(f"{forbidden}.")
+                for forbidden in FORBIDDEN_CONTRACT_IMPORTS
+            ):
+                violations.append(imported_name)
+        if dependency is not None and dependency not in CONTRACT_DEPENDENCIES[module_name]:
+            violations.append(f"contracts.{dependency}")
+    return violations
+
+
 def test_contract_import_graph_is_acyclic_and_transport_free() -> None:
     contracts = Path(models.__file__).with_name("contracts")
-    allowed: dict[str, set[str]] = {
-        "_base": set(),
-        "common": {"_base"},
-        "evidence": {"_base", "common"},
-        "queries": {"_base", "common", "evidence"},
-        "optimization": {"_base", "common", "evidence"},
-        "requests": {"_base", "common", "queries", "optimization"},
-        "reports": {"_base", "common", "queries", "optimization"},
-        "comparison": {"_base", "common", "evidence", "queries", "requests", "reports"},
-        "dominance": {"_base", "common", "requests", "reports"},
-    }
-    forbidden_parts = {"models", "parser", "service", "optimizer", "pi_science"}
-    for module_name, dependencies in allowed.items():
-        tree = ast.parse((contracts / f"{module_name}.py").read_text())
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module:
-                parts = set(node.module.split("."))
-                assert not (parts & forbidden_parts), (module_name, node.module)
-                prefix = "py_science.formula.contracts."
-                if node.module.startswith(prefix):
-                    assert node.module.removeprefix(prefix) in dependencies
-            elif isinstance(node, ast.Import):
-                for alias in node.names:
-                    assert not (set(alias.name.split(".")) & forbidden_parts), (
-                        module_name,
-                        alias.name,
-                    )
+    for module_name in CONTRACT_DEPENDENCIES:
+        source = (contracts / f"{module_name}.py").read_text()
+        assert _contract_import_violations(module_name, source) == []
+
+
+def test_contract_import_graph_probe_rejects_every_forbidden_edge_form() -> None:
+    prohibited = (
+        "import sympy",
+        "import pi_science",
+        "from py_science.formula import models",
+        "from py_science.formula import optimization",
+        "from py_science.formula.parser import parse_expression",
+        "from .. import service",
+        "from ..optimizer import optimize",
+        "from . import dominance",
+        "from .dominance import DominanceRange",
+    )
+    assert all(_contract_import_violations("common", source) for source in prohibited)
