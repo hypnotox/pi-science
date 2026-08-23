@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable
 from fractions import Fraction
 from itertools import product
 from math import ceil, floor
@@ -18,6 +19,8 @@ from py_science.formula._analysis.retained import (
     NamedDefinition,
     NamedRelationship,
     ParsedEquation,
+    PreparedScenario,
+    PreparedScenarioState,
     Producer,
     RetainedComputation,
     retained_computation,
@@ -62,12 +65,10 @@ from py_science.formula.models import (
     DerivedTarget,
     DomainConstraint,
     EffectiveIndexDomain,
-    EquationEffectiveDomains,
     EquationReport,
     EquivalenceQuery,
     Interpretation,
     IntervalBound,
-    IntervalResult,
     LimitQuery,
     MathematicalDomain,
     OperationCounts,
@@ -87,8 +88,6 @@ from py_science.formula.reasoning import ReasoningContext
 from py_science.formula.sympy_backend import (
     NormalizationError,
     NormalizedRendering,
-    is_nondecreasing_polynomial,
-    polynomial_degree,
     render,
     render_system,
 )
@@ -110,7 +109,6 @@ from py_science.formula.work import (
     render_operations,
     render_work,
     replace_exact,
-    simplify_constants,
     substitute_analysis,
 )
 
@@ -163,7 +161,14 @@ class RenderingBudget:
         )
 
 
-def analyze_retained(request: AnalysisRequest) -> RetainedComputation | AnalysisFailure:
+type ResultEnricher = Callable[
+    [PreparedScenarioState, WorkRenderBudget], tuple[ScenarioResult, ...]
+]
+
+
+def analyze_retained(
+    request: AnalysisRequest, *, result_enricher: ResultEnricher | None = None
+) -> RetainedComputation | AnalysisFailure:
     request_failure = _request_size_failure(request)
     if request_failure is not None:
         return request_failure
@@ -205,6 +210,7 @@ def analyze_retained(request: AnalysisRequest) -> RetainedComputation | Analysis
                 context,
                 request_unknown_arities,
                 knowledge,
+                result_enricher,
             )
         else:
             analyzed = _analyze_system(
@@ -213,6 +219,7 @@ def analyze_retained(request: AnalysisRequest) -> RetainedComputation | Analysis
                 context,
                 request_unknown_arities,
                 knowledge,
+                result_enricher,
             )
     except ExpressionTooComplex as error:
         return _complexity_failure(str(error))
@@ -757,6 +764,7 @@ def _analyze_single(
     context: WorkContext,
     request_unknown_arities: dict[str, int],
     knowledge: Knowledge,
+    result_enricher: ResultEnricher | None,
 ) -> RetainedComputation | AnalysisFailure:
     parsed = loader.parse(source, "expression")
     if isinstance(parsed, AnalysisFailure):
@@ -863,7 +871,7 @@ def _analyze_single(
         direct_work_blockers=blockers,
         system=system,
         scenarios=_scenario_results(
-            request, analysis, work_render_budget, relationships, knowledge
+            request, analysis, work_render_budget, relationships, knowledge, (), result_enricher
         ),
     )
     retained_analysis = _retain_work_analysis(analysis)
@@ -886,6 +894,7 @@ def _analyze_system(
     context: WorkContext,
     request_unknown_arities: dict[str, int],
     knowledge: Knowledge,
+    result_enricher: ResultEnricher | None,
 ) -> RetainedComputation | AnalysisFailure:
     parsed_or_failure = _parse_equations(request, loader)
     if isinstance(parsed_or_failure, AnalysisFailure):
@@ -1068,6 +1077,7 @@ def _analyze_system(
             used_relationships,
             knowledge,
             equations,
+            result_enricher,
         ),
     )
     retained_analyses = {
@@ -1821,291 +1831,54 @@ def _scenario_results(
     budget: WorkRenderBudget,
     general_relationships: tuple[RelationshipUse, ...],
     knowledge: Knowledge,
-    equations: tuple[ParsedEquation, ...] = (),
+    equations: tuple[ParsedEquation, ...],
+    result_enricher: ResultEnricher | None,
 ) -> tuple[ScenarioResult, ...]:
-    results: list[ScenarioResult] = []
+    """Prepare immutable neutral state and invoke only the per-call service seam."""
+    if result_enricher is None:
+        return ()
     global_replacements = _resolved_knowledge_definitions(knowledge)
-    declared = set(request.variables)
-    indexed_values = _indexed_value_names(general.total_work)
+    definition_context = WorkContext(
+        definitions={},
+        primitives={},
+        variable_domains={
+            name: declaration.domain for name, declaration in request.variables.items()
+        },
+    )
+    prepared: list[PreparedScenario] = []
     for scenario in request.scenarios:
-        treated = (
-            set(scenario.fixed)
-            | set(scenario.choices)
-            | {item.variable for item in scenario.definitions}
-            | set(scenario.asymptotic)
-            | set(scenario.bounds)
-        )
-        unresolved: set[str] = set(general.unresolved)
-        qualifications = ["exact general symbolic work preserved"]
-        indexed_treatments = (
-            set(scenario.fixed)
-            | set(scenario.choices)
-            | {item.variable for item in scenario.definitions}
-        ) & indexed_values
-        if indexed_treatments:
-            unresolved.add(
-                "scalar substitution is unsupported for indexed variables: "
-                + ", ".join(sorted(indexed_treatments))
-            )
-        unknown_treatments = treated - declared
-        if unknown_treatments:
-            unresolved.add(
-                "scenario treats undeclared variables: " + ", ".join(sorted(unknown_treatments))
-            )
-        scenario_fixed: dict[str, Expression] = {
-            name: _scenario_literal(value)
-            for name, value in scenario.fixed.items()
-            if name not in indexed_values
-        }
-        replacements = _compose_replacements(global_replacements, scenario_fixed)
-        relationships: list[RelationshipUse] = []
-        parsed_definitions: dict[str, tuple[str, Expression]] = {}
+        definitions: dict[str, tuple[str, Expression]] = {}
         for definition in scenario.definitions:
-            if definition.variable in indexed_values:
-                continue
             parsed = parse_expression(definition.expression)
-            if isinstance(parsed, (ParseFailure, Equation, Relationship)):
-                unresolved.add(f"scenario definition for {definition.variable} is invalid")
-                continue
-            parsed_definitions[definition.variable] = (definition.expression, parsed)
-        definition_context = WorkContext(
-            definitions={},
-            primitives={},
-            variable_domains={
-                name: declaration.domain for name, declaration in request.variables.items()
-            },
-        )
-        qualification_result = _scenario_definition_qualifications(
+            if not isinstance(parsed, (ParseFailure, Equation, Relationship)):
+                definitions[definition.variable] = (definition.expression, parsed)
+        qualifications = _scenario_definition_qualifications(
             scenario,
-            {name: parsed for name, (_, parsed) in parsed_definitions.items()},
+            {name: parsed for name, (_, parsed) in definitions.items()},
             request,
             definition_context,
             global_replacements,
         )
-        if isinstance(qualification_result, AnalysisFailure):
-            unresolved.add(qualification_result.error.message)
-            definition_qualifications: dict[str, str | None] = {}
-        else:
-            definition_qualifications = qualification_result
-        definition_names = set(parsed_definitions)
-        graph = {
-            name: _symbol_names(parsed) & definition_names
-            for name, (_, parsed) in parsed_definitions.items()
-        }
-        definition_order = _topological(graph) or ()
-        definition_provenance: dict[str, set[str]] = {}
-        used_definitions: set[str] = set()
-        specialized = substitute_analysis(general, replacements)
-        for name in definition_order:
-            _, parsed = parsed_definitions[name]
-            dependencies = _symbol_names(parsed) & set(definition_provenance)
-            value = substitute(parsed, replacements, max_nodes=MAX_WORK_NODES)
-            replacements[name] = value
-            definition_provenance[name] = {name}.union(
-                *(definition_provenance[dependency] for dependency in dependencies)
-            )
-            updated = substitute_analysis(specialized, {name: value})
-            if updated != specialized:
-                used_definitions.update(definition_provenance[name])
-            specialized = updated
-        for name in definition_order:
-            source, _ = parsed_definitions[name]
-            qualification = definition_qualifications.get(name)
-            if name not in used_definitions:
-                continue
-            relationships.append(
-                RelationshipUse(
-                    name=f"derived:{name}",
-                    relationship=f"{name} = {source}",
-                )
-            )
-            if qualification is not None:
-                unresolved.add(qualification)
-        specialized = map_analysis(specialized, simplify_constants)
-        expression = specialized.total_work
-        relevant = _value_names(expression) & declared
-        substituted_work = render_work(expression, budget)
-        choice_work: dict[str, str] = {}
-        choice_replacements: dict[str, dict[str, Expression]] = {}
-        if scenario.fixed and not (set(scenario.fixed) & indexed_values):
-            qualifications.append("fixed values substituted exactly")
-        choice_names = sorted(scenario.choices)
-        choice_values = [scenario.choices[name] for name in choice_names]
-        if choice_names:
-            for values in product(*choice_values):
-                selected = dict(zip(choice_names, values, strict=True))
-                value = simplify_constants(
-                    substitute(
-                        expression,
-                        {name: _scenario_literal(item) for name, item in selected.items()},
-                        max_nodes=MAX_WORK_NODES,
-                    )
-                )
-                key = ",".join(f"{name}={selected[name]}" for name in choice_names)
-                choice_work[key] = render_work(value, budget)
-                choice_replacements[key] = {
-                    **replacements,
-                    **{name: _scenario_literal(item) for name, item in selected.items()},
-                }
-        if scenario.choices and not (set(scenario.choices) & indexed_values):
-            qualifications.append("finite choices substituted exactly")
-        asymptotic: str | None = None
-        if len(scenario.asymptotic) > 1:
-            unresolved.add("multivariate asymptotic dominance is unsupported")
-        elif scenario.asymptotic:
-            variable = scenario.asymptotic[0]
-            declaration = request.variables.get(variable)
-            untreated = relevant - treated
-            if variable in indexed_values:
-                unresolved.add(
-                    f"asymptotic treatment for indexed variable {variable} is unsupported"
-                )
-            elif untreated:
-                unresolved.add(
-                    "untreated symbols block asymptotic classification: "
-                    + ", ".join(sorted(untreated))
-                )
-            elif declaration is None or declaration.domain not in {
-                MathematicalDomain.NONNEGATIVE_INTEGER,
-                MathematicalDomain.POSITIVE_INTEGER,
-                MathematicalDomain.POSITIVE_REAL,
-            }:
-                unresolved.add(f"asymptotic variable {variable} lacks a nonnegative domain")
-            else:
-                degree = polynomial_degree(expression, variable)
-                if degree is None or not is_nondecreasing_polynomial(expression, variable):
-                    unresolved.add(f"asymptotic classification for {variable} is unsupported")
-                else:
-                    asymptotic = (
-                        "Theta(1)"
-                        if degree == 0
-                        else f"Theta({variable}{'**' + str(degree) if degree != 1 else ''})"
-                    )
-                    relationships.append(
-                        RelationshipUse(
-                            name=f"domain:{variable}",
-                            relationship=f"{variable} in {declaration.domain.value}",
-                        )
-                    )
-                    qualifications.append(
-                        "univariate polynomial asymptotic classification uses the declared domain"
-                    )
-        interval: IntervalResult | None = None
-        if scenario.bounds:
-            if len(scenario.bounds) != 1:
-                unresolved.add("multivariate interval reasoning is unsupported")
-            else:
-                variable, bound = next(iter(scenario.bounds.items()))
-                untreated = relevant - treated
-                if variable in indexed_values:
-                    unresolved.add(
-                        f"interval treatment for indexed variable {variable} is unsupported"
-                    )
-                elif untreated:
-                    unresolved.add(
-                        "untreated symbols block interval reasoning: "
-                        + ", ".join(sorted(untreated))
-                    )
-                elif not is_nondecreasing_polynomial(expression, variable):
-                    unresolved.add(f"monotonic interval relationship for {variable} is unproved")
-                else:
-                    lower = simplify_constants(
-                        substitute(
-                            expression,
-                            {variable: _scenario_literal(bound.lower)},
-                            max_nodes=MAX_WORK_NODES,
-                        )
-                    )
-                    upper = simplify_constants(
-                        substitute(
-                            expression,
-                            {variable: _scenario_literal(bound.upper)},
-                            max_nodes=MAX_WORK_NODES,
-                        )
-                    )
-                    lower_work = render_work(lower, budget)
-                    upper_work = render_work(upper, budget)
-                    interval = IntervalResult(
-                        lower=str(bound.lower),
-                        upper=str(bound.upper),
-                        lower_inclusive=bound.lower_inclusive,
-                        upper_inclusive=bound.upper_inclusive,
-                        lower_work=lower_work,
-                        upper_work=upper_work,
-                        infimum=lower_work,
-                        supremum=upper_work,
-                        infimum_attained=bound.lower_inclusive,
-                        supremum_attained=bound.upper_inclusive,
-                    )
-                    relationships.append(
-                        RelationshipUse(
-                            name=f"bound:{variable}",
-                            relationship=(
-                                f"{bound.lower} {'<=' if bound.lower_inclusive else '<'} {variable} "
-                                f"{'<=' if bound.upper_inclusive else '<'} {bound.upper}"
-                            ),
-                        )
-                    )
-                    qualifications.append(
-                        "interval endpoints use a proven nondecreasing univariate polynomial"
-                    )
-        effective_domains = _specialized_effective_domains(equations, replacements)
-        choice_effective_domains: dict[str, tuple[EquationEffectiveDomains, ...]] = {}
-        if choice_work:
-            for key in choice_work:
-                # Choice keys are canonical and this result shape intentionally uses
-                # exactly the same key population as choice_work.
-                choice_effective_domains[key] = _specialized_effective_domains(
-                    equations, choice_replacements[key]
-                )
-        results.append(
-            ScenarioResult(
-                name=scenario.name,
-                substituted_work=substituted_work,
-                choice_work=choice_work,
-                asymptotic=asymptotic,
-                interval=interval,
-                substitutions={
-                    name: render_work(replacements[name], budget)
-                    for name in sorted(
-                        set(scenario.fixed) | {item.variable for item in scenario.definitions}
-                    )
-                    if name in replacements
-                },
-                relationships_used=(*general_relationships, *relationships),
-                qualifications=tuple(qualifications),
-                unresolved=tuple(sorted(unresolved)),
-                effective_domains=() if choice_work else effective_domains,
-                choice_effective_domains=choice_effective_domains,
-            )
-        )
-    return tuple(results)
-
-
-def _specialized_effective_domains(
-    equations: tuple[ParsedEquation, ...], replacements: dict[str, Expression]
-) -> tuple[EquationEffectiveDomains, ...]:
-    """Render scenario-specialized analyzer domains without reparsing input text."""
-    result: list[EquationEffectiveDomains] = []
-    for equation in equations:
-        result.append(
-            EquationEffectiveDomains(
-                equation=equation.name,
-                domains=tuple(
-                    EffectiveIndexDomain(
-                        index=domain.index,
-                        lower=render(
-                            substitute(domain.lower, replacements, max_nodes=MAX_WORK_NODES)
-                        ).sympy,
-                        upper=render(
-                            substitute(domain.upper, replacements, max_nodes=MAX_WORK_NODES)
-                        ).sympy,
-                    )
-                    for domain in equation.output_domains
+        prepared.append(
+            PreparedScenario(
+                scenario=scenario,
+                definitions=MappingProxyType(definitions),
+                definition_qualifications=MappingProxyType(
+                    {} if isinstance(qualifications, AnalysisFailure) else qualifications
                 ),
             )
         )
-    return tuple(result)
+    return result_enricher(
+        PreparedScenarioState(
+            request=request,
+            scenarios=tuple(prepared),
+            general_analysis=_retain_work_analysis(general),
+            general_relationships=general_relationships,
+            knowledge=knowledge,
+            equations=equations,
+        ),
+        budget,
+    )
 
 
 def _equation_report(

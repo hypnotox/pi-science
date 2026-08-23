@@ -400,7 +400,9 @@ def test_optimize_result_bound_keeps_largest_fitting_prefix(
     oversized = result.model_copy(
         update={"search_status": "incomplete", "qualifications": ("x" * 10_000,)}
     )
-    monkeypatch.setattr(service, "MAX_OPTIMIZATION_BYTES", 12_000)
+    from py_science.formula._service import result_bounds
+
+    monkeypatch.setattr(result_bounds, "MAX_OPTIMIZATION_BYTES", 12_000)
 
     bounded = service._bound_optimization_result(oversized)
 
@@ -419,7 +421,9 @@ def test_optimize_result_bound_handles_oversized_empty_population(
         search_status="incomplete",
         qualifications=("x" * 4_000,),
     )
-    monkeypatch.setattr(service, "MAX_OPTIMIZATION_BYTES", 5_000)
+    from py_science.formula._service import result_bounds
+
+    monkeypatch.setattr(result_bounds, "MAX_OPTIMIZATION_BYTES", 5_000)
 
     bounded = service._bound_optimization_result(oversized)
 
@@ -438,8 +442,9 @@ def test_optimize_operation_bounds_duplicated_plan_output(
         optimize,
         service,
     )
+    from py_science.formula._service import result_bounds
 
-    monkeypatch.setattr(service, "MAX_OPTIMIZATION_BYTES", 600)
+    monkeypatch.setattr(result_bounds, "MAX_OPTIMIZATION_BYTES", 600)
     result = optimize(
         OptimizeRequest(
             syntax=FormulaSyntax.SYMPY,

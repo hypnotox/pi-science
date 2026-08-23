@@ -1,7 +1,6 @@
 from typing import Any, cast
 
 import py_science.formula.dominance as dominance_policy
-import py_science.formula.service as formula_service
 import py_science.formula.sympy_backend as sympy_backend
 import pytest
 from py_science.formula import (
@@ -85,14 +84,8 @@ def test_cancelled_original_denominator_is_retained_as_an_exclusion() -> None:
     assert [item.value for item in result.exclusions] == ["1"]
     assert result.conditions == ("N != 1",)
     assert all(
-        not (
-            getattr(cell, "lower", None) == "1"
-            and getattr(cell, "lower_inclusive", False)
-        )
-        and not (
-            getattr(cell, "upper", None) == "1"
-            and getattr(cell, "upper_inclusive", False)
-        )
+        not (getattr(cell, "lower", None) == "1" and getattr(cell, "lower_inclusive", False))
+        and not (getattr(cell, "upper", None) == "1" and getattr(cell, "upper_inclusive", False))
         for cell in result.cells
     )
 
@@ -102,9 +95,7 @@ def test_real_endpoints_and_integer_lattice_are_exact() -> None:
         _request(
             "N**2 - N + 1",
             MathematicalDomain.REAL,
-            range=DominanceRange(
-                lower="0", upper="2", lower_inclusive=False, upper_inclusive=True
-            ),
+            range=DominanceRange(lower="0", upper="2", lower_inclusive=False, upper_inclusive=True),
         )
     )
     integer = _success(_request("N**2 - N + 1", MathematicalDomain.INTEGER))
@@ -151,12 +142,8 @@ def test_fixed_specialization_and_axis_assumption_provenance() -> None:
             "N": VariableDeclaration(domain=MathematicalDomain.REAL),
             "a": VariableDeclaration(domain=MathematicalDomain.POSITIVE_REAL),
         },
-        primitive_costs=(
-            PrimitiveCost(name="cost", parameters=("N", "a"), work="a*N**2 + N"),
-        ),
-        assumptions=(
-            Assumption(name="positive_N", relationship="N > 0"),
-        ),
+        primitive_costs=(PrimitiveCost(name="cost", parameters=("N", "a"), work="a*N**2 + N"),),
+        assumptions=(Assumption(name="positive_N", relationship="N > 0"),),
     )
     result = _success(request)
     assert [(term.id, term.coefficient) for term in result.terms] == [
@@ -173,9 +160,7 @@ def test_fixed_specialization_and_axis_assumption_provenance() -> None:
 def test_request_rejects_invalid_axis_fixed_values_and_surplus_keys() -> None:
     base = _request("N")
     with pytest.raises(ValidationError, match="axis cannot be fixed"):
-        DominanceAnalysisRequest.model_validate(
-            {**base.model_dump(), "fixed": {"N": "1"}}
-        )
+        DominanceAnalysisRequest.model_validate({**base.model_dump(), "fixed": {"N": "1"}})
     with pytest.raises(ValidationError, match=r"fixed\.x"):
         DominanceAnalysisRequest.model_validate(
             {
@@ -210,12 +195,8 @@ def test_unknown_unsupported_and_nonfinite_work_abstain() -> None:
         axis="N",
         variables={"N": VariableDeclaration(domain=MathematicalDomain.REAL)},
     )
-    assert _success(unknown).blockers == (
-        "aggregate work contains unknown primitive costs",
-    )
-    assert _success(_request("2**N", MathematicalDomain.REAL)).dominance_status == (
-        "unresolved"
-    )
+    assert _success(unknown).blockers == ("aggregate work contains unknown primitive costs",)
+    assert _success(_request("2**N", MathematicalDomain.REAL)).dominance_status == ("unresolved")
     nonfinite = analyze_dominance(_request("oo", MathematicalDomain.REAL))
     assert isinstance(nonfinite, AnalysisFailure)
 
@@ -224,9 +205,7 @@ def test_result_models_reject_bad_truth_tables_and_correlations() -> None:
     integer = _success(_request("N**2 - N + 1"))
     payload = integer.model_dump()
     with pytest.raises(ValidationError, match="cell kind must match"):
-        DominanceAnalysisSuccess.model_validate(
-            {**payload, "axis_domain": MathematicalDomain.REAL}
-        )
+        DominanceAnalysisSuccess.model_validate({**payload, "axis_domain": MathematicalDomain.REAL})
     with pytest.raises(ValidationError, match="requires every pair"):
         DominanceAnalysisSuccess.model_validate({**payload, "evidence": ()})
     with pytest.raises(ValidationError, match="proved complement"):
@@ -277,7 +256,9 @@ def test_every_dominance_budget_has_a_deterministic_outcome(
 def test_combined_result_overflow_is_an_analysis_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(formula_service, "MAX_RESULT_BYTES", 1)
+    from py_science.formula._service import orchestration
+
+    monkeypatch.setattr(orchestration, "MAX_RESULT_BYTES", 1)
     result = analyze_dominance(_request("N**2 - N + 1"))
     assert isinstance(result, AnalysisFailure)
     assert "dominance result exceeds" in result.error.message
@@ -340,9 +321,7 @@ def test_nested_analysis_disables_optimization() -> None:
     ordinary = analyze(request.analysis_request())
     assert isinstance(ordinary, AnalysisSuccess)
     assert ordinary.optimization.requested_limit == 3
-    assert result.analysis.model_copy(
-        update={"optimization": ordinary.optimization}
-    ) == ordinary
+    assert result.analysis.model_copy(update={"optimization": ordinary.optimization}) == ordinary
     assert any(
         suggestion.kind == "redundant_operation_removal"
         for suggestion in ordinary.optimization.suggestions
@@ -427,6 +406,7 @@ def test_fixed_values_must_satisfy_cross_variable_equalities() -> None:
         "b": VariableDeclaration(domain=MathematicalDomain.REAL),
         "c": VariableDeclaration(domain=MathematicalDomain.REAL),
     }
+
     def request(
         fixed: dict[str, ExactScenarioScalar], assumptions: tuple[Assumption, ...]
     ) -> DominanceAnalysisRequest:
@@ -436,9 +416,7 @@ def test_fixed_values_must_satisfy_cross_variable_equalities() -> None:
             axis="N",
             fixed=fixed,
             variables=variables,
-            primitive_costs=(
-                PrimitiveCost(name="cost", parameters=("N",), work="N"),
-            ),
+            primitive_costs=(PrimitiveCost(name="cost", parameters=("N",), work="N"),),
             assumptions=assumptions,
         )
 
@@ -477,9 +455,7 @@ def test_expansive_dominance_ir_is_refused_before_sympy_conversion(
 
     monkeypatch.setattr(sympy_backend, "_to_query_sympy", fail_conversion)
     with pytest.raises(ValueError, match="intermediate-node bound"):
-        sympy_backend.dominance_rational_form(
-            cast(Expression, parsed), {}, "N", max_nodes=64
-        )
+        sympy_backend.dominance_rational_form(cast(Expression, parsed), {}, "N", max_nodes=64)
     assert converted is False
 
 

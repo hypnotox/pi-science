@@ -9,8 +9,11 @@ from types import MappingProxyType
 from py_science.formula.domains import OutputDomain
 from py_science.formula.expressions import Equation, Expression, Relationship
 from py_science.formula.models import (
+    AnalysisRequest,
     AnalysisSuccess,
     DomainConstraint,
+    RelationshipUse,
+    Scenario,
 )
 from py_science.formula.work import SymbolicTally, WorkAnalysis, WorkContext
 
@@ -81,6 +84,38 @@ class RetainedWorkAnalysis:
     def total_work(self) -> Expression:
         return WorkAnalysis(operations=self.operations, opaque_work=self.opaque_work).total_work
 
+    def as_work_analysis(self) -> WorkAnalysis:
+        """Reconstruct mutable work only at a consuming specialization boundary."""
+        return WorkAnalysis(
+            operations=self.operations,
+            opaque_work=self.opaque_work,
+            invocations=dict(self.invocations),
+            unknown_costs=set(self.unknown_costs),
+            unresolved=set(self.unresolved),
+            direct_work_blockers=set(self.direct_work_blockers),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedScenario:
+    """Immutable neutral state handed once to service scenario enrichment."""
+
+    scenario: Scenario
+    definitions: Mapping[str, tuple[str, Expression]]
+    definition_qualifications: Mapping[str, str | None]
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedScenarioState:
+    """Scenario inputs prepared during neutral validation without service policy."""
+
+    request: AnalysisRequest
+    scenarios: tuple[PreparedScenario, ...]
+    general_analysis: RetainedWorkAnalysis
+    general_relationships: tuple[RelationshipUse, ...]
+    knowledge: Knowledge
+    equations: tuple[ParsedEquation, ...]
+
 
 @dataclass(frozen=True, slots=True)
 class RetainedComputation:
@@ -95,6 +130,7 @@ class RetainedComputation:
     aggregate_analysis: RetainedWorkAnalysis
     knowledge: Knowledge
     work_context: WorkContext
+    scenario_state: PreparedScenarioState | None = None
 
 
 def retained_computation(
@@ -108,6 +144,7 @@ def retained_computation(
     aggregate_analysis: RetainedWorkAnalysis,
     knowledge: Knowledge,
     work_context: WorkContext,
+    scenario_state: PreparedScenarioState | None = None,
 ) -> RetainedComputation:
     """Construct the one immutable retained-analysis handoff."""
     return RetainedComputation(
@@ -120,4 +157,5 @@ def retained_computation(
         aggregate_analysis=aggregate_analysis,
         knowledge=knowledge,
         work_context=work_context,
+        scenario_state=scenario_state,
     )

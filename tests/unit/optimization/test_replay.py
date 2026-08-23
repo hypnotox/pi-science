@@ -344,7 +344,8 @@ def test_neutral_analyzer_is_explicit_and_has_no_service_or_registry_edge() -> N
     assert _analyze_computation is analyze_retained
     assert _analyzer_boundary_violations(optimization_source) == set()
     assert "py_science.formula._analysis.computation" in _imported_modules(comparison_source)
-    assert "py_science.formula._analysis.computation" in _imported_modules(service_source)
+    assert "._analysis.computation" in _imported_modules(service_source)
+    assert "._service.orchestration" in _imported_modules(service_source)
 
 
 def _optimizer_import_violations(source: str, module: str) -> set[str]:
