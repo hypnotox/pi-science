@@ -309,6 +309,42 @@ def test_private_accounting_omits_unrelated_unresolved_assumptions() -> None:
     assert not accounting.blockers
 
 
+def test_private_accounting_records_target_local_cardinality_fact() -> None:
+    from py_science.formula import AnalysisFailure, AnalysisRequest, FormulaSyntax
+    from py_science.formula._analysis.computation import analyze_retained
+    from py_science.formula._optimization.diagnostics import _OutcomeAccounting
+    from py_science.formula._optimization.search import _optimization_report
+
+    request = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY,
+        expression="Sum((x + 1) * (x + 1), (i, a, b))",
+    )
+    computed = analyze_retained(request)
+    assert not isinstance(computed, AnalysisFailure)
+    accounting = _OutcomeAccounting()
+
+    report = _optimization_report(
+        request,
+        computed,
+        computed.work_context,
+        analyzer=analyze_retained,
+        accounting=accounting,
+    )
+
+    assert report == _optimization_report(
+        request,
+        computed,
+        computed.work_context,
+        analyzer=analyze_retained,
+    )
+    assert any(
+        blocker.reason == "unproved_domain_or_cardinality"
+        and blocker.family == "repeated_subexpression"
+        and blocker.target == "expression"
+        for blocker in accounting.blockers
+    )
+
+
 def test_private_accounting_omits_unknown_cost_from_another_system_output() -> None:
     from py_science.formula import (
         AnalysisFailure,
