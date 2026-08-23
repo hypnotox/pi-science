@@ -4,7 +4,8 @@
 from __future__ import annotations
 
 from py_science.formula._analysis.occurrences import _Occurrence
-from py_science.formula.expressions import Expression
+from py_science.formula.expressions import Equation, Expression, Relationship
+from py_science.formula.parser import ParseFailure, parse_expression
 from py_science.formula.sympy_backend import (
     BoundedHornerCandidate,
     BoundedHornerRefusal,
@@ -19,7 +20,22 @@ from ..budgets import (
     MAX_HORNER_TERMS,
     MAX_HORNER_VARIABLES,
 )
-from ..candidates import _CandidateDescriptor, _horner_candidate
+from ..candidates import _CandidateComputation, _CandidateDescriptor, _replace_paths
+
+
+def _horner_candidate(
+    target: str, original: Expression, occurrence: _Occurrence, rendered: str
+) -> _CandidateComputation:
+    """Parse the bounded Horner rendering only after scheduler admission."""
+    parsed = parse_expression(rendered)
+    assert not isinstance(parsed, (ParseFailure, Equation, Relationship))
+    return _CandidateComputation(
+        kind="horner",
+        target=target,
+        original=original,
+        proposed=_replace_paths(original, (occurrence.path,), parsed),
+        occurrences=(occurrence,),
+    )
 
 
 def propose(

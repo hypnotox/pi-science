@@ -217,9 +217,9 @@ def test_cross_equation_domain_signature_overflow_is_a_typed_incomplete_result(
     def exhausted(*_args: object, **_kwargs: object) -> object:
         raise ExpressionTooComplex("bounded substitution exhausted")
 
-    from py_science.formula._optimization import candidates as candidates_owner
+    from py_science.formula._optimization.families import cross_equation_sharing
 
-    monkeypatch.setattr(candidates_owner, "substitute", exhausted)
+    monkeypatch.setattr(cross_equation_sharing, "substitute", exhausted)
     outcome = analyze(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,

@@ -40,6 +40,43 @@ def test_repeated_structure_keeps_let_population_and_preorder() -> None:
     )
 
 
+def test_repeated_calls_have_one_specialized_family_proposal() -> None:
+    """A repeated expression belongs to exactly one specialized family lane."""
+    from py_science.formula._analysis.occurrences import _detect_occurrences
+    from py_science.formula._optimization.families import call_reuse, repeated_structure
+
+    expression = _expression("f(x) + f(x)")
+    occurrences = _detect_occurrences("expression", expression, {})
+    descriptors = (
+        *repeated_structure.propose("expression", expression, occurrences, "tmp"),
+        *call_reuse.propose("expression", expression, occurrences, "tmp"),
+    )
+
+    assert tuple(descriptor.kind for descriptor in descriptors) == ("repeated_call",)
+
+
+def test_family_specific_policy_has_one_named_owner() -> None:
+    """Shared candidate machinery does not retain named family policy."""
+    from py_science.formula._optimization import candidates
+    from py_science.formula._optimization.families import (
+        cross_equation_sharing,
+        factoring,
+        horner,
+        redundant_operations,
+    )
+
+    owners = {
+        "_cross_equation_descriptors": cross_equation_sharing,
+        "_horner_candidate": horner,
+        "_neutral_replacement": redundant_operations,
+        "_factor_term": factoring,
+        "_factored": factoring,
+    }
+    for name, owner in owners.items():
+        assert hasattr(owner, name)
+        assert not hasattr(candidates, name)
+
+
 def test_lexical_binding_reuse_candidate_stays_inside_its_scope() -> None:
     from py_science.formula import (
         AnalysisRequest,

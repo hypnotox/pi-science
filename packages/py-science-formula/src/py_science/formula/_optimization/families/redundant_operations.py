@@ -4,9 +4,38 @@
 from __future__ import annotations
 
 from py_science.formula._analysis.occurrences import _Occurrence
-from py_science.formula.expressions import Expression
+from py_science.formula.expressions import (
+    BinaryExpression,
+    BinaryOperator,
+    Expression,
+    IntegerLiteral,
+)
 
-from ..candidates import _CandidateDescriptor, _neutral_replacement, _replacement_descriptor
+from ..candidates import _CandidateDescriptor, _replacement_descriptor
+
+
+def _neutral_replacement(expression: Expression) -> Expression | None:
+    if not isinstance(expression, BinaryExpression):
+        return None
+    left, right = expression.left, expression.right
+    if isinstance(right, IntegerLiteral):
+        if right.value == 0 and expression.operator in {
+            BinaryOperator.ADD,
+            BinaryOperator.SUBTRACT,
+        }:
+            return left
+        if right.value == 1 and expression.operator in {
+            BinaryOperator.MULTIPLY,
+            BinaryOperator.DIVIDE,
+            BinaryOperator.POWER,
+        }:
+            return left
+    if isinstance(left, IntegerLiteral):
+        if left.value == 0 and expression.operator is BinaryOperator.ADD:
+            return right
+        if left.value == 1 and expression.operator is BinaryOperator.MULTIPLY:
+            return right
+    return None
 
 
 def propose(

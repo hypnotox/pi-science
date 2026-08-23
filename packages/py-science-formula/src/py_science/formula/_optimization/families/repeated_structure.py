@@ -7,6 +7,7 @@ from py_science.formula._analysis.occurrences import _EvaluationScope, _Occurren
 from py_science.formula.expressions import (
     BinaryExpression,
     BinaryOperator,
+    Call,
     Expression,
     IntegerLiteral,
     Sum,
@@ -25,7 +26,7 @@ def propose(
         # Keep the pre-extraction population: every non-Sum expression is a
         # repeated-structure candidate unless call_reuse owns its specialized
         # Call or reciprocal-reuse classification.
-        if not isinstance(repeated, Sum) and not (
+        if not isinstance(repeated, (Call, Sum)) and not (
             isinstance(repeated, BinaryExpression)
             and repeated.operator is BinaryOperator.DIVIDE
             and isinstance(repeated.left, IntegerLiteral)

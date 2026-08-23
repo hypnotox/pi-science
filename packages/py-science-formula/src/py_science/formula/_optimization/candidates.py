@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from itertools import permutations
@@ -17,30 +16,16 @@ from py_science.formula._analysis.occurrences import (
 from py_science.formula._analysis.retained import RetainedComputation
 from py_science.formula.expressions import (
     BinaryExpression,
-    BinaryOperator,
     Call,
-    Equation,
     Expression,
     IndexedValue,
-    IntegerLiteral,
     Let,
-    Relationship,
     Sum,
     Symbol,
     expression_children,
-    expression_node_count,
-    substitute,
 )
-from py_science.formula.models import (
-    OptimizationKind,
-)
-from py_science.formula.parser import ParseFailure, parse_expression
-from py_science.formula.sympy_backend import (
-    bounded_factor_candidate,
-    render,
-)
-
-from .budgets import MAX_OPTIMIZATION_TRANSFORM_NODES
+from py_science.formula.models import OptimizationKind
+from py_science.formula.sympy_backend import render
 
 
 @dataclass(frozen=True, slots=True)
@@ -336,125 +321,6 @@ def _generated_let_variants(
     return tuple(variants) or (expression,)
 
 
-def _cross_equation_descriptors(
-    computed: RetainedComputation,
-    occurrences_by_target: Mapping[str, tuple[_Occurrence, ...]],
-    generated_name: str,
-) -> tuple[_CandidateDescriptor, ...]:
-    if computed.expression is not None or len(computed.equations) < 2:
-        return ()
-    equations = {item.name: item for item in computed.equations}
-    canonical_reserved: set[str] = set()
-    for equation in computed.equations:
-        canonical_reserved.update(_all_symbol_names(equation.formula.right))
-        for domain in equation.output_domains:
-            canonical_reserved.update(_all_symbol_names(domain.lower))
-            canonical_reserved.update(_all_symbol_names(domain.upper))
-    grouped: dict[
-        tuple[int, Expression, tuple[tuple[Expression, Expression], ...]],
-        list[_Occurrence],
-    ] = defaultdict(list)
-    for target, occurrences in occurrences_by_target.items():
-        equation = equations[target]
-        # Equation-local constraints cannot be attached to one shared producer.
-        if equation.submitted_constraints:
-            continue
-        canonical_output_indices = _canonical_output_index_names(
-            len(equation.domain_order), canonical_reserved
-        )
-        replacements: dict[str, Expression] = {
-            name: Symbol(canonical)
-            for name, canonical in zip(equation.domain_order, canonical_output_indices, strict=True)
-        }
-        domain_signature = tuple(
-            (
-                substitute(domain.lower, replacements, max_nodes=MAX_OPTIMIZATION_TRANSFORM_NODES),
-                substitute(domain.upper, replacements, max_nodes=MAX_OPTIMIZATION_TRANSFORM_NODES),
-            )
-            for domain in equation.output_domains
-        )
-        for occurrence in occurrences:
-            if occurrence.scope.binders or expression_node_count(occurrence.expression) < 2:
-                continue
-            grouped[
-                (
-                    len(equation.domain_order),
-                    _canonical_output_expression(
-                        occurrence.expression,
-                        equation.domain_order,
-                        canonical_reserved,
-                        canonical_output_indices,
-                    ),
-                    domain_signature,
-                )
-            ].append(occurrence)
-
-    result: list[_CandidateDescriptor] = []
-    for (_arity, _canonical, _domains), grouped_occurrences in grouped.items():
-        by_target: dict[str, _Occurrence] = {}
-        for occurrence in grouped_occurrences:
-            by_target.setdefault(occurrence.target, occurrence)
-        if len(by_target) < 2:
-            continue
-        selected = tuple(by_target[name] for name in sorted(by_target))
-        target_names = frozenset(by_target)
-        # A producer depending on one of its consumers would introduce a cycle.
-        producer_dependencies = {
-            computed.producers[name].equation_name
-            for name in _all_symbol_names(selected[0].expression)
-            if name in computed.producers
-        }
-        if producer_dependencies & target_names:
-            continue
-        first = selected[0]
-        first_equation = equations[first.target]
-        raw = _free_symbols(first.expression)
-        interface_positions = tuple(
-            position for position, name in enumerate(first_equation.domain_order) if name in raw
-        )
-        transformed: list[tuple[str, Expression, Expression]] = []
-        compatible = True
-        for occurrence in selected:
-            equation = equations[occurrence.target]
-            used_positions = tuple(
-                position
-                for position, name in enumerate(equation.domain_order)
-                if name in _free_symbols(occurrence.expression)
-            )
-            if used_positions != interface_positions:
-                compatible = False
-                break
-            arguments = tuple(
-                Symbol(equation.domain_order[position]) for position in interface_positions
-            )
-            reference: Expression = (
-                IndexedValue(generated_name, arguments) if arguments else Symbol(generated_name)
-            )
-            transformed.append(
-                (
-                    occurrence.target,
-                    equation.formula.right,
-                    _replace_paths(equation.formula.right, (occurrence.path,), reference),
-                )
-            )
-        if not compatible:
-            continue
-        result.append(
-            _descriptor_from_recipe(
-                kind="cross_equation_sharing",
-                target=first.target,
-                original=transformed[0][1],
-                proposed=transformed[0][2],
-                occurrences=selected,
-                transformed_targets=tuple(transformed),
-                intermediate_name=generated_name,
-                intermediate_expression=first.expression,
-                intermediate_scope=_smallest_scope(first.expression, first.scope),
-            )
-        )
-    return tuple(result)
-
-
 def _generated_reference(name: str, scope: _EvaluationScope) -> Expression:
     indices = tuple(Symbol(index) for index in scope.output_indices)
     return IndexedValue(name, indices) if indices else Symbol(name)
@@ -579,21 +445,6 @@ def _descriptor_sort_key(
     )
 
 
-def _horner_candidate(
-    target: str, original: Expression, occurrence: _Occurrence, rendered: str
-) -> _CandidateComputation:
-    """Parse the bounded Horner rendering only after scheduler admission."""
-    parsed = parse_expression(rendered)
-    assert not isinstance(parsed, (ParseFailure, Equation, Relationship))
-    return _CandidateComputation(
-        kind="horner",
-        target=target,
-        original=original,
-        proposed=_replace_paths(original, (occurrence.path,), parsed),
-        occurrences=(occurrence,),
-    )
-
-
 def _replacement_descriptor(
     *,
     kind: OptimizationKind,
@@ -692,69 +543,3 @@ def _descriptor_from_recipe(
             intermediate_scope,
         ),
     )
-
-
-def _neutral_replacement(expression: Expression) -> Expression | None:
-    if not isinstance(expression, BinaryExpression):
-        return None
-    left, right = expression.left, expression.right
-    if isinstance(right, IntegerLiteral):
-        if right.value == 0 and expression.operator in {
-            BinaryOperator.ADD,
-            BinaryOperator.SUBTRACT,
-        }:
-            return left
-        if right.value == 1 and expression.operator in {
-            BinaryOperator.MULTIPLY,
-            BinaryOperator.DIVIDE,
-            BinaryOperator.POWER,
-        }:
-            return left
-    if isinstance(left, IntegerLiteral):
-        if left.value == 0 and expression.operator is BinaryOperator.ADD:
-            return right
-        if left.value == 1 and expression.operator is BinaryOperator.MULTIPLY:
-            return right
-    return None
-
-
-def _factor_term(expression: Expression) -> tuple[Expression, Expression] | None:
-    if (
-        not isinstance(expression, BinaryExpression)
-        or expression.operator is not BinaryOperator.MULTIPLY
-    ):
-        return None
-    return expression.left, expression.right
-
-
-def _factored(expression: Expression) -> Expression | None:
-    if not isinstance(expression, BinaryExpression) or expression.operator not in {
-        BinaryOperator.ADD,
-        BinaryOperator.SUBTRACT,
-    }:
-        return None
-    left = _factor_term(expression.left)
-    right = _factor_term(expression.right)
-    if left is None or right is None:
-        return None
-    common: Expression | None = None
-    left_rest: Expression | None = None
-    right_rest: Expression | None = None
-    for left_position, left_item in enumerate(left):
-        for right_position, right_item in enumerate(right):
-            if left_item == right_item:
-                common = left_item
-                left_rest = left[1 - left_position]
-                right_rest = right[1 - right_position]
-                break
-        if common is not None:
-            break
-    if common is None or left_rest is None or right_rest is None:
-        return None
-    rendered = bounded_factor_candidate(expression)
-    if rendered is None:
-        return None
-    parsed = parse_expression(rendered)
-    if isinstance(parsed, (ParseFailure, Equation, Relationship)):
-        return None
-    return parsed

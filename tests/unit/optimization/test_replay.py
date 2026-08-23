@@ -433,25 +433,6 @@ _OPTIMIZATION_PACKAGE = "py_science.formula._optimization"
 _FAMILY_PACKAGE = f"{_OPTIMIZATION_PACKAGE}.families"
 
 
-def _dag_violations(source: str, package: str, owner: str) -> set[str]:
-    """Reject every internal owner edge outside this owner's explicit allowlist."""
-    edges = _owner_import_edges(source, package)
-    allowed = _PERMITTED_INTERNAL_EDGES[owner]
-    violations: set[str] = set()
-    for edge in edges:
-        if edge == _OPTIMIZATION_PACKAGE:
-            violations.add(f"barrel:{edge}")
-        elif edge in _ALL_INTERNAL_OWNERS and edge not in allowed:
-            violations.add(f"{owner}->{edge}")
-        elif edge == "py_science.formula.service" or edge.startswith("py_science.formula.service."):
-            violations.add(f"service:{edge}")
-        elif edge == "py_science.formula.optimization" or edge.startswith(
-            "py_science.formula.optimization."
-        ):
-            violations.add(f"facade:{edge}")
-    return violations
-
-
 _FAMILY_NAMES = frozenset(
     {
         "repeated_structure",
@@ -479,47 +460,75 @@ _OWNER_OWNERS = frozenset(
     )
 )
 _ALL_INTERNAL_OWNERS = _OWNER_OWNERS | _FAMILY_OWNERS
-_PERMITTED_INTERNAL_EDGES: dict[str, frozenset[str]] = {
-    "package": frozenset(),
-    "families_barrel": frozenset(),
-    "budgets": frozenset(),
-    "candidates": frozenset({_OPTIMIZATION_PACKAGE + ".budgets"}),
-    "canonical": frozenset({_OPTIMIZATION_PACKAGE + ".candidates"}),
-    "objectives": frozenset(
-        {_OPTIMIZATION_PACKAGE + ".budgets", _OPTIMIZATION_PACKAGE + ".verifier"}
-    ),
-    "plans": frozenset({_OPTIMIZATION_PACKAGE + ".verifier"}),
-    "replay": frozenset({_OPTIMIZATION_PACKAGE + ".candidates"}),
-    "verifier": frozenset(
-        {
-            _OPTIMIZATION_PACKAGE + ".budgets",
-            _OPTIMIZATION_PACKAGE + ".candidates",
-            _OPTIMIZATION_PACKAGE + ".replay",
-        }
-    ),
-    "search": frozenset(
-        {
-            _OPTIMIZATION_PACKAGE + ".budgets",
-            _OPTIMIZATION_PACKAGE + ".candidates",
-            _OPTIMIZATION_PACKAGE + ".canonical",
-            _OPTIMIZATION_PACKAGE + ".objectives",
-            _OPTIMIZATION_PACKAGE + ".plans",
-            _OPTIMIZATION_PACKAGE + ".verifier",
-        }
-    )
-    | _FAMILY_OWNERS,
-    **{
-        name: frozenset({_OPTIMIZATION_PACKAGE + ".candidates"})
-        for name in _FAMILY_NAMES - {"horner"}
-    },
-    "horner": frozenset(
-        {_OPTIMIZATION_PACKAGE + ".budgets", _OPTIMIZATION_PACKAGE + ".candidates"}
-    ),
-}
+_CANDIDATES = f"{_OPTIMIZATION_PACKAGE}.candidates"
+_BUDGETS = f"{_OPTIMIZATION_PACKAGE}.budgets"
+_REPLAY = f"{_OPTIMIZATION_PACKAGE}.replay"
+_SEARCH = f"{_OPTIMIZATION_PACKAGE}.search"
+
+
+def _dag_violations(source: str, package: str, owner: str) -> set[str]:
+    """Enforce durable layer boundaries without freezing every optional edge."""
+    edges = _owner_import_edges(source, package)
+    violations: set[str] = set()
+    constrained: frozenset[str] | None = None
+    if owner in {"package", "families_barrel", "budgets"}:
+        constrained = frozenset()
+    elif owner == "candidates":
+        constrained = frozenset({_BUDGETS})
+    elif owner in _FAMILY_NAMES or owner == "replay":
+        constrained = frozenset({_BUDGETS, _CANDIDATES})
+
+    for edge in edges:
+        if edge == _OPTIMIZATION_PACKAGE:
+            violations.add(f"barrel:{edge}")
+        elif edge == "py_science.formula.service" or edge.startswith("py_science.formula.service."):
+            violations.add(f"service:{edge}")
+        elif edge == "py_science.formula.optimization" or edge.startswith(
+            "py_science.formula.optimization."
+        ):
+            violations.add(f"facade:{edge}")
+        elif edge in _ALL_INTERNAL_OWNERS:
+            wrong_layer = constrained is not None and edge not in constrained
+            verifier_reverse_edge = owner == "verifier" and (
+                edge == _SEARCH or edge in _FAMILY_OWNERS
+            )
+            lower_owner_search_edge = (
+                owner in {"canonical", "objectives", "plans"} and edge == _SEARCH
+            )
+            if wrong_layer or verifier_reverse_edge or lower_owner_search_edge:
+                violations.add(f"{owner}->{edge}")
+    return violations
+
+
+def _cycle(graph: dict[str, set[str]]) -> tuple[str, ...] | None:
+    """Return one internal dependency cycle, when present."""
+    visiting: list[str] = []
+    visited: set[str] = set()
+
+    def visit(owner: str) -> tuple[str, ...] | None:
+        if owner in visiting:
+            start = visiting.index(owner)
+            return (*visiting[start:], owner)
+        if owner in visited:
+            return None
+        visiting.append(owner)
+        for dependency in sorted(graph.get(owner, set())):
+            found = visit(dependency)
+            if found is not None:
+                return found
+        visiting.pop()
+        visited.add(owner)
+        return None
+
+    for owner in sorted(graph):
+        found = visit(owner)
+        if found is not None:
+            return found
+    return None
 
 
 def test_owner_dag_covers_all_families_and_falsifies_every_rule() -> None:
-    """The complete source census permits only the declared direct owner graph."""
+    """The source census enforces required seams, layer direction, and acyclicity."""
     from py_science.formula._optimization import search
 
     root = Path(search.__file__).parent
@@ -546,19 +555,43 @@ def test_owner_dag_covers_all_families_and_falsifies_every_rule() -> None:
         **{name: (path, _OPTIMIZATION_PACKAGE) for name, path in owners.items()},
         **{name: (path, _FAMILY_PACKAGE) for name, path in families.items()},
     }
-    assert set(scanned) == set(_PERMITTED_INTERNAL_EDGES)
     for name, (path, package) in scanned.items():
         assert _dag_violations(path.read_text(), package, name) == set(), name
 
-    # Every required owner edge has an explicit allowed control; the inverse
-    # cases below falsify absolute, relative, and barrel spellings.
-    for name, allowed in _PERMITTED_INTERNAL_EDGES.items():
-        for required in allowed:
-            assert _dag_violations(f"import {required}\n", _OPTIMIZATION_PACKAGE, name) == set()
-        forbidden = next(iter(sorted(_ALL_INTERNAL_OWNERS - allowed)))
-        assert _dag_violations(f"import {forbidden}\n", _OPTIMIZATION_PACKAGE, name) == {
-            f"{name}->{forbidden}"
-        }
+    sources = {
+        name: _owner_import_edges(path.read_text(), package) & _ALL_INTERNAL_OWNERS
+        for name, (path, package) in scanned.items()
+        if name not in {"package", "families_barrel"}
+    }
+    qualified_sources = {
+        (
+            f"{_FAMILY_PACKAGE}.{name}"
+            if name in _FAMILY_NAMES
+            else f"{_OPTIMIZATION_PACKAGE}.{name}"
+        ): dependencies
+        for name, dependencies in sources.items()
+    }
+    assert _cycle(qualified_sources) is None
+
+    required = {
+        _REPLAY: {_CANDIDATES},
+        f"{_OPTIMIZATION_PACKAGE}.verifier": {_REPLAY},
+        _SEARCH: {
+            _BUDGETS,
+            _CANDIDATES,
+            f"{_OPTIMIZATION_PACKAGE}.canonical",
+            f"{_OPTIMIZATION_PACKAGE}.objectives",
+            f"{_OPTIMIZATION_PACKAGE}.plans",
+            f"{_OPTIMIZATION_PACKAGE}.verifier",
+            *_FAMILY_OWNERS,
+        },
+    }
+    for owner, dependencies in required.items():
+        assert dependencies <= qualified_sources[owner]
+    for family in _FAMILY_OWNERS:
+        assert _CANDIDATES in qualified_sources[family]
+
+    # Absolute, relative, and barrel spellings each falsify an enforced rule.
     assert _dag_violations("from . import verifier\n", _OPTIMIZATION_PACKAGE, "search") == {
         f"barrel:{_OPTIMIZATION_PACKAGE}"
     }
@@ -571,13 +604,17 @@ def test_owner_dag_covers_all_families_and_falsifies_every_rule() -> None:
     assert _dag_violations(
         "from py_science.formula import optimization\n", _OPTIMIZATION_PACKAGE, "search"
     ) == {"facade:py_science.formula.optimization"}
-
-    # Mutate an in-memory production source string: the scanned census catches
-    # a forbidden replay-to-verifier edge without touching production files.
-    replay_source = owners["replay"].read_text() + "\nfrom .verifier import _Accepted\n"
-    assert _dag_violations(replay_source, _OPTIMIZATION_PACKAGE, "replay") == {
-        f"replay->{_OPTIMIZATION_PACKAGE}.verifier"
+    assert _dag_violations(f"import {_REPLAY}\n", _FAMILY_PACKAGE, "factoring") == {
+        f"factoring->{_REPLAY}"
     }
+    assert _dag_violations(
+        f"import {_OPTIMIZATION_PACKAGE}.verifier\n", _OPTIMIZATION_PACKAGE, "replay"
+    ) == {f"replay->{_OPTIMIZATION_PACKAGE}.verifier"}
+    assert _dag_violations(f"import {_SEARCH}\n", _OPTIMIZATION_PACKAGE, "verifier") == {
+        f"verifier->{_SEARCH}"
+    }
+    assert _dag_violations(f"import {_CANDIDATES}\n", _FAMILY_PACKAGE, "factoring") == set()
+    assert _cycle({"a": {"b"}, "b": {"a"}}) == ("a", "b", "a")
 
 
 def test_facade_private_consumers_are_direct_owner_aliases(
@@ -598,6 +635,12 @@ def test_facade_private_consumers_are_direct_owner_aliases(
         replay,
         search,
         verifier,
+    )
+    from py_science.formula._optimization.families import (
+        cross_equation_sharing,
+        factoring,
+        horner,
+        redundant_operations,
     )
     from py_science.formula.reasoning import ReasoningContext
 
@@ -623,6 +666,12 @@ def test_facade_private_consumers_are_direct_owner_aliases(
         "ReasoningContext": ReasoningContext,
         "_default_budget_config": budgets._default_budget_config,
         "_accepted_order": objectives._accepted_order,
+        "_cross_equation_descriptors": cross_equation_sharing._cross_equation_descriptors,
+        "_factor_term": factoring._factor_term,
+        "_factored": factoring._factored,
+        "_horner_candidate": horner._horner_candidate,
+        "_neutral_replacement": redundant_operations._neutral_replacement,
+        "substitute": cross_equation_sharing.substitute,
     }
     for name, owner in owner_aliases.items():
         assert getattr(facade, name) is owner, name

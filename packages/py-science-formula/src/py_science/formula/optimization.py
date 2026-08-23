@@ -42,24 +42,18 @@ from ._optimization.candidates import (
     _CandidateDescriptor,
     _canonical_output_expression,
     _canonical_output_index_names,
-    _cross_equation_descriptors,
     _descriptor_from_recipe,
     _descriptor_sort_key,
-    _factor_term,
-    _factored,
     _generated_let_variants,
     _generated_name,
     _generated_reference,
     _generated_replacement_descriptor,
-    _horner_candidate,
-    _neutral_replacement,
     _replace_paths,
     _replacement_descriptor,
     _scope_sort_key,
     _smallest_scope,
     _target_inputs,
     _wrap_complete_let,
-    substitute,
 )
 from ._optimization.canonical import (
     _candidate_semantic_key,
@@ -67,6 +61,10 @@ from ._optimization.canonical import (
     _stable_json,
     _trace_key,
 )
+from ._optimization.families.cross_equation_sharing import _cross_equation_descriptors
+from ._optimization.families.factoring import _factor_term, _factored
+from ._optimization.families.horner import _horner_candidate
+from ._optimization.families.redundant_operations import _neutral_replacement
 from ._optimization.objectives import (
     _accepted_order,
     _adjacent_ordering_relation,
@@ -103,4 +101,5 @@ from ._optimization.verifier import (
     _unique_uses,
     _verify_candidate,
 )
+from .expressions import substitute
 from .reasoning import ReasoningContext
