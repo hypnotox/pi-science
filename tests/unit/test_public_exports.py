@@ -339,21 +339,22 @@ def _contract_import_violations(module_name: str, source: str) -> list[str]:
         if isinstance(node, ast.Import):
             imported = [alias.name for alias in node.names]
             for imported_name in imported:
-                if imported_name.startswith(prefix):
+                if imported_name == contracts_root:
+                    violations.append(contracts_root)
+                elif imported_name.startswith(prefix):
                     dependencies.add(imported_name.removeprefix(prefix).split(".", 1)[0])
         elif isinstance(node, ast.ImportFrom):
             if node.level == 0:
                 base = node.module or ""
-            elif node.level == 1:
-                base = contracts_root
-                if node.module:
-                    base = f"{base}.{node.module}"
-            elif node.level == 2:
-                base = formula_root
-                if node.module:
-                    base = f"{base}.{node.module}"
             else:
-                base = "py_science"
+                package = contracts_root.split(".")
+                retained = [
+                    str(part)
+                    for part in package[: max(0, len(package) - node.level + 1)]
+                ]
+                if node.module:
+                    retained.extend(node.module.split("."))
+                base = ".".join(retained)
             imported = [base, *(f"{base}.{alias.name}" for alias in node.names)]
             if base == contracts_root:
                 violations.append(contracts_root)
@@ -384,15 +385,28 @@ def test_contract_import_graph_probe_rejects_every_forbidden_edge_form() -> None
         "import sympy",
         "import pi_science",
         "import py_science.formula",
+        "import py_science.formula.contracts",
+        "import py_science.formula.contracts as contracts",
         "import py_science.formula.contracts.dominance",
         "from py_science.formula import AnalysisRequest",
         "from py_science.formula import models",
         "from py_science.formula import optimization",
         "from py_science.formula.contracts import dominance",
         "from py_science.formula.parser import parse_expression",
+        "from ...formula.models import AnalysisRequest",
+        "from ...formula.contracts.dominance import DominanceRange",
         "from .. import service",
         "from ..optimizer import optimize",
         "from . import dominance",
         "from .dominance import DominanceRange",
     )
     assert all(_contract_import_violations("common", source) for source in prohibited)
+
+
+def test_contract_import_graph_probe_accepts_allowed_direct_dependency_forms() -> None:
+    allowed = (
+        "from ._base import StructuredModel",
+        "from py_science.formula.contracts._base import StructuredModel",
+        "from ...formula.contracts._base import StructuredModel",
+    )
+    assert all(_contract_import_violations("common", source) == [] for source in allowed)
