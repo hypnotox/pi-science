@@ -14,6 +14,7 @@ const bridgeModules = [
   "diagnostics",
   "correlation",
   "client",
+  "presentation",
 ] as const;
 const bridgeExports = [
   "PROTOCOL_VERSION",
@@ -196,6 +197,7 @@ describe("npm package boundary", () => {
         "./requests.js",
         "./results.js",
       ],
+      presentation: ["./results.js"],
     } satisfies Record<(typeof bridgeModules)[number], string[]>;
     const edges = Object.fromEntries(
       bridgeModules.map((name, index) => [
@@ -215,6 +217,24 @@ describe("npm package boundary", () => {
     expect(sources[bridgeModules.indexOf("correlation")]).toMatch(
       /export function validateCorrelatedResult\(/,
     );
+  });
+
+  it("keeps production integration on owning bridge modules", async () => {
+    const [index, provision] = await Promise.all(
+      ["index", "provision"].map((name) =>
+        readFile(join(root, `packages/pi-science/src/${name}.ts`), "utf8"),
+      ),
+    );
+    expect(moduleSpecifiers(index)).not.toContain("./bridge.js");
+    expect(moduleSpecifiers(index)).toEqual(
+      expect.arrayContaining([
+        "./bridge/client.js",
+        "./bridge/presentation.js",
+        "./bridge/requests.js",
+      ]),
+    );
+    expect(moduleSpecifiers(provision)).not.toContain("./bridge.js");
+    expect(moduleSpecifiers(provision)).toContain("./bridge/protocol.js");
   });
 
   it("detects static, re-exported, required, and dynamic module edges", () => {
@@ -334,7 +354,7 @@ describe("npm package boundary", () => {
               JSON.stringify(bridgeBarrel) + ";\\n" +
               "import { PROTOCOL_VERSION as CHILD_PROTOCOL_VERSION } from " +
               JSON.stringify(resolve(bridgeRoot, "protocol.ts")) + ";\\n" +
-              ${JSON.stringify(["requests", "results", "diagnostics", "correlation", "client"])}
+              ${JSON.stringify(["requests", "results", "diagnostics", "correlation", "client", "presentation"])}
                 .map((name) => "import " + JSON.stringify(resolve(bridgeRoot, name + ".ts")) + ";\\n")
                 .join("");
             const probeExtension = resolve("formula-probe.ts");

@@ -6,7 +6,7 @@ import {
   decodeUtf8Strict,
   parseStrictJson,
   PROTOCOL_VERSION,
-} from "./bridge.js";
+} from "./bridge/protocol.js";
 import { spawnIsolated, terminateTree } from "./process.js";
 
 const MAX_DIAGNOSTIC_BYTES = 4_096;

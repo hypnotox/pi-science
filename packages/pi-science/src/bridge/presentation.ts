@@ -1,0 +1,294 @@
+import type {
+  AnalysisSuccess,
+  BridgeResult,
+  OptimizationObjective,
+} from "./results.js";
+
+const MAX_COMPACT_DERIVED_CANDIDATES = 3;
+const MAX_COMPACT_EXPRESSION_LENGTH = 512;
+
+function compactExpression(expression: string): string {
+  return expression.length <= MAX_COMPACT_EXPRESSION_LENGTH
+    ? expression
+    : `${expression.slice(0, MAX_COMPACT_EXPRESSION_LENGTH - 3)}...`;
+}
+
+function objectiveProfile(objective: OptimizationObjective): string {
+  return objective.kind;
+}
+
+function compactToolText(result: BridgeResult): string {
+  if (result.status === "failed")
+    return ["Optimization", "- failed", "Blockers", `- ${result.error}`].join(
+      "\n",
+    );
+
+  if (result.status === "success" && "search_status" in result) {
+    const plans = result.plans.flatMap((plan, index) => {
+      const computation =
+        plan.candidate.expression ??
+        plan.candidate.equations
+          .map((equation) => equation.expression)
+          .join("; ");
+      const steps = plan.trace
+        .map(
+          (step, stepIndex) =>
+            `${stepIndex + 1}. ${step.kind} [tier ${step.tier}] (${step.transformations.map((item) => (item.target.kind === "expression" ? "expression" : `equation ${item.target.name}`)).join(", ")})`,
+        )
+        .join(" → ");
+      return [
+        `- Plan ${index + 1}: ${steps}; outputs: ${plan.candidate.outputs.join(", ")}`,
+        `  Candidate: ${compactExpression(computation)}`,
+        `  Objective profile: ${objectiveProfile(plan.objective)}`,
+        `  Original-to-final selected-objective savings: ${plan.suggestion.objective_savings}; ${plan.suggestion.finite_precision_qualification}; exact symbolic qualification only; no runtime or finite-precision claim`,
+        ...(index === 0
+          ? []
+          : [
+              `  Relation to previous: ${plan.suggestion.ordering.relation_to_previous === "previous_proved_superior" ? "previous plan proved superior" : "deterministic non-superiority tie-break"}`,
+            ]),
+      ];
+    });
+    return [
+      "Optimization plans",
+      ...(plans.length ? plans : ["- none"]),
+      "Search status",
+      `- ${result.search_status}`,
+      "Search qualifications",
+      ...(result.qualifications.length
+        ? result.qualifications.map((qualification) => `- ${qualification}`)
+        : ["- none"]),
+      "Output projection",
+      `- ${result.projection_status}`,
+      ...(result.projection_qualifications.length
+        ? result.projection_qualifications.map(
+            (qualification) => `- ${qualification}`,
+          )
+        : ["- none"]),
+    ].join("\n");
+  }
+
+  if (result.status === "failure")
+    return [
+      "Interpretation",
+      "- unavailable",
+      "Query conclusions",
+      "- none",
+      "Work",
+      "- unavailable",
+      "Blockers",
+      `- ${result.error.message}`,
+    ].join("\n");
+
+  if ("kind" in result && result.kind === "dominance_analysis") {
+    const cellLabel = (cell: (typeof result.cells)[number]) =>
+      "value" in cell ? cell.value : `${cell.lower} to ${cell.upper}`;
+    const blockers = [
+      ...result.blockers,
+      ...result.cells.flatMap((cell) =>
+        cell.blockers.map((blocker) => `${cellLabel(cell)}: ${blocker}`),
+      ),
+    ];
+    return [
+      "Axis",
+      `- ${result.axis} (${result.axis_domain})`,
+      "Effective domain",
+      `- ${result.effective_range ? `${result.effective_range.lower}${result.effective_range.lower_inclusive ? " ≤" : " <"} ${result.axis} ${result.effective_range.upper_inclusive ? "≤" : "<"} ${result.effective_range.upper}` : "empty"}`,
+      "Status",
+      `- ${result.dominance_status}`,
+      "Canonical signed terms",
+      ...(result.terms.length
+        ? result.terms.map((term) => `- ${term.id}: ${term.expression}`)
+        : ["- none"]),
+      "Dominant regions and ties",
+      ...(result.cells.length
+        ? result.cells.map(
+            (cell) =>
+              `- ${cellLabel(cell)}: ${cell.dominant.join(", ") || "unresolved"}`,
+          )
+        : ["- none"]),
+      "Excluded poles",
+      ...(result.exclusions.length
+        ? result.exclusions.map((pole) => `- ${pole.value}`)
+        : ["- none"]),
+      "Never-dominant terms",
+      ...(result.never_dominant.length
+        ? result.never_dominant.map((term) => `- ${term}`)
+        : ["- none"]),
+      "Qualifications",
+      ...(result.conditions.length
+        ? result.conditions.map((condition) => `- ${condition}`)
+        : ["- none"]),
+      "Blockers",
+      ...(blockers.length
+        ? blockers.map((blocker) => `- ${blocker}`)
+        : ["- none"]),
+    ].join("\n");
+  }
+
+  if ("kind" in result && result.kind === "candidate_comparison") {
+    const blockers = result.outputs.flatMap((output) =>
+      output.answer.blockers.map((blocker) => `${output.name}: ${blocker}`),
+    );
+    const work = result.work_comparison;
+    return [
+      "Candidates and interpretations",
+      ...result.candidates.map(
+        (candidate) =>
+          `- ${candidate.name}: ${candidate.analysis.interpretation.normalized_sympy}`,
+      ),
+      "Overall semantic status",
+      `- ${result.semantic_status}`,
+      "Mapped-output blockers",
+      ...(blockers.length
+        ? blockers.map((blocker) => `- ${blocker}`)
+        : ["- none"]),
+      "Aggregate work",
+      `- Metric: ${work.metric}`,
+      ...result.candidates.map(
+        (candidate) =>
+          `- ${candidate.name}: ${candidate.aggregate_work ?? "unavailable"}`,
+      ),
+      `- Delta (second - first): ${work.delta ?? "unavailable"}`,
+      "Work decision",
+      `- ${work.status}${work.conditions.length ? `; ${work.conditions.join("; ")}` : ""}`,
+      "Unresolved costs",
+      ...(work.blockers.length
+        ? work.blockers.map((blocker) => `- ${blocker}`)
+        : ["- none"]),
+    ].join("\n");
+  }
+
+  const analysis = result as AnalysisSuccess;
+  const queryConclusions = analysis.queries.flatMap((query) =>
+    query.answers.map((answer) => {
+      const check = answer.check
+        ? `; ${answer.check.kind}${"variable" in answer.check ? ` (${answer.check.variable})` : ""}`
+        : "";
+      const derived =
+        query.target.kind === "derived" && query.normalized_target
+          ? [compactExpression(query.normalized_target.normalized_sympy)]
+          : query.kind === "closed_form" &&
+              (answer.conclusion === "proved" ||
+                answer.conclusion === "proved_under_assumptions")
+            ? answer.derived_candidates
+                .slice(0, MAX_COMPACT_DERIVED_CANDIDATES)
+                .map((candidate) =>
+                  compactExpression(candidate.interpretation.normalized_sympy),
+                )
+            : [];
+      return `- ${query.name} (${query.kind}${check}): ${answer.conclusion}${derived.length === 0 ? "" : `; derived: ${derived.join(", ")}`}`;
+    }),
+  );
+  const generalWork = analysis.system?.total_work ?? analysis.abstract_work;
+  const work = [
+    `- General direct work: ${generalWork ?? "unavailable"}`,
+    ...(analysis.scenarios.length === 0
+      ? ["- Specialized evaluation work: none"]
+      : analysis.scenarios.map(
+          (scenario) =>
+            `- Specialized evaluation work (scenario ${scenario.name}): ${scenario.substituted_work}`,
+        )),
+  ];
+  const optimization = (() => {
+    const report = analysis.optimization;
+    if (report.status === "disabled") return [];
+
+    if (report.suggestions.length === 0) {
+      return [
+        "Optimization advice",
+        `- ${report.status === "complete" ? "no proved opportunity found within completed search" : "search incomplete; no proved suggestion was retained; inspect details for the local bound"}`,
+        ...report.qualifications.map(
+          (qualification) => `- qualification: ${qualification}`,
+        ),
+      ];
+    }
+
+    const suggestion = report.suggestions[0]!;
+    const firstPlan = report.plans[0]!;
+    const transformations = firstPlan.trace
+      .map(
+        (step, index) =>
+          `${index + 1}. ${step.kind}: ${step.transformations
+            .map((transformation) => {
+              const target =
+                transformation.target.kind === "expression"
+                  ? "expression"
+                  : `equation ${transformation.target.name}`;
+              return `${target}: ${transformation.original.normalized_sympy} → ${transformation.proposed.normalized_sympy}`;
+            })
+            .join("; ")} [tier ${step.tier}]`,
+      )
+      .join(" → ");
+    const intermediate = firstPlan.trace[0]?.intermediate
+      ? `; shared intermediate ${firstPlan.trace[0].intermediate.name} = ${firstPlan.trace[0].intermediate.expression.normalized_sympy}`
+      : "";
+    const conditions = suggestion.conditions.length
+      ? `; conditions: ${suggestion.conditions.join(", ")}`
+      : "";
+    const assumptions = suggestion.assumptions_used.length
+      ? `; assumptions used: ${suggestion.assumptions_used
+          .map(
+            (assumption) => `${assumption.name} (${assumption.relationship})`,
+          )
+          .join(", ")}`
+      : "";
+    const additional = report.suggestions.length - 1;
+    return [
+      "Optimization advice",
+      `- optimization plan: ${transformations}${intermediate}; objective ${objectiveProfile(firstPlan.objective)}: ${suggestion.objective_before} → ${suggestion.objective_after}; original-to-final saving ${suggestion.objective_savings}${conditions}${assumptions}; ${suggestion.finite_precision_qualification}; exact symbolic qualification only; no runtime or finite-precision claim`,
+      ...(additional === 0
+        ? []
+        : [
+            `- ${additional} additional proved suggestion${additional === 1 ? "" : "s"} in details`,
+          ]),
+      ...(report.status === "incomplete"
+        ? ["- search incomplete; inspect details for the local bound"]
+        : []),
+      ...(report.projection_status === "truncated"
+        ? [
+            "- output truncated after search; inspect details for the byte bound",
+          ]
+        : []),
+      ...report.qualifications.map(
+        (qualification) => `- qualification: ${qualification}`,
+      ),
+    ];
+  })();
+  const blockers = [
+    ...analysis.direct_work_blockers,
+    ...(analysis.system?.unknown_costs.map((cost) => `unknown cost: ${cost}`) ??
+      []),
+    ...(analysis.system?.unresolved ?? []),
+    ...analysis.scenarios.flatMap((scenario) =>
+      scenario.unresolved.map(
+        (blocker) => `scenario ${scenario.name}: ${blocker}`,
+      ),
+    ),
+    ...analysis.queries.flatMap((query) =>
+      query.answers.flatMap((answer) =>
+        answer.blockers.map((blocker) => `query ${query.name}: ${blocker}`),
+      ),
+    ),
+  ];
+  return [
+    "Interpretation",
+    `- SymPy: ${analysis.interpretation.normalized_sympy}`,
+    `- LaTeX: ${analysis.interpretation.normalized_latex}`,
+    "Query conclusions",
+    ...(queryConclusions.length === 0 ? ["- none"] : queryConclusions),
+    "Work",
+    ...work,
+    ...optimization,
+    "Blockers",
+    ...(blockers.length === 0
+      ? ["- none"]
+      : blockers.map((blocker) => `- ${blocker}`)),
+  ].join("\n");
+}
+
+export function toolResult(result: BridgeResult) {
+  return {
+    content: [{ type: "text" as const, text: compactToolText(result) }],
+    details: result,
+  };
+}
