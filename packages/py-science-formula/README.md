@@ -143,6 +143,10 @@ assert pole_scope.shared_denominator == "n - 1"
 assert [pole.value for pole in pole_scope.exclusions] == ["1"]
 ```
 
+## Internal extension seams
+
+The [formula component boundaries](../../docs/topics/product/formula-component-boundaries.md) define the dependency rule for internal changes. Add a transformation family under `_optimization/families/`, register its stable lane and admission policy in `_optimization/search.py`, and keep complete-candidate replay, proof, whole-computation objective checks, and plan projection in their shared owners. A family proposes bounded candidates; it does not publish proof or bypass ordinary retained analysis. Exact-algebraic proposals use the common equivalence verifier, while an exact-algorithmic family must add an independently checked derivation and correlate it both parent-to-child and original-to-final. Extend canonical contracts in `contracts/`, neutral retained facts in `_analysis`, and request behavior in `_service` rather than adding policy to compatibility facades.
+
 ## Bounded local optimization advice
 
 Ordinary `AnalysisRequest` accepts `OptimizationConfig(max_suggestions=..., objective=..., enabled_algorithmic_families=...)`. The strict suggestion range is `0..16`, the default is `3`, and zero returns a disabled empty report. Omitted objective selects `unit_work_v1`; `weighted_operations_v1` requires strictly positive bounded exact-rational weights for additions, subtractions, multiplications, divisions, and powers, while known opaque work keeps coefficient one. The direct optimize request accepts the same selector. Candidate-comparison and dominance request models have no optimization setting. A `complete` report may contain fewer suggestions than requested, including none. An `incomplete` report identifies bounded search exhaustion, preserves already proved suggestions, and does not establish that no other improvement exists.

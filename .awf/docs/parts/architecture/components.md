@@ -1,4 +1,7 @@
-- `packages/py-science-formula/src/py_science/formula/`: independently importable typed formula and equation-system analysis API.
+- `packages/py-science-formula/src/py_science/formula/contracts/`: canonical request, evidence, result, and report definitions; `models.py` and the package root are forwarding compatibility surfaces.
+- `packages/py-science-formula/src/py_science/formula/_analysis/`: neutral retained-computation construction and structural-occurrence facts.
+- `packages/py-science-formula/src/py_science/formula/_optimization/`: candidate families, replay, verification, objectives, canonical state, search, and plan projection; `optimization.py` is its compatibility facade.
+- `packages/py-science-formula/src/py_science/formula/_service/`: request orchestration, queries, scenarios, dominance and optimization dispatch, and result bounds; `service.py` is its compatibility facade.
 - `packages/pi-science/bridge/formula_adapter.py`: private, versioned, whole-request and output-bounded JSON adapter.
 - `packages/pi-science/src/provision.ts`: eager isolated-uv readiness gate.
 - `scripts/generate-pi-formula-schema.py` and `packages/pi-science/src/formula-schema.json`: deterministic Python-model-to-provider-schema generation and its checked-in Pi artifact.

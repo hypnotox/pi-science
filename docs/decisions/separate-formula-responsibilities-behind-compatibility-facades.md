@@ -1,7 +1,7 @@
 ---
 format: current-state-v4
 slug: separate-formula-responsibilities-behind-compatibility-facades
-status: Proposed
+status: Implementing
 date: 2026-08-23
 ---
 # ADR-separate-formula-responsibilities-behind-compatibility-facades: Separate Formula Responsibilities Behind Compatibility Facades
@@ -65,3 +65,5 @@ boundaries.
 ## Status history
 
 - 2026-08-23: Proposed
+- 2026-08-23: Implementing; content-sha256: 020fb52fda4e42d856cf6a4f584c0710d1c03f662d5f9be93dbb5b0ca2033f2e
+- 2026-08-23: Applied; operations: add `product/formula-component-boundaries:responsibility-directed-components`
