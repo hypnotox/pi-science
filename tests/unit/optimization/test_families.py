@@ -12,6 +12,34 @@ def _expression(source: str):
     return cast(Expression, parsed)
 
 
+def test_repeated_structure_keeps_let_population_and_preorder() -> None:
+    """Calls and reciprocals are specialized, but every other non-Sum repeats."""
+    from py_science.formula._analysis.occurrences import _detect_occurrences, _EvaluationScope
+    from py_science.formula._optimization.families.repeated_structure import propose
+    from py_science.formula.expressions import BinaryExpression, Let
+
+    expression = _expression("Let(t, x + 1, t) + Let(t, x + 1, t)")
+    candidates = propose(
+        "expression", expression, _detect_occurrences("expression", expression, {}), "tmp"
+    )
+    materialized = tuple(candidate.factory() for candidate in candidates)
+
+    # This is the exact population and traversal order before extraction:
+    # whole Let nodes precede their repeated value expressions.
+    assert tuple(candidate.kind for candidate in materialized) == (
+        "repeated_subexpression",
+        "repeated_subexpression",
+    )
+    assert tuple(type(candidate.intermediate_expression) for candidate in materialized) == (
+        Let,
+        BinaryExpression,
+    )
+    assert tuple(candidate.intermediate_scope for candidate in materialized) == (
+        _EvaluationScope((), (), ()),
+        _EvaluationScope((), (), ()),
+    )
+
+
 def test_lexical_binding_reuse_candidate_stays_inside_its_scope() -> None:
     from py_science.formula import (
         AnalysisRequest,

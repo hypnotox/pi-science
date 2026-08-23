@@ -377,8 +377,8 @@ def test_objective_v1_comparison_qualifications_never_claim_superiority(
 ) -> None:
     from types import SimpleNamespace
 
-    import py_science.formula.optimization as optimization
     from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+    from py_science.formula._optimization import objectives as objectives_owner
     from py_science.formula.expressions import Symbol
     from py_science.formula.optimization import (
         _Accepted,
@@ -397,7 +397,7 @@ def test_objective_v1_comparison_qualifications_never_claim_superiority(
     def qualified_relation(*_args: object, **_kwargs: object) -> SimpleNamespace:
         return SimpleNamespace(status="second_lower", conditions=("N > M",), assumptions_used=())
 
-    monkeypatch.setattr(optimization, "compare_aggregate_work", qualified_relation)
+    monkeypatch.setattr(objectives_owner, "compare_aggregate_work", qualified_relation)
     assert (
         _adjacent_ordering_relation(
             _Accepted(

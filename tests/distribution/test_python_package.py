@@ -73,12 +73,63 @@ from py_science.formula.contracts import (
     common, comparison, dominance, evidence, optimization, queries, reports, requests
 )
 from py_science.formula.contracts._base import StructuredModel
+import py_science.formula._optimization as optimization_package
+import py_science.formula._optimization.families as families_package
+from py_science.formula._optimization import (
+    budgets, canonical, candidates, objectives, plans, replay, search, verifier,
+)
+from py_science.formula._optimization.families import (
+    repeated_structure, call_reuse, factoring, redundant_operations, invariant_hoisting,
+    cross_equation_sharing, horner, finite_polynomial_sum,
+)
 
 assert other.MARKER == "other"
 assert all(module.__name__.startswith("py_science.formula.contracts.") for module in (
     common, comparison, dominance, evidence, optimization, queries, reports, requests
 ))
 assert StructuredModel.__module__ == "py_science.formula.contracts._base"
+assert tuple(
+    module.__name__
+    for module in (
+        optimization_package,
+        budgets,
+        candidates,
+        objectives,
+        replay,
+        verifier,
+        canonical,
+        search,
+        plans,
+        families_package,
+        repeated_structure,
+        call_reuse,
+        factoring,
+        redundant_operations,
+        invariant_hoisting,
+        cross_equation_sharing,
+        horner,
+        finite_polynomial_sum,
+    )
+) == (
+    "py_science.formula._optimization",
+    "py_science.formula._optimization.budgets",
+    "py_science.formula._optimization.candidates",
+    "py_science.formula._optimization.objectives",
+    "py_science.formula._optimization.replay",
+    "py_science.formula._optimization.verifier",
+    "py_science.formula._optimization.canonical",
+    "py_science.formula._optimization.search",
+    "py_science.formula._optimization.plans",
+    "py_science.formula._optimization.families",
+    "py_science.formula._optimization.families.repeated_structure",
+    "py_science.formula._optimization.families.call_reuse",
+    "py_science.formula._optimization.families.factoring",
+    "py_science.formula._optimization.families.redundant_operations",
+    "py_science.formula._optimization.families.invariant_hoisting",
+    "py_science.formula._optimization.families.cross_equation_sharing",
+    "py_science.formula._optimization.families.horner",
+    "py_science.formula._optimization.families.finite_polynomial_sum",
+)
 outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="n + 1"))
 assert isinstance(outcome, AnalysisSuccess)
 assert outcome.operation_counts.additions == 1

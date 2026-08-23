@@ -164,7 +164,9 @@ def test_unexpected_reasoning_and_verifier_defects_propagate(
     assert result.optimization.status == "failed"
 
     monkeypatch.undo()
-    monkeypatch.setattr(optimization_service, "_verify_candidate", defect)
+    from py_science.formula._optimization import search as search_owner
+
+    monkeypatch.setattr(search_owner, "_verify_candidate", defect)
     result = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 0"))
     assert result.status == "success"
     assert result.optimization.status == "failed"
@@ -173,12 +175,12 @@ def test_unexpected_reasoning_and_verifier_defects_propagate(
 def test_complete_candidate_proof_reads_the_replayed_output(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import py_science.formula.optimization as optimization_service
     from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+    from py_science.formula._optimization import replay as replay_owner
     from py_science.formula.computation import RetainedComputation
     from py_science.formula.optimization import _CandidateComputation
 
-    original_complete_candidate = optimization_service._complete_candidate
+    original_complete_candidate = replay_owner._complete_candidate
 
     def falsified_complete_candidate(
         candidate: _CandidateComputation,
@@ -190,7 +192,7 @@ def test_complete_candidate_proof_reads_the_replayed_output(
             {**complete.model_dump(mode="python"), "expression": "0"}
         )
 
-    monkeypatch.setattr(optimization_service, "_complete_candidate", falsified_complete_candidate)
+    monkeypatch.setattr(replay_owner, "_complete_candidate", falsified_complete_candidate)
 
     outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x*y + x*z"))
 

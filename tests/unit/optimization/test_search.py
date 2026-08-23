@@ -111,8 +111,8 @@ def test_composed_search_v1_retained_lanes_are_round_robin_and_order_invariant(
     from dataclasses import replace
 
     from py_science.formula import AnalysisFailure, AnalysisRequest, FormulaSyntax
-    from py_science.formula import optimization as optimization_service
     from py_science.formula._analysis.computation import analyze_retained
+    from py_science.formula._optimization import search as search_owner
     from py_science.formula.optimization import (
         _CandidateComputation,
         _CandidateDescriptor,
@@ -122,7 +122,7 @@ def test_composed_search_v1_retained_lanes_are_round_robin_and_order_invariant(
         _RetainedLaneCollector,
     )
 
-    families = tuple(reversed(optimization_service._FAMILY_ORDER[:3]))
+    families = tuple(reversed(search_owner._FAMILY_ORDER[:3]))
 
     def proposal(kind: str, value: int) -> _CandidateComputation:
         expression = _expression(f"x + {value}")
@@ -180,10 +180,12 @@ def test_composed_search_v1_retained_lanes_are_round_robin_and_order_invariant(
     baseline = _optimization_report(
         request, computed, computed.work_context, seam, analyzer=analyze_retained
     )
-    monkeypatch.setattr(
-        optimization_service, "_FAMILY_ORDER", tuple(reversed(optimization_service._FAMILY_ORDER))
-    )
+    original_order = search_owner._FAMILY_ORDER
+    patched_order = tuple(reversed(original_order))
+    monkeypatch.setattr(search_owner, "_FAMILY_ORDER", patched_order)
     reversed_families = _optimization_report(
         request, computed, computed.work_context, seam, analyzer=analyze_retained
     )
     assert reversed_families == baseline
+    monkeypatch.undo()
+    assert original_order == search_owner._FAMILY_ORDER

@@ -30,9 +30,9 @@ def test_candidate_budget_exhaustion_preserves_already_proved_advice(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
-    from py_science.formula import optimization as optimization_service
+    from py_science.formula._optimization import budgets as budget_owner
 
-    monkeypatch.setattr(optimization_service, "MAX_OPTIMIZATION_CANDIDATES", 1)
+    monkeypatch.setattr(budget_owner, "MAX_OPTIMIZATION_CANDIDATES", 1)
     outcome = analyze(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
@@ -187,9 +187,9 @@ def test_independent_budget_qualifications_report_measured_and_configured(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
-    from py_science.formula import optimization as optimization_service
+    from py_science.formula._optimization import budgets as budget_owner
 
-    monkeypatch.setattr(optimization_service, "MAX_OPTIMIZATION_CANDIDATES", 1)
+    monkeypatch.setattr(budget_owner, "MAX_OPTIMIZATION_CANDIDATES", 1)
     outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="(x + 0) * (y + 0)"))
     assert outcome.status == "success" and outcome.optimization is not None
     assert outcome.optimization.status == "incomplete"
@@ -212,13 +212,14 @@ def test_cross_equation_domain_signature_overflow_is_a_typed_incomplete_result(
         VariableDeclaration,
         analyze,
     )
-    from py_science.formula import optimization as optimization_service
     from py_science.formula.expressions import ExpressionTooComplex
 
     def exhausted(*_args: object, **_kwargs: object) -> object:
         raise ExpressionTooComplex("bounded substitution exhausted")
 
-    monkeypatch.setattr(optimization_service, "substitute", exhausted)
+    from py_science.formula._optimization import candidates as candidates_owner
+
+    monkeypatch.setattr(candidates_owner, "substitute", exhausted)
     outcome = analyze(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
@@ -253,12 +254,12 @@ def test_recursive_horner_inspection_is_charged_before_backend_descent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
-    from py_science.formula import optimization as optimization_service
+    from py_science.formula._optimization import budgets as budget_owner
     from py_science.formula.expressions import expression_node_count
 
     expression = "2*x**3 + 3*x**2 + 4*x + 5"
     initial_nodes = expression_node_count(_expression(expression))
-    monkeypatch.setattr(optimization_service, "MAX_OPTIMIZATION_INSPECTIONS", initial_nodes)
+    monkeypatch.setattr(budget_owner, "MAX_OPTIMIZATION_INSPECTIONS", initial_nodes)
 
     outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression))
 
@@ -293,9 +294,9 @@ def test_each_independent_search_budget_preserves_base_success(
     resource: str,
 ) -> None:
     from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
-    from py_science.formula import optimization as optimization_service
+    from py_science.formula._optimization import budgets as budget_owner
 
-    monkeypatch.setattr(optimization_service, constant, configured)
+    monkeypatch.setattr(budget_owner, constant, configured)
     outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="(x + 0) * (y + 0)"))
     assert outcome.status == "success" and outcome.optimization is not None
     assert outcome.interpretation.normalized_sympy == "x*y"

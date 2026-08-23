@@ -268,9 +268,7 @@ def _analyzer_boundary_violations(source: str) -> set[str]:
         if isinstance(node, ast.Global):
             violations.add("process-global-state")
     for node in tree.body:
-        if isinstance(node, ast.AnnAssign) and "_RetainedAnalyzer" in ast.unparse(
-            node.annotation
-        ):
+        if isinstance(node, ast.AnnAssign) and "_RetainedAnalyzer" in ast.unparse(node.annotation):
             violations.add("process-global-state")
     report = next(
         (
@@ -328,9 +326,7 @@ def _imported_modules(source: str) -> set[str]:
         ),
     ),
 )
-def test_neutral_analyzer_dependency_probe_detects_regressions(
-    source: str, expected: str
-) -> None:
+def test_neutral_analyzer_dependency_probe_detects_regressions(source: str, expected: str) -> None:
     assert expected in _analyzer_boundary_violations(source)
 
 
@@ -349,3 +345,305 @@ def test_neutral_analyzer_is_explicit_and_has_no_service_or_registry_edge() -> N
     assert _analyzer_boundary_violations(optimization_source) == set()
     assert "py_science.formula._analysis.computation" in _imported_modules(comparison_source)
     assert "py_science.formula._analysis.computation" in _imported_modules(service_source)
+
+
+def _optimizer_import_violations(source: str, module: str) -> set[str]:
+    """Return forbidden optimizer dependency directions from AST imports."""
+    import ast
+
+    violations: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            imported = {alias.name for alias in node.names}
+        elif isinstance(node, ast.ImportFrom):
+            imported = {f"{'.' * node.level}{node.module or ''}"}
+            if node.level == 0:
+                imported.update(alias.name for alias in node.names)
+        else:
+            continue
+        if any(
+            name == "py_science.formula.service" or name.endswith(".service") for name in imported
+        ):
+            violations.add("service")
+        if module != "facade" and any(
+            name == "py_science.formula.optimization" or name.endswith(".optimization")
+            for name in imported
+        ):
+            violations.add("facade")
+        if module != "package" and any(
+            name in {"._optimization", "py_science.formula._optimization"} for name in imported
+        ):
+            violations.add("barrel")
+    return violations
+
+
+def test_optimizer_owner_import_dag_and_falsified_regressions() -> None:
+    """Owners consume direct seams and cannot regain facade or service coupling."""
+    from py_science.formula._optimization import canonical, objectives, replay, search, verifier
+    from py_science.formula._optimization.families import repeated_structure
+
+    sources = {
+        "families": Path(repeated_structure.__file__).read_text(),
+        "replay": Path(replay.__file__).read_text(),
+        "verifier": Path(verifier.__file__).read_text(),
+        "search": Path(search.__file__).read_text(),
+        "canonical": Path(canonical.__file__).read_text(),
+        "objectives": Path(objectives.__file__).read_text(),
+    }
+    assert all(
+        _optimizer_import_violations(source, name) == set() for name, source in sources.items()
+    )
+    assert ".candidates" in sources["families"]
+    assert ".candidates" in sources["replay"]
+    assert ".replay" in sources["verifier"]
+    for dependency in (".canonical", ".objectives", ".verifier", ".families"):
+        assert dependency in sources["search"]
+    assert _optimizer_import_violations(
+        "from py_science.formula.service import analyze\n", "search"
+    ) == {"service"}
+    assert _optimizer_import_violations(
+        "from py_science.formula.optimization import _verify_candidate\n", "search"
+    ) == {"facade"}
+    assert _optimizer_import_violations(
+        "from py_science.formula._optimization import search\n", "search"
+    ) == {"barrel"}
+
+
+def _owner_import_edges(source: str, package: str) -> set[str]:
+    """Resolve absolute and relative imports to package-qualified owner edges."""
+    tree = ast.parse(source)
+    edges: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            edges.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                parent = package.split(".")[: len(package.split(".")) - node.level + 1]
+                base = ".".join((*parent, *(node.module or "").split(".")))
+                base = base.rstrip(".")
+                edges.add(base)
+                edges.update(f"{base}.{alias.name}" for alias in node.names)
+            elif node.module:
+                edges.add(node.module)
+                edges.update(f"{node.module}.{alias.name}" for alias in node.names)
+    return edges
+
+
+_OPTIMIZATION_PACKAGE = "py_science.formula._optimization"
+_FAMILY_PACKAGE = f"{_OPTIMIZATION_PACKAGE}.families"
+
+
+def _dag_violations(source: str, package: str, owner: str) -> set[str]:
+    """Reject every internal owner edge outside this owner's explicit allowlist."""
+    edges = _owner_import_edges(source, package)
+    allowed = _PERMITTED_INTERNAL_EDGES[owner]
+    violations: set[str] = set()
+    for edge in edges:
+        if edge == _OPTIMIZATION_PACKAGE:
+            violations.add(f"barrel:{edge}")
+        elif edge in _ALL_INTERNAL_OWNERS and edge not in allowed:
+            violations.add(f"{owner}->{edge}")
+        elif edge == "py_science.formula.service" or edge.startswith("py_science.formula.service."):
+            violations.add(f"service:{edge}")
+        elif edge == "py_science.formula.optimization" or edge.startswith(
+            "py_science.formula.optimization."
+        ):
+            violations.add(f"facade:{edge}")
+    return violations
+
+
+_FAMILY_NAMES = frozenset(
+    {
+        "repeated_structure",
+        "call_reuse",
+        "factoring",
+        "redundant_operations",
+        "invariant_hoisting",
+        "cross_equation_sharing",
+        "horner",
+        "finite_polynomial_sum",
+    }
+)
+_FAMILY_OWNERS = frozenset(f"{_FAMILY_PACKAGE}.{name}" for name in _FAMILY_NAMES)
+_OWNER_OWNERS = frozenset(
+    f"{_OPTIMIZATION_PACKAGE}.{name}"
+    for name in (
+        "budgets",
+        "candidates",
+        "canonical",
+        "objectives",
+        "plans",
+        "replay",
+        "search",
+        "verifier",
+    )
+)
+_ALL_INTERNAL_OWNERS = _OWNER_OWNERS | _FAMILY_OWNERS
+_PERMITTED_INTERNAL_EDGES: dict[str, frozenset[str]] = {
+    "package": frozenset(),
+    "families_barrel": frozenset(),
+    "budgets": frozenset(),
+    "candidates": frozenset({_OPTIMIZATION_PACKAGE + ".budgets"}),
+    "canonical": frozenset({_OPTIMIZATION_PACKAGE + ".candidates"}),
+    "objectives": frozenset(
+        {_OPTIMIZATION_PACKAGE + ".budgets", _OPTIMIZATION_PACKAGE + ".verifier"}
+    ),
+    "plans": frozenset({_OPTIMIZATION_PACKAGE + ".verifier"}),
+    "replay": frozenset({_OPTIMIZATION_PACKAGE + ".candidates"}),
+    "verifier": frozenset(
+        {
+            _OPTIMIZATION_PACKAGE + ".budgets",
+            _OPTIMIZATION_PACKAGE + ".candidates",
+            _OPTIMIZATION_PACKAGE + ".replay",
+        }
+    ),
+    "search": frozenset(
+        {
+            _OPTIMIZATION_PACKAGE + ".budgets",
+            _OPTIMIZATION_PACKAGE + ".candidates",
+            _OPTIMIZATION_PACKAGE + ".canonical",
+            _OPTIMIZATION_PACKAGE + ".objectives",
+            _OPTIMIZATION_PACKAGE + ".plans",
+            _OPTIMIZATION_PACKAGE + ".verifier",
+        }
+    )
+    | _FAMILY_OWNERS,
+    **{
+        name: frozenset({_OPTIMIZATION_PACKAGE + ".candidates"})
+        for name in _FAMILY_NAMES - {"horner"}
+    },
+    "horner": frozenset(
+        {_OPTIMIZATION_PACKAGE + ".budgets", _OPTIMIZATION_PACKAGE + ".candidates"}
+    ),
+}
+
+
+def test_owner_dag_covers_all_families_and_falsifies_every_rule() -> None:
+    """The complete source census permits only the declared direct owner graph."""
+    from py_science.formula._optimization import search
+
+    root = Path(search.__file__).parent
+    owners = {
+        name: root / f"{name}.py"
+        for name in (
+            "budgets",
+            "candidates",
+            "canonical",
+            "objectives",
+            "plans",
+            "replay",
+            "search",
+            "verifier",
+        )
+    }
+    families = {
+        path.stem: path for path in (root / "families").glob("*.py") if path.stem != "__init__"
+    }
+    assert set(families) == _FAMILY_NAMES
+    scanned = {
+        "package": (root / "__init__.py", _OPTIMIZATION_PACKAGE),
+        "families_barrel": (root / "families" / "__init__.py", _FAMILY_PACKAGE),
+        **{name: (path, _OPTIMIZATION_PACKAGE) for name, path in owners.items()},
+        **{name: (path, _FAMILY_PACKAGE) for name, path in families.items()},
+    }
+    assert set(scanned) == set(_PERMITTED_INTERNAL_EDGES)
+    for name, (path, package) in scanned.items():
+        assert _dag_violations(path.read_text(), package, name) == set(), name
+
+    # Every required owner edge has an explicit allowed control; the inverse
+    # cases below falsify absolute, relative, and barrel spellings.
+    for name, allowed in _PERMITTED_INTERNAL_EDGES.items():
+        for required in allowed:
+            assert _dag_violations(f"import {required}\n", _OPTIMIZATION_PACKAGE, name) == set()
+        forbidden = next(iter(sorted(_ALL_INTERNAL_OWNERS - allowed)))
+        assert _dag_violations(f"import {forbidden}\n", _OPTIMIZATION_PACKAGE, name) == {
+            f"{name}->{forbidden}"
+        }
+    assert _dag_violations("from . import verifier\n", _OPTIMIZATION_PACKAGE, "search") == {
+        f"barrel:{_OPTIMIZATION_PACKAGE}"
+    }
+    assert _dag_violations("from .. import candidates\n", _FAMILY_PACKAGE, "factoring") == {
+        f"barrel:{_OPTIMIZATION_PACKAGE}"
+    }
+    assert _dag_violations(
+        "from py_science.formula._optimization import verifier\n", _OPTIMIZATION_PACKAGE, "search"
+    ) == {f"barrel:{_OPTIMIZATION_PACKAGE}"}
+    assert _dag_violations(
+        "from py_science.formula import optimization\n", _OPTIMIZATION_PACKAGE, "search"
+    ) == {"facade:py_science.formula.optimization"}
+
+    # Mutate an in-memory production source string: the scanned census catches
+    # a forbidden replay-to-verifier edge without touching production files.
+    replay_source = owners["replay"].read_text() + "\nfrom .verifier import _Accepted\n"
+    assert _dag_violations(replay_source, _OPTIMIZATION_PACKAGE, "replay") == {
+        f"replay->{_OPTIMIZATION_PACKAGE}.verifier"
+    }
+
+
+def test_facade_private_consumers_are_direct_owner_aliases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The compatibility facade preserves objects, while mutable seams live with owners."""
+    import inspect
+
+    import py_science.formula.optimization as facade
+    from py_science.formula import AnalysisFailure, AnalysisRequest, FormulaSyntax
+    from py_science.formula._analysis import occurrences
+    from py_science.formula._analysis.computation import analyze_retained
+    from py_science.formula._optimization import (
+        budgets,
+        candidates,
+        canonical,
+        objectives,
+        replay,
+        search,
+        verifier,
+    )
+    from py_science.formula.reasoning import ReasoningContext
+
+    owner_aliases = {
+        "_optimization_report": search._optimization_report,
+        "_CandidateComputation": candidates._CandidateComputation,
+        "_CandidateDescriptor": candidates._CandidateDescriptor,
+        "_Accepted": verifier._Accepted,
+        "_OptimizationBudget": budgets._OptimizationBudget,
+        "_OptimizationBudgetConfig": budgets._OptimizationBudgetConfig,
+        "_RetainedLaneCollector": search._RetainedLaneCollector,
+        "_generate_candidate_lanes": search._generate_candidate_lanes,
+        "_generate_candidates": search._generate_candidates,
+        "_complete_candidate": replay._complete_candidate,
+        "_complete_candidate_schedule": search._complete_candidate_schedule,
+        "_candidate_semantic_key": canonical._candidate_semantic_key,
+        "_adjacent_ordering_relation": objectives._adjacent_ordering_relation,
+        "_qualifications_compatible": verifier._qualifications_compatible,
+        "_EvaluationScope": occurrences._EvaluationScope,
+        "_Occurrence": occurrences._Occurrence,
+        "_FAMILY_ORDER": search._FAMILY_ORDER,
+        "_verify_candidate": verifier._verify_candidate,
+        "ReasoningContext": ReasoningContext,
+        "_default_budget_config": budgets._default_budget_config,
+        "_accepted_order": objectives._accepted_order,
+    }
+    for name, owner in owner_aliases.items():
+        assert getattr(facade, name) is owner, name
+    for name in vars(budgets):
+        if name.startswith("MAX_"):
+            assert getattr(facade, name) is getattr(budgets, name), name
+    assert inspect.signature(facade._optimization_report) == inspect.signature(
+        search._optimization_report
+    )
+
+    request = AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 0")
+    computed = analyze_retained(request)
+    assert not isinstance(computed, AnalysisFailure)
+    monkeypatch.setattr(budgets, "MAX_OPTIMIZATION_CANDIDATES", 0)
+    _candidates, qualifications = facade._generate_candidates(
+        computed, facade._OptimizationBudget(facade._default_budget_config())
+    )
+    assert "generated transitions budget exhausted" in qualifications[0]
+    monkeypatch.undo()
+    assert budgets.MAX_OPTIMIZATION_CANDIDATES == facade.MAX_OPTIMIZATION_CANDIDATES
+    candidates_after_restore, qualifications_after_restore = facade._generate_candidates(
+        computed, facade._OptimizationBudget()
+    )
+    assert candidates_after_restore and not qualifications_after_restore
