@@ -1,4 +1,4 @@
-"""Compatibility facade for neutral retained computation data."""
+"""Neutral formula-analysis facts."""
 
 from py_science.formula._analysis.retained import (
     Knowledge,
@@ -8,9 +8,11 @@ from py_science.formula._analysis.retained import (
     Producer,
     RetainedComputation,
     RetainedWorkAnalysis,
+    retain_work_analysis,
+    retained_computation,
 )
 
 __all__ = [
     "Knowledge", "NamedDefinition", "NamedRelationship", "ParsedEquation", "Producer",
-    "RetainedComputation", "RetainedWorkAnalysis",
+    "RetainedComputation", "RetainedWorkAnalysis", "retain_work_analysis", "retained_computation",
 ]

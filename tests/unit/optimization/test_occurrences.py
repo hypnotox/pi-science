@@ -3,12 +3,12 @@ from dataclasses import FrozenInstanceError
 from typing import cast
 
 import pytest
-from py_science.formula.expressions import Expression
-from py_science.formula.optimization import (
+from py_science.formula._analysis.occurrences import (
     _detect_occurrences,
     _extraction_opportunities,
     _TraversalExhausted,
 )
+from py_science.formula.expressions import Expression
 from py_science.formula.parser import ParseFailure, parse_expression
 
 

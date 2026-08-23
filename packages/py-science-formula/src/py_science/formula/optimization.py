@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections import Counter, defaultdict
+from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
 from fractions import Fraction
@@ -11,7 +11,14 @@ from functools import cmp_to_key
 from itertools import permutations
 from typing import Literal
 
-from py_science.formula.computation import RetainedComputation, RetainedWorkAnalysis
+from py_science.formula._analysis.occurrences import (
+    _detect_occurrences,  # pyright: ignore[reportPrivateUsage]
+    _EvaluationScope,  # pyright: ignore[reportPrivateUsage]
+    _free_symbols,  # pyright: ignore[reportPrivateUsage]
+    _Occurrence,  # pyright: ignore[reportPrivateUsage]
+    _TraversalExhausted,  # pyright: ignore[reportPrivateUsage]
+)
+from py_science.formula._analysis.retained import RetainedComputation, RetainedWorkAnalysis
 from py_science.formula.domains import OutputDomain
 from py_science.formula.equivalence import equivalence_answer
 from py_science.formula.expressions import (
@@ -110,36 +117,23 @@ MAX_HORNER_TERMS = 64
 MAX_HORNER_GENERATED_NODES = 512
 
 
-@dataclass(frozen=True, slots=True)
-class _ScopeBinding:
-    """One lexical binding with enough identity to compare evaluation scopes."""
-
-    name: str
-    path: tuple[int, ...]
-    lower: Expression | None = None
-    upper: Expression | None = None
-    value: Expression | None = None
+type _RetainedAnalyzer = Callable[[AnalysisRequest], RetainedComputation | AnalysisFailure]
+_retained_analyzer: _RetainedAnalyzer | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class _EvaluationScope:
-    """The lexical/output interface required to evaluate an occurrence."""
+def _configure_retained_analyzer(  # pyright: ignore[reportUnusedFunction]
+    analyzer: _RetainedAnalyzer,
+) -> None:
+    """Temporary compatibility registration for private direct optimizer callers."""
+    global _retained_analyzer
+    _retained_analyzer = analyzer
 
-    output_indices: tuple[str, ...]
-    output_bindings: tuple[_ScopeBinding, ...]
-    binders: tuple[_ScopeBinding, ...]
 
-
-@dataclass(frozen=True, slots=True)
-class _Occurrence:
-    """One structural expression occurrence in a retained computation."""
-
-    target: str
-    path: tuple[int, ...]
-    expression: Expression
-    free_symbols: frozenset[str]
-    binders: tuple[str, ...]
-    scope: _EvaluationScope
+def _require_analyzer(analyzer: _RetainedAnalyzer | None) -> _RetainedAnalyzer:
+    configured = analyzer or _retained_analyzer
+    if configured is None:
+        raise RuntimeError("retained analyzer must be supplied by service orchestration")
+    return configured
 
 
 @dataclass(frozen=True, slots=True)
@@ -388,148 +382,6 @@ class _BudgetExhausted(RuntimeError):
             f"optimization {resource} budget exhausted "
             f"(measured {measured}, configured {configured})"
         )
-
-
-class _TraversalExhausted(RuntimeError):
-    pass
-
-
-def _detect_occurrences(
-    target: str,
-    expression: Expression,
-    producers: Mapping[str, object],
-    *,
-    output_indices: tuple[str, ...] = (),
-    output_domains: Mapping[str, tuple[Expression, Expression]] | None = None,
-    max_nodes: int = MAX_OPTIMIZATION_INSPECTIONS,
-) -> tuple[_Occurrence, ...]:
-    """Return bounded, deterministic occurrences without changing public analysis."""
-    occurrences: list[_Occurrence] = []
-    remaining = max_nodes
-    output_domain_map = output_domains or {}
-    output_bindings = tuple(
-        _ScopeBinding(
-            name=name,
-            path=(position,),
-            lower=output_domain_map.get(name, (None, None))[0],
-            upper=output_domain_map.get(name, (None, None))[1],
-        )
-        for position, name in enumerate(output_indices)
-    )
-
-    def visit(
-        node: Expression,
-        path: tuple[int, ...],
-        bound: tuple[_ScopeBinding, ...],
-        lexical_bound: frozenset[str],
-    ) -> None:
-        nonlocal remaining
-        remaining -= 1
-        if remaining < 0:
-            raise _TraversalExhausted("occurrence traversal exceeds its node bound")
-        is_named_reference = isinstance(node, (Symbol, IndexedValue)) and node.name in producers
-        if is_named_reference:
-            if isinstance(node, IndexedValue):
-                for index, child in enumerate(node.indices):
-                    visit(child, (*path, index), bound, lexical_bound)
-            return
-        binder_names = tuple(item.name for item in bound)
-        if isinstance(node, (BinaryExpression, Call, Sum, Let)):
-            occurrences.append(
-                _Occurrence(
-                    target=target,
-                    path=path,
-                    expression=node,
-                    free_symbols=frozenset(
-                        _free_symbols(
-                            node,
-                            frozenset((*output_indices, *binder_names)) | lexical_bound,
-                        )
-                    ),
-                    binders=binder_names,
-                    scope=_EvaluationScope(output_indices, output_bindings, bound),
-                )
-            )
-        if isinstance(node, Sum):
-            # Bounds are evaluated outside the new binder; only the body owns it.
-            visit(node.lower, (*path, 0), bound, lexical_bound)
-            visit(node.upper, (*path, 1), bound, lexical_bound)
-            binding = _ScopeBinding(node.index, path, node.lower, node.upper)
-            visit(node.body, (*path, 2), (*bound, binding), lexical_bound)
-            return
-        if isinstance(node, Let):
-            visit(node.value, (*path, 0), bound, lexical_bound)
-            binding = _ScopeBinding(node.name, path, value=node.value)
-            visit(
-                node.body,
-                (*path, 1),
-                (*bound, binding),
-                lexical_bound | {node.name},
-            )
-            return
-        for index, child in enumerate(expression_children(node)):
-            visit(child, (*path, index), bound, lexical_bound)
-
-    visit(expression, (), (), frozenset())
-    return tuple(occurrences)
-
-
-def _extraction_opportunities(  # pyright: ignore[reportUnusedFunction]
-    target: str,
-    expression: Expression,
-    producers: Mapping[str, object],
-    *,
-    output_indices: tuple[str, ...] = (),
-    output_domains: Mapping[str, tuple[Expression, Expression]] | None = None,
-) -> tuple[str, ...]:
-    """Render the legacy extraction diagnostic from typed occurrences."""
-    try:
-        occurrences = _detect_occurrences(
-            target,
-            expression,
-            producers,
-            output_indices=output_indices,
-            output_domains=output_domains,
-        )
-    except _TraversalExhausted:
-        # Diagnostics have always been best-effort; exhaustion must not alter analysis.
-        return ()
-    counts: Counter[Expression] = Counter(item.expression for item in occurrences)
-    opportunities: list[str] = []
-    for node, count in counts.items():
-        if count > 1:
-            try:
-                text = render(node).sympy
-            except NormalizationError:
-                continue
-            opportunities.append(
-                f"equation {target}: extract repeated `{text}` ({count} occurrences)"
-            )
-    return tuple(sorted(opportunities))
-
-
-def _free_symbols(expression: Expression, bound: frozenset[str] = frozenset()) -> set[str]:
-    if isinstance(expression, Symbol):
-        return set() if expression.name in bound else {expression.name}
-    if isinstance(expression, IndexedValue):
-        result = set() if expression.name in bound else {expression.name}
-        for index in expression.indices:
-            result.update(_free_symbols(index, bound))
-        return result
-    if isinstance(expression, Sum):
-        return (
-            _free_symbols(expression.lower, bound)
-            | _free_symbols(expression.upper, bound)
-            | _free_symbols(expression.body, bound | {expression.index})
-        )
-    if isinstance(expression, Let):
-        return _free_symbols(expression.value, bound) | _free_symbols(
-            expression.body, bound | {expression.name}
-        )
-    result: set[str] = set()
-    for child in expression_children(expression):
-        result.update(_free_symbols(child, bound))
-    return result
 
 
 def _all_symbol_names(expression: Expression) -> set[str]:
@@ -1817,6 +1669,7 @@ def _verify_candidate(
     context: WorkContext,
     reasoning: ReasoningContext | None,
     budget: _OptimizationBudget,
+    analyzer: _RetainedAnalyzer,
 ) -> _CandidateOutcome:
     transformations = candidate.transformed_targets or (
         (candidate.target, candidate.original, candidate.proposed),
@@ -1830,15 +1683,12 @@ def _verify_candidate(
         return _Exhausted(str(error))
     # Candidate generation is untrusted. Reparse its complete computation through
     # the ordinary retained-analysis seam before any proof or work projection.
-    from py_science.formula.service import (
-        _analyze_computation,  # pyright: ignore[reportPrivateUsage]
-    )
 
     try:
         complete = _complete_candidate(candidate, request, computed)
     except ValidationError:
         return _Rejected("complete candidate exceeds ordinary request bounds")
-    replayed = _analyze_computation(complete)
+    replayed = analyzer(complete)
     if isinstance(replayed, AnalysisFailure):
         return _Rejected("complete candidate does not pass ordinary analysis")
     expansion_budget = ExpansionBudget(remaining=MAX_OPTIMIZATION_TRANSFORM_NODES)
@@ -2174,6 +2024,7 @@ def _original_final_suggestion(
     request: AnalysisRequest,
     reasoning: ReasoningContext,
     budget: _OptimizationBudget,
+    analyzer: _RetainedAnalyzer,
 ) -> tuple[OptimizationSuggestion, Expression] | _Rejected | _Exhausted:
     """Independently prove and measure a retained final against the submitted root."""
     try:
@@ -2218,12 +2069,9 @@ def _original_final_suggestion(
     algorithmic_conditions: list[str] = []
     algorithmic_uses: list[RelationshipUse] = []
     parent_computed = root
-    from py_science.formula.service import (
-        _analyze_computation,  # pyright: ignore[reportPrivateUsage]
-    )
 
     for step, child_request in trace:
-        child_computed = _analyze_computation(child_request)
+        child_computed = analyzer(child_request)
         if isinstance(child_computed, AnalysisFailure):
             return _Rejected("algorithmic final replay failed")
         if step.kind == "finite_polynomial_sum_v1":
@@ -2693,8 +2541,10 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
     computed: RetainedComputation,
     context: WorkContext,
     budget_config: _OptimizationBudgetConfig | None = None,
+    analyzer: _RetainedAnalyzer | None = None,
 ) -> OptimizationReport:
     """Generate bounded candidates and publish only common-verifier acceptances."""
+    analyzer = _require_analyzer(analyzer)
     limit = request.optimization.max_suggestions
     if limit == 0:
         return OptimizationReport(requested_limit=0, status="disabled")
@@ -2809,7 +2659,7 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
                 qualifications.append(str(error))
                 break
             outcome = _verify_candidate(
-                candidate, request, computed, context, reasoning, depth_one_budget
+                candidate, request, computed, context, reasoning, depth_one_budget, analyzer
             )
             if isinstance(outcome, _Exhausted):
                 qualifications.append(outcome.reason)
@@ -2861,6 +2711,7 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
             context,
             reasoning,
             depth_two_budget,
+            analyzer,
         )
         if isinstance(outcome, _Exhausted):
             qualifications.append(outcome.reason)
@@ -2885,6 +2736,7 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
             request,
             reasoning,
             final_budget,
+            analyzer,
         )
         if isinstance(final, _Exhausted):
             qualifications.append(final.reason)

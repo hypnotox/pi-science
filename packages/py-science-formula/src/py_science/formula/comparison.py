@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from py_science.formula.computation import NamedRelationship, RetainedComputation
+from py_science.formula._analysis.retained import NamedRelationship, RetainedComputation
 from py_science.formula.expressions import (
     Call,
     Equation,

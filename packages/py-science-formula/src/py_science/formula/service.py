@@ -7,16 +7,22 @@ from itertools import product
 from math import ceil, floor
 from types import MappingProxyType
 
-from py_science.formula.analyzer import OperationTally, count_operations
-from py_science.formula.computation import (
+from py_science.formula._analysis.occurrences import (
+    _extraction_opportunities,  # pyright: ignore[reportPrivateUsage]
+)
+from py_science.formula._analysis.retained import (
     Knowledge,
     NamedDefinition,
     NamedRelationship,
     ParsedEquation,
     Producer,
     RetainedComputation,
-    RetainedWorkAnalysis,
+    retained_computation,
 )
+from py_science.formula._analysis.retained import (
+    retain_work_analysis as _retain_work_analysis,
+)
+from py_science.formula.analyzer import OperationTally, count_operations
 from py_science.formula.domains import OutputDomain, build_output_domains
 from py_science.formula.domains import extent as domain_extent
 from py_science.formula.exact_values import parse_exact_scalar
@@ -93,7 +99,7 @@ from py_science.formula.models import (
     VariablePropertyCheck,
 )
 from py_science.formula.optimization import (
-    _extraction_opportunities,  # pyright: ignore[reportPrivateUsage]
+    _configure_retained_analyzer,  # pyright: ignore[reportPrivateUsage]
     _optimization_report,  # pyright: ignore[reportPrivateUsage]
 )
 from py_science.formula.parser import ParseFailure, ParseFailureKind, parse_expression
@@ -135,17 +141,6 @@ MAX_RESULT_BYTES = 262_144
 MAX_OPTIMIZATION_BYTES = 262_144
 MAX_COMBINED_RESULT_BYTES = MAX_RESULT_BYTES + MAX_OPTIMIZATION_BYTES
 MAX_RENDERED_BYTES = 196_608
-
-
-def _retain_work_analysis(analysis: WorkAnalysis) -> RetainedWorkAnalysis:
-    return RetainedWorkAnalysis(
-        operations=analysis.operations,
-        opaque_work=analysis.opaque_work,
-        invocations=MappingProxyType(dict(analysis.invocations)),
-        unknown_costs=frozenset(analysis.unknown_costs),
-        unresolved=frozenset(analysis.unresolved),
-        direct_work_blockers=frozenset(analysis.direct_work_blockers),
-    )
 
 
 class FormulaLoader:
@@ -194,7 +189,7 @@ def analyze(request: AnalysisRequest) -> AnalysisOutcome:
         outcome = _attach_queries(request, result)
     if isinstance(outcome, AnalysisSuccess):
         try:
-            optimization = _optimization_report(request, result, result.work_context)
+            optimization = _optimization_report(request, result, result.work_context, analyzer=_analyze_computation)
         except Exception:
             optimization = OptimizationReport(
                 requested_limit=request.optimization.max_suggestions,
@@ -243,7 +238,7 @@ def optimize(request: OptimizeRequest) -> OptimizeOutcome:
         computed = _analyze_computation(ordinary)
         if isinstance(computed, AnalysisFailure):
             return OptimizationFailure(error=computed.error.message)
-        report = _optimization_report(ordinary, computed, computed.work_context)
+        report = _optimization_report(ordinary, computed, computed.work_context, analyzer=_analyze_computation)
         if report.status == "failed":
             return OptimizationFailure(error=report.qualifications[0])
         return _bound_optimization_result(
@@ -365,6 +360,7 @@ def _fixed_relationship_holds(
 
 
 def _analyze_computation(request: AnalysisRequest) -> RetainedComputation | AnalysisFailure:
+    _configure_retained_analyzer(_analyze_computation)
     request_failure = _request_size_failure(request)
     if request_failure is not None:
         return request_failure
@@ -1358,7 +1354,7 @@ def _analyze_single(
             abstract_work=tally.total,
         )
         analysis = _retain_work_analysis(analyze_work(parsed, context))
-        return RetainedComputation(
+        return retained_computation(
             success=success,
             expression=parsed,
             equations=(),
@@ -1421,7 +1417,7 @@ def _analyze_single(
         ),
     )
     retained_analysis = _retain_work_analysis(analysis)
-    return RetainedComputation(
+    return retained_computation(
         success=success,
         expression=parsed,
         equations=(),
@@ -1627,7 +1623,7 @@ def _analyze_system(
     retained_analyses = {
         name: _retain_work_analysis(analysis) for name, analysis in analyses.items()
     }
-    return RetainedComputation(
+    return retained_computation(
         success=success,
         expression=None,
         equations=equations,
