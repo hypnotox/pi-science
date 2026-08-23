@@ -30,10 +30,11 @@ compatibility baseline. Declarative goals and specification/plan IR remain later
 
 ## Decision
 
-1. `decision: assign-single-responsibility-owners` Formula contracts, neutral retained-computation and structural-occurrence analysis, optimizer policy, service orchestration, and Pi transport concerns each have one internal owner. Shared facts live below their consumers rather than being recreated by those consumers.
-2. `decision: direct-python-dependencies` Service orchestration may invoke optimizer policy; service, optimizer, and comparison consume neutral retained analysis; and optimizer policy never depends on service orchestration. Candidate families propose complete candidates, while search, objective selection, replay, verification, and publication remain separately owned optimizer concerns.
+1. `decision: assign-single-responsibility-owners` Formula contracts, neutral retained-computation and structural-occurrence analysis, optimizer policy, service orchestration, and Pi transport concerns each have one internal owner. Retained-computation and structural-occurrence facts live below their consumers rather than being recreated by those consumers.
+2. `decision: direct-python-dependencies` Service orchestration may invoke optimizer policy; service, optimizer, and comparison consume neutral retained analysis; and optimizer policy never depends on service orchestration. Optimizer-owned modules own candidate generation, search, objectives, replay, and verification. Service-owned modules own request orchestration, queries, scenarios, dominance dispatch, and result bounding.
 3. `decision: preserve-python-compatibility-surfaces` Python contract classes are defined once. `models.py` and the package root remain forwarding compatibility surfaces that expose the same class objects rather than subclasses or duplicate definitions.
 4. `decision: direct-pi-dependencies` Pi protocol, validation and correlation, client invocation, diagnostics, and presentation have separate internal owners behind an outward-only `bridge.ts` compatibility barrel. Internal modules consume the owning modules directly, mathematical policy remains in Python, and `process.ts` retains subprocess-tree lifecycle mechanisms.
+5. `decision: preserve-foundation-compatibility` The structural foundation preserves protocol v16, generated schema bytes, public exports, candidate and plan identities, search, proof, and objective behavior, and Pi transport semantics.
 
 ## State changes
 
@@ -48,14 +49,15 @@ movement.
 
 The extraction is constrained work rather than a cleanup license. Moving a definition can alter
 Pydantic schema, validation, import initialization, or TypeScript correlation even when its body is
-unchanged. Each coherent move therefore preserves exact objects and behavior and keeps generated
-artifacts under the integration owner's control. Compatibility facades add forwarding indirection,
-but they avoid a simultaneous public migration and may remain as stable boundaries.
+unchanged. Each coherent move therefore preserves exact objects and behavior. Compatibility facades
+add forwarding indirection, but they avoid a simultaneous public migration and may remain as stable
+boundaries.
 
 ## Alternatives Considered
 
 | Alternative | Why not chosen |
 |---|---|
+| Retain the central modules and deferred local-import cycle | It preserves concentrated responsibilities, private coupling, and circular ownership. |
 | Remove the central modules in a big-bang rename | It couples internal cleanup to a public import and transport migration. |
 | Split files while retaining current private cross-imports | It redistributes the monolith without establishing ownership or removing cycles. |
 | Duplicate retained analysis or occurrence traversal for each consumer | It creates competing sources of mathematical and scope policy. |
