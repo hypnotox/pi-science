@@ -4,7 +4,6 @@ export const PROTOCOL_VERSION = 16;
 export const MAX_FORMULA_BYTES = 65_536;
 export const MAX_ENVELOPE_BYTES = 2_097_152;
 export const MAX_RESPONSE_BYTES = 524_544;
-const MAX_DIAGNOSTIC_BYTES = 4_096;
 
 export function appendResponseChunk(
   retained: Buffer,

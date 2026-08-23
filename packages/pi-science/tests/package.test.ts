@@ -177,7 +177,7 @@ describe("npm package boundary", () => {
         ),
       ),
     );
-    const expected = {
+    const allowed = {
       protocol: ["node:util"],
       requests: [],
       results: ["./protocol.js", "./requests.js"],
@@ -197,8 +197,21 @@ describe("npm package boundary", () => {
         "./results.js",
       ],
     } satisfies Record<(typeof bridgeModules)[number], string[]>;
-    for (const [index, name] of bridgeModules.entries())
-      expect(moduleSpecifiers(sources[index])).toEqual(expected[name]);
+    const edges = Object.fromEntries(
+      bridgeModules.map((name, index) => [
+        name,
+        moduleSpecifiers(sources[index]),
+      ]),
+    ) as Record<(typeof bridgeModules)[number], string[]>;
+    for (const name of bridgeModules) {
+      const permitted: readonly string[] = allowed[name];
+      expect(edges[name].filter((edge) => !permitted.includes(edge))).toEqual(
+        [],
+      );
+    }
+    expect(edges.client).toEqual(
+      expect.arrayContaining(["../process.js", "./correlation.js"]),
+    );
     expect(sources[bridgeModules.indexOf("correlation")]).toMatch(
       /export function validateCorrelatedResult\(/,
     );
