@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-_No decisions are in flight._
+- [ADR-adopt-declarative-optimization-goals-and-explicit-claim-scope: Adopt Declarative Optimization Goals and Explicit Claim Scope](adopt-declarative-optimization-goals-and-explicit-claim-scope.md) (Proposed)
 
 ## History
 
