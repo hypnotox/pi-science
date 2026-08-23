@@ -2,7 +2,7 @@
 format: plan-v2
 date: 2026-08-23
 adrs: [separate-formula-responsibilities-behind-compatibility-facades]
-status: Proposed
+status: Implemented
 ---
 # Plan: Implement Formula Responsibility Boundaries
 

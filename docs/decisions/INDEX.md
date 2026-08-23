@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-- [ADR-0023: Separate Formula Responsibilities Behind Compatibility Facades](0023-separate-formula-responsibilities-behind-compatibility-facades.md) (Implementing)
+_No decisions are in flight._
 
 ## History
 
@@ -28,3 +28,4 @@
 - [ADR-0020: Adopt deterministic bounded composed optimization search](0020-adopt-deterministic-bounded-composed-optimization-search.md) (Implemented)
 - [ADR-0021: Adopt opt-in exact algorithmic finite-sum optimization](0021-adopt-opt-in-exact-algorithmic-finite-sum-optimization.md) (Implemented)
 - [ADR-0022: Preserve separate future optimization lanes](0022-preserve-separate-future-optimization-lanes.md) (Implemented)
+- [ADR-0023: Separate Formula Responsibilities Behind Compatibility Facades](0023-separate-formula-responsibilities-behind-compatibility-facades.md) (Implemented)
