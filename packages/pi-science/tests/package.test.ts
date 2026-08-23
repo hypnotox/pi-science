@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -129,6 +129,25 @@ function moduleSpecifiers(source: string): string[] {
   return [...new Set(specifiers)].sort();
 }
 
+async function typescriptSources(
+  directory: string,
+): Promise<Array<{ path: string; source: string }>> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const sources = await Promise.all(
+    entries.map(async (entry) => {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) return typescriptSources(path);
+      if (!entry.isFile() || !entry.name.endsWith(".ts")) return [];
+      return [{ path, source: await readFile(path, "utf8") }];
+    }),
+  );
+  return sources.flat();
+}
+
+function isBridgeBarrelSpecifier(specifier: string): boolean {
+  return /(^|\/)bridge(?:\.(?:js|ts))?$/.test(specifier);
+}
+
 function namedExports(source: string): string[] {
   const parsed = ts.createSourceFile(
     "bridge.ts",
@@ -220,12 +239,21 @@ describe("npm package boundary", () => {
   });
 
   it("keeps production integration on owning bridge modules", async () => {
+    const sourceRoot = join(root, "packages/pi-science/src");
+    const sources = await typescriptSources(sourceRoot);
+    for (const { path, source } of sources) {
+      if (path === join(sourceRoot, "bridge.ts")) continue;
+      expect(
+        moduleSpecifiers(source).filter(isBridgeBarrelSpecifier),
+        path,
+      ).toEqual([]);
+    }
+
     const [index, provision] = await Promise.all(
       ["index", "provision"].map((name) =>
-        readFile(join(root, `packages/pi-science/src/${name}.ts`), "utf8"),
+        readFile(join(sourceRoot, `${name}.ts`), "utf8"),
       ),
     );
-    expect(moduleSpecifiers(index)).not.toContain("./bridge.js");
     expect(moduleSpecifiers(index)).toEqual(
       expect.arrayContaining([
         "./bridge/client.js",
@@ -233,8 +261,19 @@ describe("npm package boundary", () => {
         "./bridge/requests.js",
       ]),
     );
-    expect(moduleSpecifiers(provision)).not.toContain("./bridge.js");
     expect(moduleSpecifiers(provision)).toContain("./bridge/protocol.js");
+  });
+
+  it("recognizes direct compatibility-barrel specifiers without children", () => {
+    expect(
+      [
+        "./bridge.js",
+        "../bridge",
+        "/tmp/packages/pi-science/src/bridge.ts",
+        "pi-science/packages/pi-science/src/bridge.js",
+      ].filter(isBridgeBarrelSpecifier),
+    ).toHaveLength(4);
+    expect(isBridgeBarrelSpecifier("./bridge/client.js")).toBe(false);
   });
 
   it("detects static, re-exported, required, and dynamic module edges", () => {
