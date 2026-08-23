@@ -7,21 +7,23 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   AnalysisRequest,
   CandidateComparisonRequest,
-  CandidateComparisonSuccess,
   DominanceRequest,
-  DominanceSuccess,
   OptimizeRequest,
+} from "../src/bridge/requests.js";
+import type {
+  CandidateComparisonSuccess,
+  DominanceSuccess,
   OptimizationOperationSuccess,
   SystemReport,
-} from "../src/bridge.js";
+} from "../src/bridge/results.js";
 import {
   appendResponseChunk,
-  BridgeError,
-  invokeAdapter,
   MAX_FORMULA_BYTES,
   MAX_RESPONSE_BYTES,
   PROTOCOL_VERSION,
-} from "../src/bridge.js";
+} from "../src/bridge/protocol.js";
+import { BridgeError } from "../src/bridge/diagnostics.js";
+import { invokeAdapter } from "../src/bridge/client.js";
 import { afmmRequest, afmmTotalWork } from "./afmm-fixture.js";
 
 const node = process.execPath;
@@ -2940,7 +2942,7 @@ describe("private formula bridge", () => {
     }));
     try {
       const { invokeAdapter: invokeWithFault } =
-        await import("../src/bridge.js");
+        await import("../src/bridge/client.js");
       stdin.end = () => {
         stdin.emit("error", new Error("stdin transport failed"));
         return stdin;

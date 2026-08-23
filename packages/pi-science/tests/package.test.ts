@@ -3,11 +3,222 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const bridgeModules = [
+  "protocol",
+  "requests",
+  "results",
+  "diagnostics",
+  "correlation",
+  "client",
+] as const;
+const bridgeExports = [
+  "PROTOCOL_VERSION",
+  "MAX_FORMULA_BYTES",
+  "MAX_ENVELOPE_BYTES",
+  "MAX_RESPONSE_BYTES",
+  "MathematicalDomain",
+  "IndexDomain",
+  "VariableDeclaration",
+  "DomainConstraint",
+  "EquationRequest",
+  "FunctionDefinition",
+  "PrimitiveCost",
+  "Assumption",
+  "DirectedDefinition",
+  "ExactScenarioScalar",
+  "OptimizationObjectiveInput",
+  "AlgorithmicOptimizationFamily",
+  "OptimizationConfig",
+  "IntervalBound",
+  "Scenario",
+  "EquationTarget",
+  "DerivedTarget",
+  "PropertyCheckRequest",
+  "ExpressionQueryRequest",
+  "SystemQueryRequest",
+  "QueryRequest",
+  "ExpressionAnalysisRequest",
+  "SystemAnalysisRequest",
+  "AnalysisRequest",
+  "CandidateComputation",
+  "CandidateTarget",
+  "CandidateOutputMapping",
+  "CandidateComparisonRequest",
+  "DominanceRange",
+  "DominanceRequest",
+  "OptimizeRequest",
+  "FormulaRequest",
+  "Interpretation",
+  "OperationCounts",
+  "SymbolicOperationCounts",
+  "RelationshipUse",
+  "SourceLocation",
+  "SourceSpan",
+  "SourceReference",
+  "DirectWorkApplicability",
+  "EffectiveIndexDomain",
+  "ConstraintUse",
+  "EquationEffectiveDomains",
+  "EquationReport",
+  "ScenarioResult",
+  "SystemReport",
+  "OptimizationSuggestion",
+  "OptimizationCandidate",
+  "OptimizationObjective",
+  "OptimizationTraceStep",
+  "OptimizationPlan",
+  "OptimizationReport",
+  "AnalysisSuccess",
+  "ResolvedTarget",
+  "PropertyCheck",
+  "DerivedCandidate",
+  "QueryAnswer",
+  "QueryResult",
+  "AnalysisFailure",
+  "CandidateAnalysisSuccess",
+  "CandidateAnalysisReport",
+  "CandidateComparisonSuccess",
+  "DominanceTerm",
+  "DominanceCell",
+  "DominanceSuccess",
+  "OptimizationOperationSuccess",
+  "OptimizationOperationFailure",
+  "OptimizationOperationResult",
+  "BridgeResult",
+  "appendResponseChunk",
+  "BridgeFailureKind",
+  "BridgeError",
+  "decodeUtf8Strict",
+  "parseStrictJson",
+  "invokeAdapter",
+] as const;
+
+function moduleSpecifiers(source: string): string[] {
+  const parsed = ts.createSourceFile(
+    "probe.ts",
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const specifiers: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+      node.moduleSpecifier !== undefined &&
+      ts.isStringLiteral(node.moduleSpecifier)
+    )
+      specifiers.push(node.moduleSpecifier.text);
+    if (
+      ts.isCallExpression(node) &&
+      (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+        (ts.isIdentifier(node.expression) &&
+          node.expression.text === "require")) &&
+      node.arguments.length === 1 &&
+      ts.isStringLiteral(node.arguments[0])
+    )
+      specifiers.push(node.arguments[0].text);
+    ts.forEachChild(node, visit);
+  };
+  visit(parsed);
+  return [...new Set(specifiers)].sort();
+}
+
+function namedExports(source: string): string[] {
+  const parsed = ts.createSourceFile(
+    "bridge.ts",
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  return parsed.statements
+    .filter(ts.isExportDeclaration)
+    .flatMap((declaration) =>
+      declaration.exportClause !== undefined &&
+      ts.isNamedExports(declaration.exportClause)
+        ? declaration.exportClause.elements.map((element) => element.name.text)
+        : [],
+    );
+}
 
 describe("npm package boundary", () => {
+  it("preserves the exact bridge compatibility surface", async () => {
+    const source = await readFile(
+      join(root, "packages/pi-science/src/bridge.ts"),
+      "utf8",
+    );
+    expect(namedExports(source).sort()).toEqual([...bridgeExports].sort());
+    expect(Object.keys(await import("../src/bridge.js")).sort()).toEqual(
+      [
+        "PROTOCOL_VERSION",
+        "MAX_FORMULA_BYTES",
+        "MAX_ENVELOPE_BYTES",
+        "MAX_RESPONSE_BYTES",
+        "appendResponseChunk",
+        "decodeUtf8Strict",
+        "parseStrictJson",
+        "BridgeError",
+        "invokeAdapter",
+      ].sort(),
+    );
+  });
+
+  it("keeps bridge children on the declared dependency graph", async () => {
+    const sources = await Promise.all(
+      bridgeModules.map((name) =>
+        readFile(
+          join(root, `packages/pi-science/src/bridge/${name}.ts`),
+          "utf8",
+        ),
+      ),
+    );
+    const expected = {
+      protocol: ["node:util"],
+      requests: [],
+      results: ["./protocol.js", "./requests.js"],
+      diagnostics: ["./protocol.js"],
+      correlation: [
+        "./diagnostics.js",
+        "./protocol.js",
+        "./requests.js",
+        "./results.js",
+      ],
+      client: [
+        "../process.js",
+        "./correlation.js",
+        "./diagnostics.js",
+        "./protocol.js",
+        "./requests.js",
+        "./results.js",
+      ],
+    } satisfies Record<(typeof bridgeModules)[number], string[]>;
+    for (const [index, name] of bridgeModules.entries())
+      expect(moduleSpecifiers(sources[index])).toEqual(expected[name]);
+    expect(sources[bridgeModules.indexOf("correlation")]).toMatch(
+      /export function validateCorrelatedResult\(/,
+    );
+  });
+
+  it("detects static, re-exported, required, and dynamic module edges", () => {
+    expect(
+      moduleSpecifiers(`
+        import "../bridge";
+        export { value } from "/tmp/index.ts";
+        require("pi-science/packages/pi-science/src/bridge.js");
+        import("../index.js");
+      `),
+    ).toEqual([
+      "../bridge",
+      "../index.js",
+      "/tmp/index.ts",
+      "pi-science/packages/pi-science/src/bridge.js",
+    ]);
+  });
   it("ships one complete uniquely named readiness-gated formula skill", async () => {
     const skill = await readFile(
       join(root, "packages/pi-science/skills/formula-analysis/SKILL.md"),
@@ -69,6 +280,9 @@ describe("npm package boundary", () => {
           "package/packages/pi-science/src/index.ts",
           "package/packages/pi-science/src/formula-schema.json",
           "package/packages/pi-science/src/bridge.ts",
+          ...bridgeModules.map(
+            (name) => `package/packages/pi-science/src/bridge/${name}.ts`,
+          ),
           "package/packages/pi-science/src/provision.ts",
           "package/packages/pi-science/src/process.ts",
           "package/packages/pi-science/bridge/formula_adapter.py",
@@ -100,13 +314,24 @@ describe("npm package boundary", () => {
             import { resolve } from "node:path";
             const extensionPath = resolve("node_modules/pi-science/packages/pi-science/src/index.ts");
             const adapter = resolve("node_modules/pi-science/packages/pi-science/bridge/formula_adapter.py");
+            const bridgeRoot = resolve("node_modules/pi-science/packages/pi-science/src/bridge");
+            const bridgeBarrel = resolve("node_modules/pi-science/packages/pi-science/src/bridge.ts");
+            const bridgeImports =
+              "import { PROTOCOL_VERSION as BARREL_PROTOCOL_VERSION } from " +
+              JSON.stringify(bridgeBarrel) + ";\\n" +
+              "import { PROTOCOL_VERSION as CHILD_PROTOCOL_VERSION } from " +
+              JSON.stringify(resolve(bridgeRoot, "protocol.ts")) + ";\\n" +
+              ${JSON.stringify(["requests", "results", "diagnostics", "correlation", "client"])}
+                .map((name) => "import " + JSON.stringify(resolve(bridgeRoot, name + ".ts")) + ";\\n")
+                .join("");
             const probeExtension = resolve("formula-probe.ts");
             writeFileSync(
               probeExtension,
-              "import { start } from " + JSON.stringify(extensionPath) + ";\\n" +
-                "export default (pi) => start(pi, Promise.resolve({ ready: true, command: \\\"uv\\\", args: [\\\"run\\\", \\\"--project\\\", " +
+              bridgeImports +
+                "import { start } from " + JSON.stringify(extensionPath) + ";\\n" +
+                "export default (pi) => { if (BARREL_PROTOCOL_VERSION !== 16 || CHILD_PROTOCOL_VERSION !== 16) throw new Error(\\\"installed bridge changed protocol version\\\"); return start(pi, Promise.resolve({ ready: true, command: \\\"uv\\\", args: [\\\"run\\\", \\\"--project\\\", " +
                 JSON.stringify(${JSON.stringify(root)}) +
-                ", \\\"--locked\\\", \\\"python\\\", " + JSON.stringify(adapter) + "] }));\\n",
+                ", \\\"--locked\\\", \\\"python\\\", " + JSON.stringify(adapter) + "] })); };\\n",
             );
             const loaded = await discoverAndLoadExtensions([probeExtension], process.cwd());
             if (loaded.errors.length !== 0) throw new Error(JSON.stringify(loaded.errors));
