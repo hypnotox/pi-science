@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-- [ADR-separate-formula-responsibilities-behind-compatibility-facades: Separate Formula Responsibilities Behind Compatibility Facades](separate-formula-responsibilities-behind-compatibility-facades.md) (Implementing)
+- [ADR-0023: Separate Formula Responsibilities Behind Compatibility Facades](0023-separate-formula-responsibilities-behind-compatibility-facades.md) (Implementing)
 
 ## History
 

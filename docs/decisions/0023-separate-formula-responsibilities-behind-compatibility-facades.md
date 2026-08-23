@@ -4,7 +4,7 @@ slug: separate-formula-responsibilities-behind-compatibility-facades
 status: Implementing
 date: 2026-08-23
 ---
-# ADR-separate-formula-responsibilities-behind-compatibility-facades: Separate Formula Responsibilities Behind Compatibility Facades
+# ADR-0023: Separate Formula Responsibilities Behind Compatibility Facades
 
 ## Context
 
