@@ -2,8 +2,16 @@
 
 from __future__ import annotations
 
+# pyright: reportPrivateUsage=false
 from typing import Literal
 
+from py_science.formula._analysis.computation import (
+    MAX_REQUEST_BYTES,
+    MAX_REQUEST_NODES,
+    MAX_RESULT_BYTES,
+    _complexity_failure,
+    analyze_retained,
+)
 from py_science.formula._analysis.retained import NamedRelationship, RetainedComputation
 from py_science.formula.expressions import (
     Call,
@@ -37,13 +45,6 @@ from py_science.formula.models import (
 )
 from py_science.formula.parser import ParseFailure, parse_expression
 from py_science.formula.reasoning import ReasoningContext
-from py_science.formula.service import (
-    MAX_REQUEST_BYTES,
-    MAX_REQUEST_NODES,
-    MAX_RESULT_BYTES,
-    _analyze_computation,  # pyright: ignore[reportPrivateUsage]
-    _complexity_failure,  # pyright: ignore[reportPrivateUsage]
-)
 from py_science.formula.work import (
     AggregateWorkComparisonInput,
     WorkRenderBudget,
@@ -60,7 +61,7 @@ def compare_candidates(request: CandidateComparisonRequest) -> CandidateComparis
 
     analyzed_items: list[RetainedComputation] = []
     for position, candidate in enumerate(request.candidates):
-        analyzed = _analyze_computation(request.analysis_request(candidate))
+        analyzed = analyze_retained(request.analysis_request(candidate))
         if isinstance(analyzed, AnalysisFailure):
             return _prefix_failure(analyzed, f"candidates[{position}]")
         analyzed_items.append(analyzed)

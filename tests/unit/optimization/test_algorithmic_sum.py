@@ -192,8 +192,8 @@ def test_exact_algorithmic_sum_v1_uses_existing_proof_budget() -> None:
         FormulaSyntax,
         OptimizationConfig,
     )
+    from py_science.formula._analysis.computation import analyze_retained
     from py_science.formula.optimization import _optimization_report, _OptimizationBudgetConfig
-    from py_science.formula.service import _analyze_computation
 
     request = AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,
@@ -203,7 +203,7 @@ def test_exact_algorithmic_sum_v1_uses_existing_proof_budget() -> None:
             enabled_algorithmic_families=("finite_polynomial_sum_v1",),
         ),
     )
-    computed = _analyze_computation(request)
+    computed = analyze_retained(request)
     assert not isinstance(computed, AnalysisFailure)
 
     report = _optimization_report(
@@ -211,6 +211,7 @@ def test_exact_algorithmic_sum_v1_uses_existing_proof_budget() -> None:
         computed,
         computed.work_context,
         replace(_OptimizationBudgetConfig(), proofs=0),
+        analyzer=analyze_retained,
     )
 
     assert report.status == "incomplete"

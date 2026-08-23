@@ -14,9 +14,9 @@ def _expression(source: str):
 
 def test_retained_analysis_disables_optimization() -> None:
     from py_science.formula import AnalysisFailure, AnalysisRequest, FormulaSyntax
-    from py_science.formula.service import _analyze_computation
+    from py_science.formula._analysis.computation import analyze_retained
 
-    retained = _analyze_computation(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 0"))
+    retained = analyze_retained(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 0"))
 
     assert not isinstance(retained, AnalysisFailure)
     assert retained.success.optimization.model_dump() == {
@@ -36,24 +36,24 @@ def test_retained_analysis_disables_optimization() -> None:
 
 def test_complete_candidate_replays_expression_local_reuse_and_neutral_removal() -> None:
     from py_science.formula import AnalysisFailure, AnalysisRequest, FormulaSyntax
+    from py_science.formula._analysis.computation import analyze_retained
     from py_science.formula.optimization import (
         _complete_candidate,
         _generate_candidates,
         _OptimizationBudget,
     )
-    from py_science.formula.service import _analyze_computation
 
     request = AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,
         expression="(x + 1) * (x + 1) + 0",
     )
-    retained = _analyze_computation(request)
+    retained = analyze_retained(request)
     assert not isinstance(retained, AnalysisFailure)
     candidates, _ = _generate_candidates(retained, _OptimizationBudget())
     for candidate in candidates:
         if candidate.kind not in {"repeated_subexpression", "redundant_operation_removal"}:
             continue
-        replayed = _analyze_computation(_complete_candidate(candidate, request, retained))
+        replayed = analyze_retained(_complete_candidate(candidate, request, retained))
         assert not isinstance(replayed, AnalysisFailure)
         assert replayed.expression is not None
         assert replayed.aggregate_analysis.total_work != retained.aggregate_analysis.total_work
@@ -238,3 +238,24 @@ def test_composed_search_v1_trace_objectives_are_continuous_and_replayable() -> 
     for step in plan.trace:
         replayed = analyze(AnalysisRequest.model_validate(step.candidate.model_dump()))
         assert replayed.status == "success"
+
+
+def test_neutral_analyzer_is_explicit_and_has_no_service_or_registry_edge() -> None:
+    """Replay callers receive the neutral analyzer without process-global setup."""
+    from pathlib import Path
+
+    from py_science.formula._analysis.computation import analyze_retained
+    from py_science.formula.optimization import _optimization_report
+    from py_science.formula.service import _analyze_computation
+
+    optimization_source = Path(_optimization_report.__code__.co_filename).read_text()
+    formula_directory = Path(analyze_retained.__code__.co_filename).parents[1]
+    comparison_source = formula_directory.joinpath("comparison.py").read_text()
+    service_source = formula_directory.joinpath("service.py").read_text()
+
+    assert _analyze_computation is analyze_retained
+    assert "_retained_analyzer" not in optimization_source
+    assert "_configure_retained_analyzer" not in optimization_source
+    assert "py_science.formula.service" not in optimization_source
+    assert "py_science.formula._analysis.computation" in comparison_source
+    assert "py_science.formula._analysis.computation" in service_source

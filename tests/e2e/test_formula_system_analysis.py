@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 from typing import Any, cast
 
+import py_science.formula._analysis.computation as formula_computation
 import py_science.formula.reasoning as formula_reasoning
 import py_science.formula.service as formula_service
 import py_science.formula.work as formula_work
@@ -1389,7 +1390,7 @@ def test_work_expansion_and_rendered_results_fail_with_structured_complexity(
     assert expanded.status == "failure"
     assert expanded.error.code.value == "expression_too_complex"
 
-    monkeypatch.setattr(formula_service, "MAX_RENDERED_BYTES", 1)
+    monkeypatch.setattr(formula_computation, "MAX_RENDERED_BYTES", 1)
     rendering = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 1"))
     assert rendering.status == "failure"
     assert rendering.error.code.value == "expression_too_complex"
@@ -1626,12 +1627,12 @@ def test_infinite_output_domain_is_rejected_as_a_finite_computational_bound() ->
 def test_complete_candidate_keeps_untouched_system_serialization_and_replays() -> None:
     """Complete replay states preserve caller-owned untouched equation bytes."""
     from py_science.formula import AnalysisFailure
+    from py_science.formula._analysis.computation import analyze_retained
     from py_science.formula.optimization import (
         _complete_candidate,
         _generate_candidates,
         _OptimizationBudget,
     )
-    from py_science.formula.service import _analyze_computation
 
     request = AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,
@@ -1646,7 +1647,7 @@ def test_complete_candidate_keeps_untouched_system_serialization_and_replays() -
         },
         optimization=OptimizationConfig(max_suggestions=16),
     )
-    retained = _analyze_computation(request)
+    retained = analyze_retained(request)
     assert not isinstance(retained, AnalysisFailure)
     candidates, _ = _generate_candidates(retained, _OptimizationBudget())
     sharing = next(item for item in candidates if item.kind == "cross_equation_sharing")
@@ -1654,19 +1655,19 @@ def test_complete_candidate_keeps_untouched_system_serialization_and_replays() -
     complete = _complete_candidate(sharing, request, retained)
     untouched = next(item for item in complete.equations or () if item.name == "untouched")
     assert untouched.expression == "Eq(untouched, (z + 1))"
-    replayed = _analyze_computation(complete)
+    replayed = analyze_retained(complete)
     assert not isinstance(replayed, AnalysisFailure)
     assert replayed.aggregate_analysis.total_work != retained.aggregate_analysis.total_work
 
 
 def test_complete_candidate_replays_sum_and_output_scoped_reuse() -> None:
     from py_science.formula import AnalysisFailure
+    from py_science.formula._analysis.computation import analyze_retained
     from py_science.formula.optimization import (
         _complete_candidate,
         _generate_candidates,
         _OptimizationBudget,
     )
-    from py_science.formula.service import _analyze_computation
 
     request = AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,
@@ -1683,11 +1684,11 @@ def test_complete_candidate_replays_sum_and_output_scoped_reuse() -> None:
         },
         optimization=OptimizationConfig(max_suggestions=16),
     )
-    retained = _analyze_computation(request)
+    retained = analyze_retained(request)
     assert not isinstance(retained, AnalysisFailure)
     candidates, _ = _generate_candidates(retained, _OptimizationBudget())
     candidate = next(item for item in candidates if item.intermediate_expression is not None)
-    replayed = _analyze_computation(_complete_candidate(candidate, request, retained))
+    replayed = analyze_retained(_complete_candidate(candidate, request, retained))
     assert not isinstance(replayed, AnalysisFailure)
     assert tuple(item.name for item in replayed.equations if item.name == "out") == ("out",)
     assert replayed.equations[-1].domain_order == ("i",)
@@ -1786,12 +1787,12 @@ def test_complete_candidate_verification_does_not_starve_later_equations() -> No
 
 def test_complete_candidate_obeys_the_public_equation_population_bound() -> None:
     from py_science.formula import AnalysisFailure
+    from py_science.formula._analysis.computation import analyze_retained
     from py_science.formula.optimization import (
         _complete_candidate,
         _generate_candidates,
         _OptimizationBudget,
     )
-    from py_science.formula.service import _analyze_computation
 
     request = AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,
@@ -1805,7 +1806,7 @@ def test_complete_candidate_obeys_the_public_equation_population_bound() -> None
         variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
         optimization=OptimizationConfig(max_suggestions=16),
     )
-    retained = _analyze_computation(request)
+    retained = analyze_retained(request)
     assert not isinstance(retained, AnalysisFailure)
     candidates, _ = _generate_candidates(retained, _OptimizationBudget())
     sharing = next(item for item in candidates if item.intermediate_expression is not None)

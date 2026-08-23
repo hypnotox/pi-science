@@ -3,6 +3,7 @@
 from dataclasses import FrozenInstanceError
 from types import SimpleNamespace
 
+import py_science.formula._analysis.computation as formula_computation
 import py_science.formula.equivalence as formula_equivalence
 import py_science.formula.query as formula_query
 import py_science.formula.series as formula_series
@@ -135,13 +136,13 @@ def test_query_targets_reuse_retained_parsed_operands(
     monkeypatch, analysis_request, submitted_source
 ):
     parsed_sources = []
-    original_parse = formula_query_service.parse_expression
+    original_parse = formula_computation.parse_expression
 
     def tracked_parse(source):
         parsed_sources.append(source)
         return original_parse(source)
 
-    monkeypatch.setattr(formula_query_service, "parse_expression", tracked_parse)
+    monkeypatch.setattr(formula_computation, "parse_expression", tracked_parse)
     outcome = analyze(analysis_request)
 
     assert outcome.status == "success"

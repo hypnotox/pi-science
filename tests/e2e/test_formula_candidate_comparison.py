@@ -88,23 +88,23 @@ def test_identical_rational_outputs_retain_denominator_qualification() -> None:
 
 def test_complete_candidate_replays_reciprocal_and_call_reuse_without_composition() -> None:
     from py_science.formula import AnalysisRequest
+    from py_science.formula._analysis.computation import analyze_retained
     from py_science.formula.optimization import (
         _complete_candidate,
         _generate_candidates,
         _OptimizationBudget,
     )
-    from py_science.formula.service import _analyze_computation
 
     request = AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,
         expression="f(1 / d) + f(1 / d)",
         primitive_costs=(),
     )
-    retained = _analyze_computation(request)
+    retained = analyze_retained(request)
     assert not isinstance(retained, AnalysisFailure)
     candidates, _ = _generate_candidates(retained, _OptimizationBudget())
     reuse = next(item for item in candidates if item.kind in {"repeated_call", "reciprocal_reuse"})
-    replayed = _analyze_computation(_complete_candidate(reuse, request, retained))
+    replayed = analyze_retained(_complete_candidate(reuse, request, retained))
     assert not isinstance(replayed, AnalysisFailure)
     assert replayed.expression is not None
     assert replayed.aggregate_analysis.total_work != retained.aggregate_analysis.total_work

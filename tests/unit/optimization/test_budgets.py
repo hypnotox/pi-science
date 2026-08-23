@@ -459,6 +459,7 @@ def test_composed_search_v1_budget_seams_distinguish_transition_and_final_proofs
     from dataclasses import replace
 
     from py_science.formula import AnalysisFailure, AnalysisRequest, FormulaSyntax
+    from py_science.formula._analysis.computation import analyze_retained
     from py_science.formula.optimization import (
         _generate_candidate_lanes,
         _optimization_report,
@@ -466,10 +467,9 @@ def test_composed_search_v1_budget_seams_distinguish_transition_and_final_proofs
         _OptimizationBudgetConfig,
         _RetainedLaneCollector,
     )
-    from py_science.formula.service import _analyze_computation
 
     request = AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="(x + 1)*(x + 1) + 0")
-    computed = _analyze_computation(request)
+    computed = analyze_retained(request)
     assert not isinstance(computed, AnalysisFailure)
     materialization_budget = _OptimizationBudget(
         replace(_OptimizationBudgetConfig(), candidates=1), "depth-one"
@@ -492,12 +492,14 @@ def test_composed_search_v1_budget_seams_distinguish_transition_and_final_proofs
         computed,
         computed.work_context,
         replace(_OptimizationBudgetConfig(), proofs=0),
+        analyzer=analyze_retained,
     )
     final = _optimization_report(
         request,
         computed,
         computed.work_context,
         replace(_OptimizationBudgetConfig(), final_proofs=0),
+        analyzer=analyze_retained,
     )
 
     assert transition.status == final.status == "incomplete"
@@ -602,15 +604,17 @@ def test_composed_search_v1_every_injected_counter_is_independently_qualified(
     from dataclasses import replace
 
     from py_science.formula import AnalysisFailure, AnalysisRequest, FormulaSyntax
+    from py_science.formula._analysis.computation import analyze_retained
     from py_science.formula.optimization import _optimization_report, _OptimizationBudgetConfig
-    from py_science.formula.service import _analyze_computation
 
     request = AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="(x + 1)*(x + 1) + 0")
-    computed = _analyze_computation(request)
+    computed = analyze_retained(request)
     assert not isinstance(computed, AnalysisFailure)
     configuration = replace(_OptimizationBudgetConfig(), **{field: 0})
 
-    report = _optimization_report(request, computed, computed.work_context, configuration)
+    report = _optimization_report(
+        request, computed, computed.work_context, configuration, analyzer=analyze_retained
+    )
 
     assert report.status == "incomplete"
     assert qualification in report.qualifications

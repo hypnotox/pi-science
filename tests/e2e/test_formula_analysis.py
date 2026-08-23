@@ -654,12 +654,12 @@ def test_decimal_literals_are_rendered_as_canonical_exact_rationals() -> None:
 
 
 def test_complete_candidate_replays_factoring_neutral_and_horner_with_context() -> None:
+    from py_science.formula._analysis.computation import analyze_retained
     from py_science.formula.optimization import (
         _complete_candidate,
         _generate_candidates,
         _OptimizationBudget,
     )
-    from py_science.formula.service import _analyze_computation
 
     request = AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,
@@ -672,14 +672,14 @@ def test_complete_candidate_replays_factoring_neutral_and_horner_with_context() 
         definitions=(),
         optimization=OptimizationConfig(max_suggestions=16),
     )
-    retained = _analyze_computation(request)
+    retained = analyze_retained(request)
     assert isinstance(retained, object) and not isinstance(retained, AnalysisFailure)
     candidates, _ = _generate_candidates(retained, _OptimizationBudget())
     kinds = {"factoring", "redundant_operation_removal", "horner"}
     for candidate in candidates:
         if candidate.kind not in kinds:
             continue
-        replayed = _analyze_computation(_complete_candidate(candidate, request, retained))
+        replayed = analyze_retained(_complete_candidate(candidate, request, retained))
         assert not isinstance(replayed, AnalysisFailure)
         assert replayed.expression is not None
         assert replayed.knowledge == retained.knowledge

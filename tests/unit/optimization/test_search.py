@@ -112,6 +112,7 @@ def test_composed_search_v1_retained_lanes_are_round_robin_and_order_invariant(
 
     from py_science.formula import AnalysisFailure, AnalysisRequest, FormulaSyntax
     from py_science.formula import optimization as optimization_service
+    from py_science.formula._analysis.computation import analyze_retained
     from py_science.formula.optimization import (
         _CandidateComputation,
         _CandidateDescriptor,
@@ -120,7 +121,6 @@ def test_composed_search_v1_retained_lanes_are_round_robin_and_order_invariant(
         _OptimizationBudgetConfig,
         _RetainedLaneCollector,
     )
-    from py_science.formula.service import _analyze_computation
 
     families = tuple(reversed(optimization_service._FAMILY_ORDER[:3]))
 
@@ -174,12 +174,16 @@ def test_composed_search_v1_retained_lanes_are_round_robin_and_order_invariant(
     )
 
     request = AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="(x + 1)*(x + 1) + (y + 0)")
-    computed = _analyze_computation(request)
+    computed = analyze_retained(request)
     assert not isinstance(computed, AnalysisFailure)
     seam = replace(_OptimizationBudgetConfig(), candidates=2, complete_reanalyses=2)
-    baseline = _optimization_report(request, computed, computed.work_context, seam)
+    baseline = _optimization_report(
+        request, computed, computed.work_context, seam, analyzer=analyze_retained
+    )
     monkeypatch.setattr(
         optimization_service, "_FAMILY_ORDER", tuple(reversed(optimization_service._FAMILY_ORDER))
     )
-    reversed_families = _optimization_report(request, computed, computed.work_context, seam)
+    reversed_families = _optimization_report(
+        request, computed, computed.work_context, seam, analyzer=analyze_retained
+    )
     assert reversed_families == baseline

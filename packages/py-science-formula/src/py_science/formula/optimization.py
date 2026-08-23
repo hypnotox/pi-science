@@ -118,22 +118,6 @@ MAX_HORNER_GENERATED_NODES = 512
 
 
 type _RetainedAnalyzer = Callable[[AnalysisRequest], RetainedComputation | AnalysisFailure]
-_retained_analyzer: _RetainedAnalyzer | None = None
-
-
-def _configure_retained_analyzer(  # pyright: ignore[reportUnusedFunction]
-    analyzer: _RetainedAnalyzer,
-) -> None:
-    """Temporary compatibility registration for private direct optimizer callers."""
-    global _retained_analyzer
-    _retained_analyzer = analyzer
-
-
-def _require_analyzer(analyzer: _RetainedAnalyzer | None) -> _RetainedAnalyzer:
-    configured = analyzer or _retained_analyzer
-    if configured is None:
-        raise RuntimeError("retained analyzer must be supplied by service orchestration")
-    return configured
 
 
 @dataclass(frozen=True, slots=True)
@@ -2541,10 +2525,10 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
     computed: RetainedComputation,
     context: WorkContext,
     budget_config: _OptimizationBudgetConfig | None = None,
-    analyzer: _RetainedAnalyzer | None = None,
+    *,
+    analyzer: _RetainedAnalyzer,
 ) -> OptimizationReport:
     """Generate bounded candidates and publish only common-verifier acceptances."""
-    analyzer = _require_analyzer(analyzer)
     limit = request.optimization.max_suggestions
     if limit == 0:
         return OptimizationReport(requested_limit=0, status="disabled")

@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 from typing import Never
 
+import py_science.formula._analysis.computation as formula_computation
 import py_science.formula.parser as formula_parser
 import py_science.formula.service as service
 import py_science.formula.sympy_backend as sympy_backend
@@ -38,7 +39,7 @@ def test_service_translates_only_named_normalization_failures(
     def fail_render(_expression: Expression) -> Never:
         raise sympy_backend.NormalizationError("normalization failed")
 
-    monkeypatch.setattr(service, "render", fail_render)
+    monkeypatch.setattr(formula_computation, "render", fail_render)
     request = AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x")
 
     outcome = service.analyze(request)
@@ -53,7 +54,7 @@ def test_service_does_not_hide_unexpected_programming_errors(
     def fail_unexpectedly(_expression: Expression) -> Never:
         raise RuntimeError("programming defect")
 
-    monkeypatch.setattr(service, "render", fail_unexpectedly)
+    monkeypatch.setattr(formula_computation, "render", fail_unexpectedly)
     request = AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x")
 
     with pytest.raises(RuntimeError, match="programming defect"):
