@@ -214,7 +214,7 @@ Use this interpretation checklist:
 
 - Ordinary direct work is either `finite` or `not_finite`. A non-finite computation has null aggregate counts, work, and primitive totals plus explicit blockers; a mathematical query may still have a qualified conclusion.
 - For comparison, read mapped semantic and interface status before work status. The reuse-aware delta is second minus first; `not_comparable`, `unresolved`, and a proved preference are distinct outcomes.
-- For dominance, distinguish the requested range from the effective active domain and read `complete`, `unresolved`, and `empty` regions separately.
+- For dominance, distinguish the requested range from the effective active domain. Read top-level `dominance_status`, then inspect `cells` and blockers for `complete` or `unresolved`; `empty` means the effective active domain is empty.
 - For optimization, distinguish search status from output-projection status. `incomplete` does not prove that no improvement exists, and truncation does not mean search exhaustion.
 - In ordinary analysis, a passive optimizer failure preserves the base analysis and appears only as failed advice. Direct `operation: optimize` failure contains no plans.
 
