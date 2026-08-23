@@ -1,4 +1,6 @@
 # pyright: reportPrivateUsage=false
+import ast
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -240,10 +242,100 @@ def test_composed_search_v1_trace_objectives_are_continuous_and_replayable() -> 
         assert replayed.status == "success"
 
 
+def _analyzer_boundary_violations(source: str) -> set[str]:
+    tree = ast.parse(source)
+    violations: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import) and any(
+            alias.name == "py_science.formula.service"
+            or alias.name.startswith("py_science.formula.service.")
+            for alias in node.names
+        ):
+            violations.add("service-import")
+        if isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            if (
+                module == "py_science.formula.service"
+                or module.startswith("py_science.formula.service.")
+                or (node.level > 0 and module in {"service", ""})
+                or (
+                    node.level == 0
+                    and module == "py_science.formula"
+                    and any(alias.name == "service" for alias in node.names)
+                )
+            ):
+                violations.add("service-import")
+        if isinstance(node, ast.Global):
+            violations.add("process-global-state")
+    for node in tree.body:
+        if isinstance(node, ast.AnnAssign) and "_RetainedAnalyzer" in ast.unparse(
+            node.annotation
+        ):
+            violations.add("process-global-state")
+    report = next(
+        (
+            node
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == "_optimization_report"
+        ),
+        None,
+    )
+    if report is None:
+        violations.add("missing-report-entry-point")
+    else:
+        keyword_names = [argument.arg for argument in report.args.kwonlyargs]
+        if "analyzer" not in keyword_names:
+            violations.add("analyzer-not-required-keyword-only")
+        else:
+            position = keyword_names.index("analyzer")
+            if report.args.kw_defaults[position] is not None:
+                violations.add("analyzer-not-required-keyword-only")
+        if any(argument.arg == "analyzer" for argument in report.args.args):
+            violations.add("analyzer-not-required-keyword-only")
+    return violations
+
+
+def _imported_modules(source: str) -> set[str]:
+    modules: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            modules.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module is not None:
+            modules.add(f"{'.' * node.level}{node.module}")
+    return modules
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    (
+        (
+            "from py_science.formula.service import _analyze_computation\n",
+            "service-import",
+        ),
+        ("from .service import _analyze_computation\n", "service-import"),
+        ("from py_science.formula import service\n", "service-import"),
+        (
+            "_fallback: _RetainedAnalyzer | None = None\n"
+            "def _optimization_report(*, analyzer: _RetainedAnalyzer = _fallback):\n"
+            "    return analyzer\n",
+            "process-global-state",
+        ),
+        (
+            "def _optimization_report(analyzer: _RetainedAnalyzer | None = None):\n"
+            "    return analyzer\n",
+            "analyzer-not-required-keyword-only",
+        ),
+    ),
+)
+def test_neutral_analyzer_dependency_probe_detects_regressions(
+    source: str, expected: str
+) -> None:
+    assert expected in _analyzer_boundary_violations(source)
+
+
 def test_neutral_analyzer_is_explicit_and_has_no_service_or_registry_edge() -> None:
     """Replay callers receive the neutral analyzer without process-global setup."""
-    from pathlib import Path
-
     from py_science.formula._analysis.computation import analyze_retained
     from py_science.formula.optimization import _optimization_report
     from py_science.formula.service import _analyze_computation
@@ -254,8 +346,6 @@ def test_neutral_analyzer_is_explicit_and_has_no_service_or_registry_edge() -> N
     service_source = formula_directory.joinpath("service.py").read_text()
 
     assert _analyze_computation is analyze_retained
-    assert "_retained_analyzer" not in optimization_source
-    assert "_configure_retained_analyzer" not in optimization_source
-    assert "py_science.formula.service" not in optimization_source
-    assert "py_science.formula._analysis.computation" in comparison_source
-    assert "py_science.formula._analysis.computation" in service_source
+    assert _analyzer_boundary_violations(optimization_source) == set()
+    assert "py_science.formula._analysis.computation" in _imported_modules(comparison_source)
+    assert "py_science.formula._analysis.computation" in _imported_modules(service_source)
