@@ -68,6 +68,7 @@ from .candidates import (
     _replace_paths,
     _target_inputs,
 )
+from .diagnostics import _OutcomeAccounting
 from .replay import _replay_candidate, _replay_request, _RetainedAnalyzer
 
 
@@ -318,6 +319,8 @@ def _verify_candidate(
     reasoning: ReasoningContext | None,
     budget: _OptimizationBudget,
     analyzer: _RetainedAnalyzer,
+    *,
+    accounting: _OutcomeAccounting | None = None,
 ) -> _CandidateOutcome:
     transformations = candidate.transformed_targets or (
         (candidate.target, candidate.original, candidate.proposed),
@@ -495,8 +498,18 @@ def _verify_candidate(
     after = _as_work(replayed.aggregate_analysis)
     before = _as_work(computed.aggregate_analysis)
     if after.unknown_costs or after.unresolved or after.direct_work_blockers:
+        if accounting is not None:
+            if after.unknown_costs:
+                accounting.missing_primitive_cost(candidate.kind, candidate.target)
+            elif after.unresolved:
+                accounting.unproved_domain_or_cardinality(candidate.kind, candidate.target)
         return _Rejected("candidate aggregate work is unavailable")
     if before.unknown_costs or before.unresolved or before.direct_work_blockers:
+        if accounting is not None:
+            if before.unknown_costs:
+                accounting.missing_primitive_cost(candidate.kind, candidate.target)
+            elif before.unresolved:
+                accounting.unproved_domain_or_cardinality(candidate.kind, candidate.target)
         return _Rejected("retained aggregate work is unavailable")
     try:
         budget.work(
@@ -669,6 +682,8 @@ def _original_final_suggestion(
     reasoning: ReasoningContext,
     budget: _OptimizationBudget,
     analyzer: _RetainedAnalyzer,
+    *,
+    accounting: _OutcomeAccounting | None = None,
 ) -> tuple[OptimizationSuggestion, Expression] | _Rejected | _Exhausted:
     """Independently prove and measure a retained final against the submitted root."""
     try:
@@ -677,14 +692,16 @@ def _original_final_suggestion(
         return _Exhausted(str(error))
     root_work = _as_work(root.aggregate_analysis)
     final_work = _as_work(final.aggregate_analysis)
-    if (
-        root_work.unknown_costs
-        or root_work.unresolved
-        or root_work.direct_work_blockers
-        or final_work.unknown_costs
-        or final_work.unresolved
-        or final_work.direct_work_blockers
-    ):
+    target = local.transformations[0].target.name or "expression"
+    if root_work.unknown_costs or final_work.unknown_costs:
+        if accounting is not None:
+            accounting.missing_primitive_cost(local.kind, target)
+        return _Rejected("final aggregate work is unavailable")
+    if root_work.unresolved or final_work.unresolved:
+        if accounting is not None:
+            accounting.unproved_domain_or_cardinality(local.kind, target)
+        return _Rejected("final aggregate work is unavailable")
+    if root_work.direct_work_blockers or final_work.direct_work_blockers:
         return _Rejected("final aggregate work is unavailable")
     root_objective = project_optimization_objective(root_work, request.optimization.objective)
     final_objective = project_optimization_objective(final_work, request.optimization.objective)

@@ -1,5 +1,5 @@
 # pyright: reportPrivateUsage=false
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from py_science.formula.expressions import Expression
@@ -189,3 +189,93 @@ def test_composed_search_v1_retained_lanes_are_round_robin_and_order_invariant(
     assert reversed_families == baseline
     monkeypatch.undo()
     assert original_order == search_owner._FAMILY_ORDER
+
+
+def test_private_accounting_records_observed_rejections_without_extra_work(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Accounting observes the existing schedule; it never changes it or reruns it."""
+    from py_science.formula import AnalysisFailure, AnalysisRequest, FormulaSyntax
+    from py_science.formula._analysis.computation import analyze_retained
+    from py_science.formula._optimization import search as search_owner
+    from py_science.formula._optimization.diagnostics import _OutcomeAccounting
+
+    request = AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="f(x) + f(x)")
+    computed = analyze_retained(request)
+    assert not isinstance(computed, AnalysisFailure)
+    accounting = _OutcomeAccounting()
+    calls = {"generation": 0, "verification": 0}
+    generate = search_owner._generate_candidate_lanes
+    verify = search_owner._verify_candidate
+
+    def counted_generation(*args: Any, **kwargs: Any):
+        calls["generation"] += 1
+        return generate(*args, **kwargs)
+
+    def counted_verification(*args: Any, **kwargs: Any):
+        calls["verification"] += 1
+        return verify(*args, **kwargs)
+
+    monkeypatch.setattr(search_owner, "_generate_candidate_lanes", counted_generation)
+    monkeypatch.setattr(search_owner, "_verify_candidate", counted_verification)
+    report = search_owner._optimization_report(
+        request,
+        computed,
+        computed.work_context,
+        analyzer=analyze_retained,
+        accounting=accounting,
+    )
+
+    assert (
+        report.model_dump()
+        == search_owner._optimization_report(
+            request, computed, computed.work_context, analyzer=analyze_retained
+        ).model_dump()
+    )
+    assert calls == {"generation": 2, "verification": 2}
+    assert accounting.generation_events == 1
+    assert accounting.proposals == accounting.transition_verifications == 1
+    assert accounting.rejected_before_final_acceptance == 1
+    assert accounting.final_acceptance_attempts == 0
+    assert accounting.blockers[0].reason == "missing_primitive_cost"
+    assert accounting.blockers[0].family == "repeated_call"
+    assert accounting.blockers[0].target == "expression"
+
+
+def test_private_accounting_distinguishes_empty_and_nonpositive_outcomes() -> None:
+    from py_science.formula import AnalysisFailure, AnalysisRequest, FormulaSyntax
+    from py_science.formula._analysis.computation import analyze_retained
+    from py_science.formula._optimization.diagnostics import _OutcomeAccounting
+    from py_science.formula._optimization.search import _optimization_report
+
+    def observe(expression: str) -> _OutcomeAccounting:
+        request = AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression)
+        computed = analyze_retained(request)
+        assert not isinstance(computed, AnalysisFailure)
+        accounting = _OutcomeAccounting()
+        _optimization_report(
+            request,
+            computed,
+            computed.work_context,
+            analyzer=analyze_retained,
+            accounting=accounting,
+        )
+        return accounting
+
+    empty = observe("x")
+    nonpositive = observe("Sum(x*x + i, (i, 0, 0))")
+    assert (
+        empty.proposals,
+        empty.transition_verifications,
+        empty.rejected_before_final_acceptance,
+    ) == (
+        0,
+        0,
+        0,
+    )
+    assert (
+        nonpositive.proposals,
+        nonpositive.transition_verifications,
+        nonpositive.rejected_before_final_acceptance,
+    ) == (1, 1, 1)
+    assert not empty.blockers and not nonpositive.blockers

@@ -217,3 +217,38 @@ def test_composed_search_v1_refuses_conflicting_final_qualifications() -> None:
     )
     assert not _qualifications_compatible(("x != 0",), conflicting)
     assert _qualifications_compatible(("x != 0",), compatible)
+
+
+def test_private_blockers_are_bounded_deduplicated_and_candidate_free() -> None:
+    from py_science.formula._optimization.diagnostics import _OutcomeAccounting
+
+    accounting = _OutcomeAccounting()
+    accounting.missing_primitive_cost("repeated_call", "expression")
+    accounting.missing_primitive_cost("repeated_call", "expression")
+    for target in map(lambda value: f"target_{value}", range(32)):
+        accounting.missing_primitive_cost("repeated_call", target)
+    accounting.unproved_domain_or_cardinality("horner", "expression")
+    accounting.evaluator_limit("horner", "expression")
+
+    assert len(accounting.blockers) == 16
+    assert accounting.blockers == tuple(
+        sorted(
+            accounting.blockers,
+            key=lambda item: (item.reason, item.required_information, item.family, item.target),
+        )
+    )
+    for blocker in accounting.blockers:
+        assert blocker.reason in {
+            "missing_primitive_cost",
+            "unproved_domain_or_cardinality",
+            "evaluator_limit",
+        }
+        assert blocker.required_information in {
+            "declare_primitive_cost",
+            "declare_domain_or_cardinality",
+            "reduce_evaluator_complexity",
+        }
+        assert not hasattr(blocker, "candidate")
+        assert not hasattr(blocker, "rejection")
+        assert "f(x)" not in repr(blocker)
+        assert "raw rejection" not in repr(blocker)

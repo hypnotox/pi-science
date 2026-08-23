@@ -37,6 +37,7 @@ from .budgets import (
 )
 from .candidates import _CandidateComputation, _CandidateDescriptor, _generated_name, _target_inputs
 from .canonical import _canonical_state_key, _trace_key
+from .diagnostics import _OutcomeAccounting
 from .families import (
     call_reuse,
     cross_equation_sharing,
@@ -175,6 +176,7 @@ def _generate_candidate_lanes(
     *,
     algorithmic_enabled: bool = False,
     reasoning: ReasoningContext | None = None,
+    accounting: _OutcomeAccounting | None = None,
 ) -> tuple[dict[OptimizationKind, tuple[_CandidateDescriptor, ...]], tuple[str, ...]]:
     """Traverse each retained target once; families receive neutral occurrence facts."""
     collector = collector or _RetainedLaneCollector(budget)
@@ -184,11 +186,15 @@ def _generate_candidate_lanes(
 
     def append(descriptor: _CandidateDescriptor) -> None:
         collector.add((*lane_prefix, descriptor.kind), descriptor)
+        if accounting is not None:
+            accounting.proposals += 1
 
     try:
         for target, expression, output_indices, output_domains in sorted(
             _target_inputs(computed), key=lambda item: item[0]
         ):
+            if accounting is not None:
+                accounting.generation_observed()
             try:
                 occurrences = _detect_occurrences(
                     target,
@@ -223,7 +229,9 @@ def _generate_candidate_lanes(
                 for descriptor in factoring.propose(target, expression, occurrence):
                     append(descriptor)
                 budget.inspect(max(1, expression_node_count(occurrence.expression)))
-                descriptors, family_qualifications = horner.propose(target, expression, occurrence)
+                descriptors, family_qualifications = horner.propose(
+                    target, expression, occurrence, accounting=accounting
+                )
                 qualifications.extend(family_qualifications)
                 for descriptor in descriptors:
                     append(descriptor)
@@ -337,6 +345,7 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
     budget_config: _OptimizationBudgetConfig | None = None,
     *,
     analyzer: _RetainedAnalyzer,
+    accounting: _OutcomeAccounting | None = None,
 ) -> OptimizationReport:
     """Generate bounded candidates and publish only common-verifier acceptances."""
     limit = request.optimization.max_suggestions
@@ -364,6 +373,7 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
     final_budget = _OptimizationBudget(final_config, "final-acceptance")
     ranking_budget = _OptimizationBudget(configuration, "ranking")
     qualifications: list[str] = []
+    accounting = accounting or _OutcomeAccounting()
     reasoning = _reasoning(request, computed)
     if reasoning is None:
         return OptimizationReport(
@@ -439,6 +449,7 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
                 "finite_polynomial_sum_v1" in request.optimization.enabled_algorithmic_families
             ),
             reasoning=reasoning,
+            accounting=accounting,
         )
         qualifications.extend(generation_qualifications)
         root_schedule = root_collector.schedule()
@@ -451,12 +462,22 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
             except _BudgetExhausted as error:
                 qualifications.append(str(error))
                 break
+            accounting.transition_verified()
             outcome = _verify_candidate(
-                candidate, request, computed, context, reasoning, depth_one_budget, analyzer
+                candidate,
+                request,
+                computed,
+                context,
+                reasoning,
+                depth_one_budget,
+                analyzer,
+                accounting=accounting,
             )
             if isinstance(outcome, _Exhausted):
                 qualifications.append(outcome.reason)
-            elif not isinstance(outcome, _Rejected):
+            elif isinstance(outcome, _Rejected):
+                accounting.transition_rejected()
+            else:
                 admit(depth_one, state_from(outcome, None, candidate, 1), depth_one_budget)
     except _BudgetExhausted as error:
         qualifications.append(str(error))
@@ -478,6 +499,7 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
                     "finite_polynomial_sum_v1" in request.optimization.enabled_algorithmic_families
                 ),
                 reasoning=reasoning,
+                accounting=accounting,
             )
             qualifications.extend(generation_qualifications)
         except _BudgetExhausted as error:
@@ -496,6 +518,7 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
             qualifications.append(str(error))
             break
         parent = parent_by_lane[lane_key]
+        accounting.transition_verified()
         outcome = _verify_candidate(
             candidate,
             parent.request,
@@ -504,10 +527,13 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
             reasoning,
             depth_two_budget,
             analyzer,
+            accounting=accounting,
         )
         if isinstance(outcome, _Exhausted):
             qualifications.append(outcome.reason)
-        elif not isinstance(outcome, _Rejected):
+        elif isinstance(outcome, _Rejected):
+            accounting.transition_rejected()
+        else:
             admit(depth_two, state_from(outcome, parent, candidate, 2), depth_two_budget)
 
     # Equal finals collapse across both depths before direct root-relative acceptance;
@@ -520,6 +546,7 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
 
     accepted: list[_Accepted] = []
     for state in sorted(final_states.values(), key=lambda item: item.canonical_key):
+        accounting.final_acceptance_observed()
         final = _original_final_suggestion(
             state.trace[-1][0],
             state.trace,
@@ -529,6 +556,7 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
             reasoning,
             final_budget,
             analyzer,
+            accounting=accounting,
         )
         if isinstance(final, _Exhausted):
             qualifications.append(final.reason)

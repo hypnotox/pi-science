@@ -21,6 +21,7 @@ from ..budgets import (
     MAX_HORNER_VARIABLES,
 )
 from ..candidates import _CandidateComputation, _CandidateDescriptor, _replace_paths
+from ..diagnostics import _OutcomeAccounting
 
 
 def _horner_candidate(
@@ -39,7 +40,11 @@ def _horner_candidate(
 
 
 def propose(
-    target: str, expression: Expression, occurrence: _Occurrence
+    target: str,
+    expression: Expression,
+    occurrence: _Occurrence,
+    *,
+    accounting: _OutcomeAccounting | None = None,
 ) -> tuple[tuple[_CandidateDescriptor, ...], tuple[str, ...]]:
     result = bounded_horner_candidate(
         occurrence.expression,
@@ -50,6 +55,8 @@ def propose(
         max_generated_nodes=MAX_HORNER_GENERATED_NODES,
     )
     if isinstance(result, BoundedHornerRefusal):
+        if result.resource == "backend refusal" and accounting is not None:
+            accounting.evaluator_limit("horner", target)
         detail = f"optimization Horner {result.resource}" + (
             "" if result.resource.endswith("refusal") else " refused"
         )
