@@ -43,4 +43,4 @@ Python runs one fixed `bounded_goal_v1` fair breadth-first monotonic depth-two s
 
 Canonical complete states deduplicate only search, while caller-facing candidate order and policy-free identity remain intact. Search records actual families, fixed depth, configured resource limits, and completion separately from the ranked output prefix. It publishes only bounded target-local missing-cost, domain/cardinality, and evaluator-limit blockers already observed during generation or verification; diagnostics perform no additional search or proof work. Pi protocol v17 strictly validates, correlates, and presents the goal, scope, `strict_improvement` claims, result classification, blockers, one- or two-step traces, candidates, and typed failures without deriving sums or recomputing mathematics, policy, applicability, scheduling, ranking, or refusal reasons.
 Origin: ADR-0017
-Revised-by: ADR-0018, ADR-0019, ADR-0020, ADR-0021, ADR-adopt-declarative-optimization-goals-and-explicit-claim-scope
+Revised-by: ADR-0018, ADR-0019, ADR-0020, ADR-0021, ADR-0024

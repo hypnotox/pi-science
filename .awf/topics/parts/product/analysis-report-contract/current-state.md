@@ -31,4 +31,4 @@ An explicit optimization success classifies its observed population as `plans_re
 
 Every published plan carries only a `strict_improvement` claim under `verifier_backed_v1`, with the selected objective, exact-symbolic and aggregate-abstract-work semantics, actual families, fixed monotonic depth two, configured limits, and optimizer engine. Its one- or two-step replay retains schema-correlated `exact_algebraic_v1` or `exact_algorithmic_v1` provenance, complete candidates, parent-relative evidence, and independent original-to-final proof and positive whole-computation savings. Candidate identity remains policy-free. Deterministic ordering and a completed search do not claim a best candidate, finite-space exhaustion, unrestricted optimality, runtime improvement, finite-precision equivalence, numerical stability, or empirical performance. A typed operation failure contains no plan; ordinary analysis has no optimization report or passive optimizer failure.
 Origin: ADR-0017
-Revised-by: ADR-0018, ADR-0019, ADR-0020, ADR-0021, ADR-adopt-declarative-optimization-goals-and-explicit-claim-scope
+Revised-by: ADR-0018, ADR-0019, ADR-0020, ADR-0021, ADR-0024

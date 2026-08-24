@@ -4,7 +4,7 @@ slug: adopt-declarative-optimization-goals-and-explicit-claim-scope
 status: Implementing
 date: 2026-08-23
 ---
-# ADR-adopt-declarative-optimization-goals-and-explicit-claim-scope: Adopt Declarative Optimization Goals and Explicit Claim Scope
+# ADR-0024: Adopt Declarative Optimization Goals and Explicit Claim Scope
 
 ## Context
 
