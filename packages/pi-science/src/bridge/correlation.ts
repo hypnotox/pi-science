@@ -1510,9 +1510,10 @@ function validOptimizeRequest(request: OptimizeRequest): boolean {
   const goal = request.goal;
   return (
     isRecord(goal) &&
-    exactKeys(goal, ["kind", "semantics", "objective"]) &&
+    exactKeys(goal, ["kind", "semantics", "operating_domain", "objective"]) &&
     goal.kind === "preserve_all_outputs_v1" &&
     goal.semantics === "exact_symbolic_v1" &&
+    goal.operating_domain === "submitted_domain_v1" &&
     canonicalOptimizationObjective(goal.objective) !== null &&
     isRecord(request.search) &&
     exactKeys(request.search, ["kind"]) &&
@@ -2482,6 +2483,35 @@ function validOptimizationTraceStep(
   );
 }
 
+const OPTIMIZATION_LIMIT_KEYS = [
+  "depth_one_inspected_nodes",
+  "depth_two_inspected_nodes",
+  "whole_request_inspected_nodes",
+  "generated_transitions_per_depth",
+  "complete_reanalyses_per_depth",
+  "expanded_parents_depth_two",
+  "retained_states_per_depth",
+  "aggregate_transformation_nodes_per_depth",
+  "proof_steps_per_depth",
+  "proof_nodes_per_depth",
+  "work_comparison_nodes_per_depth",
+  "whole_request_proof_steps",
+  "whole_request_proof_nodes",
+  "whole_request_work_comparison_nodes",
+  "final_states",
+  "final_proof_steps",
+  "final_proof_nodes",
+  "final_work_comparison_nodes",
+];
+
+function validSearchLimits(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    exactKeys(value, OPTIMIZATION_LIMIT_KEYS) &&
+    Object.values(value).every(nonNegativeInteger)
+  );
+}
+
 function validOptimizationPlan(
   value: unknown,
   request: AnalysisRequest | OptimizeRequest,
@@ -2541,6 +2571,7 @@ function validOptimizationPlan(
       "families",
       "monotonic_depth",
       "engine",
+      "limits",
     ]) ||
     value.claim.kind !== "strict_improvement" ||
     value.claim.proof_policy !== "verifier_backed_v1" ||
@@ -2550,7 +2581,8 @@ function validOptimizationPlan(
     value.claim.search_policy !== "bounded_goal_v1" ||
     !sameJson(value.claim.families, OPTIMIZATION_FAMILIES) ||
     value.claim.monotonic_depth !== 2 ||
-    value.claim.engine !== "goal_optimizer_v1"
+    value.claim.engine !== "goal_optimizer_v1" ||
+    !validSearchLimits(value.claim.limits)
   )
     return false;
   const finalStep = trace[trace.length - 1];
@@ -2762,26 +2794,6 @@ function validResult(
 }
 
 function validSearchScope(value: unknown): boolean {
-  const limitKeys = [
-    "depth_one_inspected_nodes",
-    "depth_two_inspected_nodes",
-    "whole_request_inspected_nodes",
-    "generated_transitions_per_depth",
-    "complete_reanalyses_per_depth",
-    "expanded_parents_depth_two",
-    "retained_states_per_depth",
-    "aggregate_transformation_nodes_per_depth",
-    "proof_steps_per_depth",
-    "proof_nodes_per_depth",
-    "work_comparison_nodes_per_depth",
-    "whole_request_proof_steps",
-    "whole_request_proof_nodes",
-    "whole_request_work_comparison_nodes",
-    "final_states",
-    "final_proof_steps",
-    "final_proof_nodes",
-    "final_work_comparison_nodes",
-  ];
   return (
     isRecord(value) &&
     exactKeys(value, [
@@ -2797,9 +2809,7 @@ function validSearchScope(value: unknown): boolean {
     sameJson(value.families, OPTIMIZATION_FAMILIES) &&
     value.monotonic_depth === 2 &&
     value.engine === "goal_optimizer_v1" &&
-    isRecord(value.limits) &&
-    exactKeys(value.limits, limitKeys) &&
-    Object.values(value.limits).every(nonNegativeInteger) &&
+    validSearchLimits(value.limits) &&
     (value.completion === "complete" || value.completion === "incomplete") &&
     validStringArray(value.qualifications) &&
     value.qualifications.length <= 128 &&
@@ -2810,24 +2820,54 @@ function validSearchScope(value: unknown): boolean {
   );
 }
 
-function validOptimizationBlocker(value: unknown): boolean {
+const BLOCKER_REQUIRED_INFORMATION = {
+  missing_primitive_cost: "declare_primitive_cost",
+  unproved_domain_or_cardinality: "declare_domain_or_cardinality",
+  evaluator_limit: "reduce_evaluator_complexity",
+} as const;
+
+function validOptimizationBlocker(
+  value: unknown,
+  allowedTargets: ReadonlySet<string>,
+): boolean {
   return (
     isRecord(value) &&
     exactKeys(value, ["reason", "required_information", "family", "target"]) &&
-    [
-      "missing_primitive_cost",
-      "unproved_domain_or_cardinality",
-      "evaluator_limit",
-    ].includes(String(value.reason)) &&
-    [
-      "declare_primitive_cost",
-      "declare_domain_or_cardinality",
-      "reduce_evaluator_complexity",
-    ].includes(String(value.required_information)) &&
+    Object.hasOwn(BLOCKER_REQUIRED_INFORMATION, String(value.reason)) &&
+    value.required_information ===
+      BLOCKER_REQUIRED_INFORMATION[
+        value.reason as keyof typeof BLOCKER_REQUIRED_INFORMATION
+      ] &&
     OPTIMIZATION_FAMILIES.includes(value.family as never) &&
     boundedQueryText(value.target) &&
-    value.target.length <= 160
+    value.target.length <= 160 &&
+    allowedTargets.has(value.target)
   );
+}
+
+function validOptimizationBlockers(
+  values: unknown[],
+  request: OptimizeRequest,
+): boolean {
+  const allowedTargets = new Set(
+    request.expression !== undefined
+      ? ["expression"]
+      : (request.equations ?? []).map((equation) => equation.name),
+  );
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (!validOptimizationBlocker(value, allowedTargets) || !isRecord(value))
+      return false;
+    const key = [
+      value.reason,
+      value.required_information,
+      value.family,
+      value.target,
+    ].join("\u0000");
+    if (seen.has(key)) return false;
+    seen.add(key);
+  }
+  return true;
 }
 
 function validOptimizeResult(
@@ -2874,7 +2914,7 @@ function validOptimizeResult(
       value.projection_qualifications.length > 0 ||
     !Array.isArray(value.blockers) ||
     value.blockers.length > 16 ||
-    !value.blockers.every(validOptimizationBlocker) ||
+    !validOptimizationBlockers(value.blockers, request) ||
     !Array.isArray(value.plans) ||
     value.plans.length > request.projection_limit ||
     !validOptimizationPlanPopulation(value.plans) ||
@@ -2884,6 +2924,16 @@ function validOptimizeResult(
       "no_applicable_candidate",
       "no_verified_improvement",
     ].includes(String(value.classification))
+  )
+    return false;
+  if (
+    !value.plans.every(
+      (plan) =>
+        isRecord(plan) &&
+        isRecord(plan.claim) &&
+        isRecord(value.search_scope) &&
+        sameJson(plan.claim.limits, value.search_scope.limits),
+    )
   )
     return false;
   if (value.classification === "plans_returned")

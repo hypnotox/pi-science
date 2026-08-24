@@ -196,6 +196,7 @@ export type StrictImprovementClaim = {
   families: OptimizationSuggestion["kind"][];
   monotonic_depth: 2;
   engine: "goal_optimizer_v1";
+  limits: SearchLimits;
 };
 export type OptimizationPlan = {
   identity: string;

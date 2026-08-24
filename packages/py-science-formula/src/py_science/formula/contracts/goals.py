@@ -12,6 +12,7 @@ from .optimization import (
     OptimizationKind,
     OptimizationObjective,
     OptimizationPlan,
+    SearchLimits,
     StrictImprovementClaim,
 )
 
@@ -19,40 +20,18 @@ from .optimization import (
 class GoalSpec(StructuredModel):
     """The fixed initial goal: preserve submitted outputs and minimize abstract work."""
 
-    kind: Literal["preserve_all_outputs_v1"] = "preserve_all_outputs_v1"
-    semantics: Literal["exact_symbolic_v1"] = "exact_symbolic_v1"
+    kind: Literal["preserve_all_outputs_v1"]
+    semantics: Literal["exact_symbolic_v1"]
+    operating_domain: Literal["submitted_domain_v1"]
     objective: OptimizationObjective
 
 
 class BoundedGoalSearchPolicy(StructuredModel):
-    kind: Literal["bounded_goal_v1"] = "bounded_goal_v1"
+    kind: Literal["bounded_goal_v1"]
 
 
 class VerifierBackedProofPolicy(StructuredModel):
-    kind: Literal["verifier_backed_v1"] = "verifier_backed_v1"
-
-
-class SearchLimits(StructuredModel):
-    """The exact configured bounds for the reported search execution."""
-
-    depth_one_inspected_nodes: int = Field(ge=0)
-    depth_two_inspected_nodes: int = Field(ge=0)
-    whole_request_inspected_nodes: int = Field(ge=0)
-    generated_transitions_per_depth: int = Field(ge=0)
-    complete_reanalyses_per_depth: int = Field(ge=0)
-    expanded_parents_depth_two: int = Field(ge=0)
-    retained_states_per_depth: int = Field(ge=0)
-    aggregate_transformation_nodes_per_depth: int = Field(ge=0)
-    proof_steps_per_depth: int = Field(ge=0)
-    proof_nodes_per_depth: int = Field(ge=0)
-    work_comparison_nodes_per_depth: int = Field(ge=0)
-    whole_request_proof_steps: int = Field(ge=0)
-    whole_request_proof_nodes: int = Field(ge=0)
-    whole_request_work_comparison_nodes: int = Field(ge=0)
-    final_states: int = Field(ge=0)
-    final_proof_steps: int = Field(ge=0)
-    final_proof_nodes: int = Field(ge=0)
-    final_work_comparison_nodes: int = Field(ge=0)
+    kind: Literal["verifier_backed_v1"]
 
 
 class SearchScope(StructuredModel):
@@ -122,6 +101,8 @@ class OptimizationResult(StructuredModel):
                 raise ValueError("plan claim depth must match the reported search scope")
             if plan.claim.engine != self.search_scope.engine:
                 raise ValueError("plan claim engine must match the reported search scope")
+            if plan.claim.limits != self.search_scope.limits:
+                raise ValueError("plan claim limits must match the reported search scope")
         return self
 
 

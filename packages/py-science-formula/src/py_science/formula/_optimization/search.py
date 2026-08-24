@@ -347,6 +347,29 @@ def _unique_qualifications(values: Iterable[str]) -> tuple[str, ...]:
     return tuple(result)
 
 
+def _search_limits(configuration: _OptimizationBudgetConfig) -> SearchLimits:
+    return SearchLimits(
+        depth_one_inspected_nodes=configuration.inspections,
+        depth_two_inspected_nodes=configuration.depth_two_inspections,
+        whole_request_inspected_nodes=configuration.whole_inspections,
+        generated_transitions_per_depth=configuration.candidates,
+        complete_reanalyses_per_depth=configuration.complete_reanalyses,
+        expanded_parents_depth_two=configuration.expanded_parents,
+        retained_states_per_depth=configuration.retained_states,
+        aggregate_transformation_nodes_per_depth=configuration.aggregate_transform_nodes,
+        proof_steps_per_depth=configuration.proofs,
+        proof_nodes_per_depth=configuration.proof_nodes,
+        work_comparison_nodes_per_depth=configuration.work_nodes,
+        whole_request_proof_steps=configuration.whole_proofs,
+        whole_request_proof_nodes=configuration.whole_proof_nodes,
+        whole_request_work_comparison_nodes=configuration.whole_work_nodes,
+        final_states=configuration.final_states,
+        final_proof_steps=configuration.final_proofs,
+        final_proof_nodes=configuration.final_proof_nodes,
+        final_work_comparison_nodes=configuration.final_work_nodes,
+    )
+
+
 def _result(
     limit: int,
     plans: tuple[object, ...],
@@ -354,6 +377,8 @@ def _result(
     qualifications: tuple[str, ...],
     accounting: _OutcomeAccounting,
     configuration: _OptimizationBudgetConfig,
+    *,
+    projection_qualifications: tuple[str, ...] = (),
 ) -> OptimizationResult:
     return OptimizationResult(
         projection_limit=limit,
@@ -361,29 +386,12 @@ def _result(
         selection=DeterministicRankedPrefixSelection(projection_limit=limit),
         search_scope=SearchScope(
             families=_FAMILY_ORDER,
-            limits=SearchLimits(
-                depth_one_inspected_nodes=configuration.inspections,
-                depth_two_inspected_nodes=configuration.depth_two_inspections,
-                whole_request_inspected_nodes=configuration.whole_inspections,
-                generated_transitions_per_depth=configuration.candidates,
-                complete_reanalyses_per_depth=configuration.complete_reanalyses,
-                expanded_parents_depth_two=configuration.expanded_parents,
-                retained_states_per_depth=configuration.retained_states,
-                aggregate_transformation_nodes_per_depth=configuration.aggregate_transform_nodes,
-                proof_steps_per_depth=configuration.proofs,
-                proof_nodes_per_depth=configuration.proof_nodes,
-                work_comparison_nodes_per_depth=configuration.work_nodes,
-                whole_request_proof_steps=configuration.whole_proofs,
-                whole_request_proof_nodes=configuration.whole_proof_nodes,
-                whole_request_work_comparison_nodes=configuration.whole_work_nodes,
-                final_states=configuration.final_states,
-                final_proof_steps=configuration.final_proofs,
-                final_proof_nodes=configuration.final_proof_nodes,
-                final_work_comparison_nodes=configuration.final_work_nodes,
-            ),
+            limits=_search_limits(configuration),
             completion="incomplete" if qualifications else "complete",
             qualifications=qualifications,
         ),
+        projection_status="truncated" if projection_qualifications else "complete",
+        projection_qualifications=projection_qualifications,
         blockers=tuple(
             OptimizationBlocker(
                 reason=item.reason,
@@ -686,7 +694,11 @@ def _optimization_result(  # pyright: ignore[reportUnusedFunction]
                 item.trace,
             )
         )
-    claim = StrictImprovementClaim(objective=objective, families=_FAMILY_ORDER)
+    claim = StrictImprovementClaim(
+        objective=objective,
+        families=_FAMILY_ORDER,
+        limits=_search_limits(configuration),
+    )
     plans = tuple(project_plan(item, claim, computed) for item in ordered)
     observed = (
         "plans_returned"
@@ -702,4 +714,12 @@ def _optimization_result(  # pyright: ignore[reportUnusedFunction]
         _unique_qualifications(qualifications),
         accounting,
         configuration,
+        projection_qualifications=(
+            (
+                "optimization plan projection truncated "
+                f"(measured {len(accepted)}, configured {limit})"
+            ),
+        )
+        if len(accepted) > limit
+        else (),
     )

@@ -26,9 +26,15 @@ def goal_request(
     return OptimizeRequest.model_validate(
         {
             **computation,
-            "goal": GoalSpec(objective=objective or UnitWorkObjective()).model_dump(),
-            "search": BoundedGoalSearchPolicy().model_dump(),
-            "proof": VerifierBackedProofPolicy().model_dump(),
+            "operation": "optimize",
+            "goal": GoalSpec(
+                kind="preserve_all_outputs_v1",
+                semantics="exact_symbolic_v1",
+                operating_domain="submitted_domain_v1",
+                objective=objective or UnitWorkObjective(),
+            ).model_dump(),
+            "search": BoundedGoalSearchPolicy(kind="bounded_goal_v1").model_dump(),
+            "proof": VerifierBackedProofPolicy(kind="verifier_backed_v1").model_dump(),
             "projection_limit": projection_limit,
         }
     )

@@ -2387,6 +2387,12 @@
                 }
               ]
             },
+            "operating_domain": {
+              "enum": [
+                "submitted_domain_v1"
+              ],
+              "type": "string"
+            },
             "semantics": {
               "enum": [
                 "exact_symbolic_v1"
@@ -2395,9 +2401,10 @@
             }
           },
           "required": [
-            "objective",
             "kind",
-            "semantics"
+            "semantics",
+            "operating_domain",
+            "objective"
           ],
           "type": "object"
         },
@@ -2498,6 +2505,7 @@
         }
       },
       "required": [
+        "operation",
         "goal",
         "search",
         "proof",
@@ -2770,6 +2778,12 @@
                 }
               ]
             },
+            "operating_domain": {
+              "enum": [
+                "submitted_domain_v1"
+              ],
+              "type": "string"
+            },
             "semantics": {
               "enum": [
                 "exact_symbolic_v1"
@@ -2778,9 +2792,10 @@
             }
           },
           "required": [
-            "objective",
             "kind",
-            "semantics"
+            "semantics",
+            "operating_domain",
+            "objective"
           ],
           "type": "object"
         },
@@ -2881,6 +2896,7 @@
         }
       },
       "required": [
+        "operation",
         "goal",
         "search",
         "proof",

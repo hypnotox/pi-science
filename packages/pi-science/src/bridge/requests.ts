@@ -223,6 +223,7 @@ export type DominanceRequest = Omit<
 export type OptimizationGoal = {
   kind: "preserve_all_outputs_v1";
   semantics: "exact_symbolic_v1";
+  operating_domain: "submitted_domain_v1";
   objective: OptimizationObjectiveInput;
 };
 export type OptimizationSearch = { kind: "bounded_goal_v1" };

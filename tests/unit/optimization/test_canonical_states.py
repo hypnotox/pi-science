@@ -87,8 +87,14 @@ def test_limits_and_repeated_process_json_are_deterministic() -> None:
         )
         assert result.status == "success"
         assert len(result.plans) <= limit
-        assert result.projection_status == "complete"
-        assert result.projection_qualifications == ()
+        if limit < 8:
+            assert result.projection_status == "truncated"
+            assert result.projection_qualifications == (
+                f"optimization plan projection truncated (measured 8, configured {limit})",
+            )
+        else:
+            assert result.projection_status == "complete"
+            assert result.projection_qualifications == ()
         assert result.search_scope.completion == "incomplete"
         assert result.search_scope.qualifications
 
@@ -109,9 +115,13 @@ from py_science.formula import (
 request = OptimizeRequest(
     syntax=FormulaSyntax.SYMPY,
     expression={expression!r},
-    goal=GoalSpec(objective=UnitWorkObjective()),
-    search=BoundedGoalSearchPolicy(),
-    proof=VerifierBackedProofPolicy(),
+    operation="optimize",
+    goal=GoalSpec(
+        kind="preserve_all_outputs_v1", semantics="exact_symbolic_v1",
+        operating_domain="submitted_domain_v1", objective=UnitWorkObjective(),
+    ),
+    search=BoundedGoalSearchPolicy(kind="bounded_goal_v1"),
+    proof=VerifierBackedProofPolicy(kind="verifier_backed_v1"),
     projection_limit=16,
 )
 print(optimize(request).model_dump_json())

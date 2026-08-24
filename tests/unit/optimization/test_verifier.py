@@ -122,6 +122,13 @@ def test_result_search_scope_claim_and_suggestion_cross_field_truth_table() -> N
     drifted_plan = populated.plans[0].model_copy(update={"claim": drifted_claim})
     with pytest.raises(ValidationError):
         OptimizationResult.model_validate({**result_data, "plans": (drifted_plan,)})
+    drifted_limits = populated.plans[0].claim.limits.model_copy(
+        update={"final_states": populated.plans[0].claim.limits.final_states + 1}
+    )
+    drifted_claim = populated.plans[0].claim.model_copy(update={"limits": drifted_limits})
+    drifted_plan = populated.plans[0].model_copy(update={"claim": drifted_claim})
+    with pytest.raises(ValidationError):
+        OptimizationResult.model_validate({**result_data, "plans": (drifted_plan,)})
 
 
 def test_public_proposals_reparse_and_reconstruct_independently() -> None:

@@ -350,6 +350,7 @@ describe("private formula bridge", () => {
       goal: {
         kind: "preserve_all_outputs_v1",
         semantics: "exact_symbolic_v1",
+        operating_domain: "submitted_domain_v1",
         objective: { kind: "unit_work_v1" },
       },
       search: { kind: "bounded_goal_v1" },
@@ -403,9 +404,34 @@ describe("private formula bridge", () => {
           reason: "evaluator_limit",
           required_information: "reduce_evaluator_complexity",
           family: "factoring",
-          target: "x",
+          target: "expression",
           candidate: {},
         } as never);
+      },
+      (value) => {
+        value.blockers.push({
+          reason: "evaluator_limit",
+          required_information: "declare_primitive_cost",
+          family: "factoring",
+          target: "expression",
+        });
+      },
+      (value) => {
+        value.blockers.push({
+          reason: "evaluator_limit",
+          required_information: "reduce_evaluator_complexity",
+          family: "factoring",
+          target: "unsubmitted",
+        });
+      },
+      (value) => {
+        const blocker = {
+          reason: "evaluator_limit" as const,
+          required_information: "reduce_evaluator_complexity" as const,
+          family: "factoring" as const,
+          target: "expression",
+        };
+        value.blockers.push(blocker, blocker);
       },
       (value) => {
         value.plans[0]!.claim.kind = "best" as never;
@@ -424,6 +450,9 @@ describe("private formula bridge", () => {
       },
       (value) => {
         value.plans[0]!.claim.families = ["horner"];
+      },
+      (value) => {
+        value.plans[0]!.claim.limits.final_states += 1;
       },
     ];
     for (const mutate of mutations) {

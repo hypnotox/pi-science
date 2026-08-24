@@ -143,6 +143,7 @@ describe("readiness gate", () => {
       goal: {
         kind: "preserve_all_outputs_v1",
         semantics: "exact_symbolic_v1",
+        operating_domain: "submitted_domain_v1",
         objective: { kind: "unit_work_v1" },
       },
       search: { kind: "bounded_goal_v1" },
@@ -407,6 +408,7 @@ describe("readiness gate", () => {
       goal: {
         kind: "preserve_all_outputs_v1",
         semantics: "exact_symbolic_v1",
+        operating_domain: "submitted_domain_v1",
         objective: { kind: "unit_work_v1" },
       },
       search: { kind: "bounded_goal_v1" },
@@ -459,6 +461,7 @@ describe("readiness gate", () => {
       goal: {
         kind: "preserve_all_outputs_v1",
         semantics: "exact_symbolic_v1",
+        operating_domain: "submitted_domain_v1",
         objective: { kind: "unit_work_v1" },
       },
       search: { kind: "bounded_goal_v1" },

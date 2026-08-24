@@ -146,7 +146,7 @@ class OptimizeRequest(StructuredModel):
     """One explicit goal-driven optimization operation."""
 
     syntax: FormulaSyntax
-    operation: Literal["optimize"] = "optimize"
+    operation: Literal["optimize"]
     expression: str | None = None
     equations: tuple[EquationRequest, ...] = Field(default=(), max_length=MAX_EQUATIONS)
     variables: dict[str, VariableDeclaration] = Field(default_factory=dict)

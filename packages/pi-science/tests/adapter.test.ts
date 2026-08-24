@@ -17,6 +17,7 @@ function invoke(input: string) {
 const goal = {
   kind: "preserve_all_outputs_v1",
   semantics: "exact_symbolic_v1",
+  operating_domain: "submitted_domain_v1",
   objective: { kind: "unit_work_v1" },
 } as const;
 const optimizeRequest = (
@@ -863,16 +864,30 @@ describe("dominance protocol v17", () => {
 
 describe("optimization request contract", () => {
   it("strictly rejects omitted declarative controls and legacy knobs", () => {
+    const complete = optimizeRequest({ expression: "x" });
+    const omit = (record: Record<string, unknown>, key: string) =>
+      Object.fromEntries(
+        Object.entries(record).filter(([name]) => name !== key),
+      );
     for (const request of [
       { syntax: "sympy", operation: "optimize", expression: "x" },
-      { ...optimizeRequest({ expression: "x" }), max_plans: 1 },
+      omit(complete, "operation"),
+      omit(complete, "goal"),
+      omit(complete, "search"),
+      omit(complete, "proof"),
+      { ...complete, goal: omit(complete.goal, "kind") },
+      { ...complete, goal: omit(complete.goal, "semantics") },
+      { ...complete, goal: omit(complete.goal, "operating_domain") },
+      { ...complete, search: {} },
+      { ...complete, proof: {} },
+      { ...complete, max_plans: 1 },
       {
-        ...optimizeRequest({ expression: "x" }),
+        ...complete,
         enabled_algorithmic_families: ["finite_polynomial_sum_v1"],
       },
     ]) {
       const result = invoke(JSON.stringify({ version: 17, request }));
       expect(result.status).toBe(2);
     }
-  });
+  }, 15_000);
 });

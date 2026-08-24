@@ -279,6 +279,29 @@ class OptimizationTraceStep(StructuredModel):
         return self
 
 
+class SearchLimits(StructuredModel):
+    """The exact configured bounds for one reported search execution."""
+
+    depth_one_inspected_nodes: int = Field(ge=0)
+    depth_two_inspected_nodes: int = Field(ge=0)
+    whole_request_inspected_nodes: int = Field(ge=0)
+    generated_transitions_per_depth: int = Field(ge=0)
+    complete_reanalyses_per_depth: int = Field(ge=0)
+    expanded_parents_depth_two: int = Field(ge=0)
+    retained_states_per_depth: int = Field(ge=0)
+    aggregate_transformation_nodes_per_depth: int = Field(ge=0)
+    proof_steps_per_depth: int = Field(ge=0)
+    proof_nodes_per_depth: int = Field(ge=0)
+    work_comparison_nodes_per_depth: int = Field(ge=0)
+    whole_request_proof_steps: int = Field(ge=0)
+    whole_request_proof_nodes: int = Field(ge=0)
+    whole_request_work_comparison_nodes: int = Field(ge=0)
+    final_states: int = Field(ge=0)
+    final_proof_steps: int = Field(ge=0)
+    final_proof_nodes: int = Field(ge=0)
+    final_work_comparison_nodes: int = Field(ge=0)
+
+
 class StrictImprovementClaim(StructuredModel):
     """The exact claim independently established for one published plan."""
 
@@ -291,6 +314,7 @@ class StrictImprovementClaim(StructuredModel):
     families: tuple[OptimizationKind, ...] = Field(min_length=1, max_length=16)
     monotonic_depth: Literal[2] = 2
     engine: Literal["goal_optimizer_v1"] = "goal_optimizer_v1"
+    limits: SearchLimits
 
 
 class OptimizationPlan(StructuredModel):

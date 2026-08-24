@@ -136,6 +136,7 @@ def test_generated_pi_schema_has_public_expression_and_system_branches() -> None
         (_optimize_system, "equations"),
     ):
         assert direct["required"] == [
+            "operation",
             "goal",
             "search",
             "proof",
@@ -151,6 +152,8 @@ def test_generated_pi_schema_has_public_expression_and_system_branches() -> None
         assert goal["additionalProperties"] is False
         assert goal["properties"]["kind"]["enum"] == ["preserve_all_outputs_v1"]
         assert goal["properties"]["semantics"]["enum"] == ["exact_symbolic_v1"]
+        assert goal["properties"]["operating_domain"]["enum"] == ["submitted_domain_v1"]
+        assert goal["required"] == ["kind", "semantics", "operating_domain", "objective"]
         objective_variants = goal["properties"]["objective"]["anyOf"]
         assert {
             variant["properties"]["kind"]["enum"][0]
