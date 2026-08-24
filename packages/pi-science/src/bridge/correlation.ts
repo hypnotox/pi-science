@@ -1430,7 +1430,7 @@ function canonicalRational(value: unknown): string | null {
 function canonicalOptimizationObjective(
   value: unknown,
 ): OptimizationObjective | null {
-  if (value === undefined) return { kind: "unit_work_v1" };
+  if (value === undefined) return null;
   if (!isRecord(value) || typeof value.kind !== "string") return null;
   if (value.kind === "unit_work_v1")
     return exactKeys(value, ["kind"]) ? { kind: "unit_work_v1" } : null;

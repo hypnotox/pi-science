@@ -483,6 +483,18 @@ describe("private formula bridge", () => {
       invokeAdapter(node, responder(optimizationResult), stale),
       "protocol",
     );
+    const missingObjective = structuredClone(request) as unknown as {
+      goal: { objective?: unknown };
+    };
+    missingObjective.goal.objective = undefined;
+    await kind(
+      invokeAdapter(
+        node,
+        responder(optimizationResult),
+        missingObjective as OptimizeRequest,
+      ),
+      "protocol",
+    );
   });
 
   it("round trips the actual adapter for success, lexical Let, and analysis failure", async () => {
