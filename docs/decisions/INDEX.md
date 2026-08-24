@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-- [ADR-0024: Adopt Declarative Optimization Goals and Explicit Claim Scope](0024-adopt-declarative-optimization-goals-and-explicit-claim-scope.md) (Implementing)
+_No decisions are in flight._
 
 ## History
 
@@ -29,3 +29,4 @@
 - [ADR-0021: Adopt opt-in exact algorithmic finite-sum optimization](0021-adopt-opt-in-exact-algorithmic-finite-sum-optimization.md) (Implemented)
 - [ADR-0022: Preserve separate future optimization lanes](0022-preserve-separate-future-optimization-lanes.md) (Implemented)
 - [ADR-0023: Separate Formula Responsibilities Behind Compatibility Facades](0023-separate-formula-responsibilities-behind-compatibility-facades.md) (Implemented)
+- [ADR-0024: Adopt Declarative Optimization Goals and Explicit Claim Scope](0024-adopt-declarative-optimization-goals-and-explicit-claim-scope.md) (Implemented)

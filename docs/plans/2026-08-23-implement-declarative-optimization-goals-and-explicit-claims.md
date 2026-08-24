@@ -2,7 +2,7 @@
 format: plan-v2
 date: 2026-08-23
 adrs: [adopt-declarative-optimization-goals-and-explicit-claim-scope]
-status: Proposed
+status: Implemented
 ---
 # Plan: Implement Declarative Optimization Goals and Explicit Claims
 

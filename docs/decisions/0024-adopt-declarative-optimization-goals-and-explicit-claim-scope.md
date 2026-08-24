@@ -1,7 +1,7 @@
 ---
 format: current-state-v4
 slug: adopt-declarative-optimization-goals-and-explicit-claim-scope
-status: Implementing
+status: Implemented
 date: 2026-08-23
 ---
 # ADR-0024: Adopt Declarative Optimization Goals and Explicit Claim Scope
@@ -81,3 +81,4 @@ does not prove candidate absence.
 - 2026-08-23: Proposed
 - 2026-08-24: Implementing; content-sha256: 8b2378e0d1edd9eb58a0149c6fda48b8adfbbf0fecb3982b77511ec23ccd46e2
 - 2026-08-24: Applied; operations: update `product/mathematical-input-contract:bounded-optimization-advice-requests`, update `product/analysis-report-contract:qualified-optimization-advice`, update `product/mathematical-analysis-model:bounded-optimization-transformation`, update `product/product-boundary:symbolic-analysis-only`
+- 2026-08-24: Implemented; content-sha256: 8b2378e0d1edd9eb58a0149c6fda48b8adfbbf0fecb3982b77511ec23ccd46e2
