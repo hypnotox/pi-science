@@ -13,14 +13,22 @@ from py_science.formula._analysis.occurrences import (
     _TraversalExhausted,
 )
 from py_science.formula._analysis.retained import RetainedComputation
+from py_science.formula.contracts.goals import (
+    DeterministicRankedPrefixSelection,
+    OptimizationBlocker,
+    OptimizationResult,
+    SearchLimits,
+    SearchScope,
+)
 from py_science.formula.expressions import Expression, ExpressionTooComplex, expression_node_count
 from py_science.formula.models import (
     AnalysisFailure,
     AnalysisRequest,
     OptimizationKind,
     OptimizationOrdering,
-    OptimizationReport,
     OptimizationSuggestion,
+    OptimizeRequest,
+    StrictImprovementClaim,
 )
 from py_science.formula.reasoning import ReasoningContext
 from py_science.formula.work import WorkContext, project_optimization_objective
@@ -61,6 +69,7 @@ from .verifier import (
 )
 
 type _RetainedAnalyzer = Callable[[AnalysisRequest], RetainedComputation | AnalysisFailure]
+
 
 _FAMILY_ORDER: tuple[OptimizationKind, ...] = (
     "repeated_subexpression",
@@ -338,19 +347,82 @@ def _unique_qualifications(values: Iterable[str]) -> tuple[str, ...]:
     return tuple(result)
 
 
-def _optimization_report(  # pyright: ignore[reportUnusedFunction]
-    request: AnalysisRequest,
+def _result(
+    limit: int,
+    plans: tuple[object, ...],
+    classification: str,
+    qualifications: tuple[str, ...],
+    accounting: _OutcomeAccounting,
+    configuration: _OptimizationBudgetConfig,
+) -> OptimizationResult:
+    return OptimizationResult(
+        projection_limit=limit,
+        classification=classification,  # type: ignore[arg-type]
+        selection=DeterministicRankedPrefixSelection(projection_limit=limit),
+        search_scope=SearchScope(
+            families=_FAMILY_ORDER,
+            limits=SearchLimits(
+                depth_one_inspected_nodes=configuration.inspections,
+                depth_two_inspected_nodes=configuration.depth_two_inspections,
+                whole_request_inspected_nodes=configuration.whole_inspections,
+                generated_transitions_per_depth=configuration.candidates,
+                complete_reanalyses_per_depth=configuration.complete_reanalyses,
+                expanded_parents_depth_two=configuration.expanded_parents,
+                retained_states_per_depth=configuration.retained_states,
+                aggregate_transformation_nodes_per_depth=configuration.aggregate_transform_nodes,
+                proof_steps_per_depth=configuration.proofs,
+                proof_nodes_per_depth=configuration.proof_nodes,
+                work_comparison_nodes_per_depth=configuration.work_nodes,
+                whole_request_proof_steps=configuration.whole_proofs,
+                whole_request_proof_nodes=configuration.whole_proof_nodes,
+                whole_request_work_comparison_nodes=configuration.whole_work_nodes,
+                final_states=configuration.final_states,
+                final_proof_steps=configuration.final_proofs,
+                final_proof_nodes=configuration.final_proof_nodes,
+                final_work_comparison_nodes=configuration.final_work_nodes,
+            ),
+            completion="incomplete" if qualifications else "complete",
+            qualifications=qualifications,
+        ),
+        blockers=tuple(
+            OptimizationBlocker(
+                reason=item.reason,
+                required_information=item.required_information,
+                family=item.family,
+                target=item.target,
+            )
+            for item in accounting.blockers
+            if item.family is not None and item.target is not None
+        ),
+        plans=plans,  # type: ignore[arg-type]
+    )
+
+
+def _optimization_result(  # pyright: ignore[reportUnusedFunction]
+    optimize_request: OptimizeRequest,
     computed: RetainedComputation,
     context: WorkContext,
     budget_config: _OptimizationBudgetConfig | None = None,
     *,
     analyzer: _RetainedAnalyzer,
     accounting: _OutcomeAccounting | None = None,
-) -> OptimizationReport:
-    """Generate bounded candidates and publish only common-verifier acceptances."""
-    limit = request.optimization.max_suggestions
-    if limit == 0:
-        return OptimizationReport(requested_limit=0, status="disabled")
+) -> OptimizationResult:
+    """Generate every fixed exact lane for one explicit declarative goal."""
+    limit = optimize_request.projection_limit
+    objective = optimize_request.goal.objective
+    analysis_request = AnalysisRequest.model_validate(
+        {
+            "syntax": optimize_request.syntax,
+            "expression": optimize_request.expression,
+            "equations": optimize_request.equations,
+            "variables": optimize_request.variables,
+            "functions": optimize_request.functions,
+            "primitive_costs": optimize_request.primitive_costs,
+            "assumptions": optimize_request.assumptions,
+            "definitions": optimize_request.definitions,
+        }
+    )
+    request = analysis_request
     configuration = budget_config or _default_budget_config()
     whole = _WholeTransitionBudget(configuration)
     depth_one_config = replace(
@@ -376,14 +448,17 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
     accounting = accounting or _OutcomeAccounting()
     reasoning = _reasoning(request, computed)
     if reasoning is None:
-        return OptimizationReport(
-            requested_limit=limit,
-            status="incomplete",
-            qualifications=(
+        return _result(
+            limit,
+            (),
+            "no_applicable_candidate",
+            (
                 "optimization proof context nodes budget exhausted "
                 f"(measured >{MAX_OPTIMIZATION_PROOF_NODES}, "
                 f"configured {MAX_OPTIMIZATION_PROOF_NODES})",
             ),
+            accounting,
+            configuration,
         )
 
     def generated_names(
@@ -410,7 +485,7 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
         return _SearchState(
             request=outcome.candidate,
             computed=outcome.computed,
-            objective_total=project_optimization_objective(after, request.optimization.objective),
+            objective_total=project_optimization_objective(after, objective),
             canonical_key=_canonical_state_key(outcome.candidate, outcome.computed, names),
             depth=depth,
             generated_names=names,
@@ -445,9 +520,7 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
             computed,
             depth_one_budget,
             root_collector,
-            algorithmic_enabled=(
-                "finite_polynomial_sum_v1" in request.optimization.enabled_algorithmic_families
-            ),
+            algorithmic_enabled=True,
             reasoning=reasoning,
             accounting=accounting,
         )
@@ -471,6 +544,7 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
                 reasoning,
                 depth_one_budget,
                 analyzer,
+                objective=objective,
                 accounting=accounting,
             )
             if isinstance(outcome, _Exhausted):
@@ -495,9 +569,7 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
                 depth_two_budget,
                 depth_two_collector,
                 (parent.canonical_key,),
-                algorithmic_enabled=(
-                    "finite_polynomial_sum_v1" in request.optimization.enabled_algorithmic_families
-                ),
+                algorithmic_enabled=True,
                 reasoning=reasoning,
                 accounting=accounting,
             )
@@ -527,6 +599,7 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
             reasoning,
             depth_two_budget,
             analyzer,
+            objective=objective,
             accounting=accounting,
         )
         if isinstance(outcome, _Exhausted):
@@ -556,6 +629,7 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
             reasoning,
             final_budget,
             analyzer,
+            objective=objective,
             accounting=accounting,
         )
         if isinstance(final, _Exhausted):
@@ -612,11 +686,20 @@ def _optimization_report(  # pyright: ignore[reportUnusedFunction]
                 item.trace,
             )
         )
-    plans = tuple(project_plan(item, request, computed) for item in ordered)
-    return OptimizationReport(
-        requested_limit=limit,
-        status="incomplete" if qualifications else "complete",
-        suggestions=tuple(item.suggestion for item in ordered),
-        plans=plans,
-        qualifications=_unique_qualifications(qualifications),
+    claim = StrictImprovementClaim(objective=objective, families=_FAMILY_ORDER)
+    plans = tuple(project_plan(item, claim, computed) for item in ordered)
+    observed = (
+        "plans_returned"
+        if plans
+        else "no_verified_improvement"
+        if accounting.proposals
+        else "no_applicable_candidate"
+    )
+    return _result(
+        limit,
+        plans,
+        observed,
+        _unique_qualifications(qualifications),
+        accounting,
+        configuration,
     )

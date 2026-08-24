@@ -44,7 +44,7 @@ async function options(uv: string): Promise<ProvisionOptions> {
   };
 }
 
-const health = JSON.stringify({ version: 16, result: { status: "healthy" } });
+const health = JSON.stringify({ version: 17, result: { status: "healthy" } });
 const leakedPids: number[] = [];
 
 const pause = (milliseconds: number) =>
@@ -171,7 +171,7 @@ describe("eager provisioning", () => {
   it.each([
     ["not-json", "malformed health output"],
     [
-      JSON.stringify({ version: 2, result: { status: "healthy" } }),
+      JSON.stringify({ version: 16, result: { status: "healthy" } }),
       "incompatible health protocol",
     ],
     [

@@ -3,8 +3,10 @@ from typing import Any, cast
 import py_science.formula.dominance as dominance_policy
 import py_science.formula.sympy_backend as sympy_backend
 import pytest
+from goal_requests import goal_request, optimize_analysis
 from py_science.formula import (
     AnalysisFailure,
+    AnalysisRequest,
     AnalysisSuccess,
     Assumption,
     DirectedDefinition,
@@ -14,6 +16,7 @@ from py_science.formula import (
     ExactScenarioScalar,
     FormulaSyntax,
     MathematicalDomain,
+    OptimizeRequest,
     PrimitiveCost,
     VariableDeclaration,
     analyze,
@@ -326,27 +329,18 @@ def test_reconstruction_pair_and_backend_failures_are_falsifiable(
     assert backend.blockers == ("aggregate work rational backend failed",)
 
 
-def test_nested_analysis_disables_optimization() -> None:
+def test_nested_analysis_omits_optimization() -> None:
     request = _request("N", expression="N + 0", primitive_costs=())
     result = _success(request)
-    assert result.analysis.optimization.model_dump() == {
-        "requested_limit": 0,
-        "status": "disabled",
-        "suggestions": (),
-        "plans": (),
-        "qualifications": (),
-        "projection_status": "complete",
-        "projection_qualifications": (),
-    }
+    assert "optimization" not in result.analysis.model_dump()
     ordinary = analyze(request.analysis_request())
     assert isinstance(ordinary, AnalysisSuccess)
-    assert ordinary.optimization.requested_limit == 3
-    assert result.analysis.model_copy(
-        update={"optimization": ordinary.optimization}
-    ) == ordinary
+    assert result.analysis == ordinary
+    optimization = optimize_analysis(request.analysis_request())
+    assert optimization.status == "success"
     assert any(
-        suggestion.kind == "redundant_operation_removal"
-        for suggestion in ordinary.optimization.suggestions
+        plan.suggestion.kind == "redundant_operation_removal"
+        for plan in optimization.plans
     )
 
 
@@ -565,13 +559,8 @@ def test_nonfinite_work_keeps_its_specific_dominance_blocker() -> None:
     ),
 )
 def test_dominance_rejects_optimizer_controls(control: dict[str, object]) -> None:
+    payload = goal_request(
+        AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="N + 0")
+    ).model_dump()
     with pytest.raises(ValidationError):
-        DominanceAnalysisRequest.model_validate(
-            {
-                "syntax": FormulaSyntax.SYMPY,
-                "operation": "analyze_dominance",
-                "expression": "N",
-                "axis": "N",
-                **control,
-            }
-        )
+        OptimizeRequest.model_validate({**payload, **control})

@@ -8,6 +8,7 @@ import py_science.formula.reasoning as formula_reasoning
 import py_science.formula.service as formula_service
 import py_science.formula.work as formula_work
 import pytest
+from goal_requests import goal_request, optimize_analysis
 from py_science.formula import (
     AnalysisRequest,
     AnalysisSuccess,
@@ -21,12 +22,12 @@ from py_science.formula import (
     FunctionDefinition,
     IndexDomain,
     MathematicalDomain,
-    OptimizationConfig,
     PrimitiveCost,
     PropertiesQuery,
     Scenario,
     VariableDeclaration,
     VariablePropertyCheck,
+    WeightedOperationsObjective,
     analyze,
 )
 from py_science.formula.domains import build_output_domains
@@ -1645,8 +1646,9 @@ def test_complete_candidate_keeps_untouched_system_serialization_and_replays() -
             "x": VariableDeclaration(domain=MathematicalDomain.REAL),
             "z": VariableDeclaration(domain=MathematicalDomain.REAL),
         },
-        optimization=OptimizationConfig(max_suggestions=16),
     )
+    policy = goal_request(request)
+    assert policy.goal.objective.kind == "unit_work_v1"
     retained = analyze_retained(request)
     assert not isinstance(retained, AnalysisFailure)
     candidates, _ = _generate_candidates(retained, _OptimizationBudget())
@@ -1682,8 +1684,9 @@ def test_complete_candidate_replays_sum_and_output_scoped_reuse() -> None:
             **variables("N"),
             "x": VariableDeclaration(domain=MathematicalDomain.REAL),
         },
-        optimization=OptimizationConfig(max_suggestions=16),
     )
+    policy = goal_request(request)
+    assert policy.goal.objective.kind == "unit_work_v1"
     retained = analyze_retained(request)
     assert not isinstance(retained, AnalysisFailure)
     candidates, _ = _generate_candidates(retained, _OptimizationBudget())
@@ -1709,16 +1712,16 @@ def test_complete_candidate_keeps_output_dependent_sum_reuse_lexical() -> None:
             **variables("N"),
             "x": VariableDeclaration(domain=MathematicalDomain.REAL),
         },
-        optimization=OptimizationConfig(max_suggestions=16),
     )
 
-    outcome = analyze(request)
+    outcome = optimize_analysis(request)
 
-    assert isinstance(outcome, AnalysisSuccess)
+    assert outcome.status == "success"
+    assert outcome.search_scope.completion == "complete"
     sharing = next(
-        item
-        for item in outcome.optimization.suggestions
-        if item.kind == "repeated_subexpression"
+        plan.suggestion
+        for plan in outcome.plans
+        if plan.suggestion.kind == "repeated_subexpression"
     )
     assert sharing.intermediate is not None
     assert sharing.intermediate.scope_binders == ("j",)
@@ -1740,16 +1743,16 @@ def test_complete_candidate_preserves_output_constraints_for_reuse_work() -> Non
             ),
         ),
         variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
-        optimization=OptimizationConfig(max_suggestions=16),
     )
 
-    outcome = analyze(request)
+    outcome = optimize_analysis(request)
 
-    assert isinstance(outcome, AnalysisSuccess)
+    assert outcome.status == "success"
+    assert outcome.search_scope.completion == "complete"
     sharing = next(
-        item
-        for item in outcome.optimization.suggestions
-        if item.kind == "repeated_subexpression"
+        plan.suggestion
+        for plan in outcome.plans
+        if plan.suggestion.kind == "repeated_subexpression"
     )
     assert sharing.intermediate is not None
     assert sharing.intermediate.scope_output_indices == ("i",)
@@ -1764,19 +1767,18 @@ def test_complete_candidate_verification_does_not_starve_later_equations() -> No
             for position in range(9)
         ),
         variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
-        optimization=OptimizationConfig(max_suggestions=16),
     )
 
-    outcome = analyze(request)
+    outcome = optimize_analysis(request)
 
-    assert isinstance(outcome, AnalysisSuccess)
-    assert outcome.optimization.status == "incomplete"
+    assert outcome.status == "success"
+    assert outcome.search_scope.completion == "incomplete"
     assert any(
         "depth-one complete candidate reanalyses" in qualification
-        for qualification in outcome.optimization.qualifications
+        for qualification in outcome.search_scope.qualifications
     )
     sharing = next(
-        plan for plan in outcome.optimization.plans
+        plan for plan in outcome.plans
         if plan.trace[0].kind == "cross_equation_sharing"
     )
     assert {
@@ -1804,8 +1806,9 @@ def test_complete_candidate_obeys_the_public_equation_population_bound() -> None
             ),
         ),
         variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
-        optimization=OptimizationConfig(max_suggestions=16),
     )
+    policy = goal_request(request)
+    assert policy.goal.objective.kind == "unit_work_v1"
     retained = analyze_retained(request)
     assert not isinstance(retained, AnalysisFailure)
     candidates, _ = _generate_candidates(retained, _OptimizationBudget())
@@ -1831,27 +1834,22 @@ def test_compatible_cross_equation_sharing_preserves_submitted_system_reports() 
             ),
         ),
         variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
-        optimization=OptimizationConfig(max_suggestions=16),
     )
-    enabled = analyze(request)
-    disabled = analyze(
-        request.model_copy(update={"optimization": OptimizationConfig(max_suggestions=0)})
-    )
+    enabled = optimize_analysis(request)
+    ordinary = analyze(request)
 
-    assert isinstance(enabled, AnalysisSuccess)
-    assert isinstance(disabled, AnalysisSuccess)
-    assert enabled.system == disabled.system
-    assert enabled.operation_counts == disabled.operation_counts
+    assert enabled.status == "success"
+    assert isinstance(ordinary, AnalysisSuccess)
+    assert "optimization" not in ordinary.model_dump()
+    assert enabled.search_scope.completion == "complete"
     sharing = next(
-        item
-        for item in enabled.optimization.suggestions
-        if item.kind == "cross_equation_sharing"
+        plan.suggestion
+        for plan in enabled.plans
+        if plan.suggestion.kind == "cross_equation_sharing"
     )
     assert sharing.intermediate is not None
     assert sharing.intermediate.scope_output_indices == ("i",)
-    sharing_plan = next(
-        plan for plan in enabled.optimization.plans if plan.suggestion == sharing
-    )
+    sharing_plan = next(plan for plan in enabled.plans if plan.suggestion == sharing)
     assert sharing_plan.trace[-1].evidence.statement.endswith(
         "every transformed retained output"
     )
@@ -1871,18 +1869,16 @@ def test_exact_algorithmic_sum_v1_e2e_counts_output_multiplicity() -> None:
                 domains={"k": {"lower": "0", "upper": "3"}},
             ),
         ),
-        optimization=OptimizationConfig(
-            max_suggestions=16,
-            enabled_algorithmic_families=("finite_polynomial_sum_v1",),
-        ),
     )
-    outcome = analyze(request)
-    assert isinstance(outcome, AnalysisSuccess)
+    outcome = optimize_analysis(request)
+    assert outcome.status == "success"
+    assert outcome.search_scope.completion == "complete"
     plan = next(
         plan
-        for plan in outcome.optimization.plans
+        for plan in outcome.plans
         if any(step.kind == "finite_polynomial_sum_v1" for step in plan.trace)
     )
+    assert plan.objective.kind == "unit_work_v1"
     assert (
         plan.suggestion.objective_before,
         plan.suggestion.objective_after,
@@ -1899,21 +1895,21 @@ def test_objective_v1_system_selection_preserves_system_work() -> None:
             name: VariableDeclaration(domain=MathematicalDomain.REAL)
             for name in ("x", "y", "z")
         },
-        optimization=OptimizationConfig.model_validate(
+    )
+    weighted = optimize_analysis(
+        request,
+        objective=WeightedOperationsObjective.model_validate(
             {
-                "objective": {
-                    "kind": "weighted_operations_v1",
-                    "weights": {
-                        "additions": "2", "subtractions": "1",
-                        "multiplications": "1", "divisions": "1", "powers": "1",
-                    },
-                }
+                "kind": "weighted_operations_v1",
+                "weights": {
+                    "additions": "2", "subtractions": "1",
+                    "multiplications": "1", "divisions": "1", "powers": "1",
+                },
             }
         ),
     )
-    weighted = analyze(request)
-    default = analyze(request.model_copy(update={"optimization": OptimizationConfig()}))
-    assert isinstance(weighted, AnalysisSuccess) and isinstance(default, AnalysisSuccess)
-    assert weighted.system == default.system
-    assert weighted.operation_counts == default.operation_counts
-    assert weighted.optimization.plans[0].objective.kind == "weighted_operations_v1"
+    default = analyze(request)
+    assert weighted.status == "success" and isinstance(default, AnalysisSuccess)
+    assert "optimization" not in default.model_dump()
+    assert weighted.search_scope.completion == "complete"
+    assert weighted.plans[0].objective.kind == "weighted_operations_v1"

@@ -41,17 +41,16 @@ def test_candidate_deduplication_ignores_occurrence_discovery_routes() -> None:
 
 
 def test_cross_equation_canonical_binders_do_not_capture_user_symbols() -> None:
+    from goal_requests import optimize_analysis
     from py_science.formula import (
         AnalysisRequest,
         EquationRequest,
         FormulaSyntax,
         MathematicalDomain,
-        OptimizationConfig,
         VariableDeclaration,
-        analyze,
     )
 
-    outcome = analyze(
+    result = optimize_analysis(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
             equations=(
@@ -62,53 +61,61 @@ def test_cross_equation_canonical_binders_do_not_capture_user_symbols() -> None:
                 ),
             ),
             variables={"optimization_sum_0": VariableDeclaration(domain=MathematicalDomain.REAL)},
-            optimization=OptimizationConfig(max_suggestions=16),
-        )
+        ),
+        projection_limit=16,
     )
 
-    assert outcome.status == "success"
-    assert all(item.kind != "cross_equation_sharing" for item in outcome.optimization.suggestions)
+    assert result.status == "success"
+    assert all(
+        all(step.kind != "cross_equation_sharing" for step in plan.trace)
+        for plan in result.plans
+    )
 
 
 def test_limits_and_repeated_process_json_are_deterministic() -> None:
     import subprocess
     import sys
 
-    from py_science.formula import (
-        AnalysisRequest,
-        FormulaSyntax,
-        OptimizationConfig,
-        analyze,
-    )
+    from goal_requests import optimize_analysis
+    from py_science.formula import AnalysisRequest, FormulaSyntax
 
     expression = "(a*x**3 + b*x**2 + c*x + d) + (y + 1)*(y + 1) + z*w + z*q + (r + 0)"
-    for limit in (0, 1, 3, 16):
-        outcome = analyze(
-            AnalysisRequest(
-                syntax=FormulaSyntax.SYMPY,
-                expression=expression,
-                optimization=OptimizationConfig(max_suggestions=limit),
-            )
+    for limit in (1, 3, 16):
+        result = optimize_analysis(
+            AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression),
+            projection_limit=limit,
         )
-        assert outcome.status == "success" and outcome.optimization is not None
-        assert len(outcome.optimization.suggestions) <= limit
-        assert outcome.optimization.status == ("disabled" if limit == 0 else "incomplete")
+        assert result.status == "success"
+        assert len(result.plans) <= limit
+        assert result.projection_status == "complete"
+        assert result.projection_qualifications == ()
+        assert result.search_scope.completion == "incomplete"
+        assert result.search_scope.qualifications
 
-    empty = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x"))
-    assert empty.status == "success" and empty.optimization is not None
-    assert empty.optimization.status == "complete"
-    assert empty.optimization.suggestions == ()
-    assert empty.optimization.qualifications == ()
+    empty = optimize_analysis(
+        AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x"), projection_limit=16
+    )
+    assert empty.status == "success"
+    assert empty.classification == "no_applicable_candidate"
+    assert empty.plans == ()
+    assert empty.search_scope.completion == "complete"
+    assert empty.search_scope.qualifications == ()
 
-    script = f"""
-from py_science.formula import AnalysisRequest, FormulaSyntax, OptimizationConfig, analyze
-request = AnalysisRequest(
+    script = f'''
+from py_science.formula import (
+    BoundedGoalSearchPolicy, FormulaSyntax, GoalSpec, OptimizeRequest,
+    UnitWorkObjective, VerifierBackedProofPolicy, optimize,
+)
+request = OptimizeRequest(
     syntax=FormulaSyntax.SYMPY,
     expression={expression!r},
-    optimization=OptimizationConfig(max_suggestions=16),
+    goal=GoalSpec(objective=UnitWorkObjective()),
+    search=BoundedGoalSearchPolicy(),
+    proof=VerifierBackedProofPolicy(),
+    projection_limit=16,
 )
-print(analyze(request).model_dump_json())
-"""
+print(optimize(request).model_dump_json())
+'''
     populations = tuple(
         subprocess.check_output([sys.executable, "-c", script], text=True).strip() for _ in range(3)
     )
@@ -117,20 +124,21 @@ print(analyze(request).model_dump_json())
 
 def test_composed_search_v1_alpha_renamed_binders_keep_population_order() -> None:
     """Search-only canonicalization makes alpha-equivalent binders rank identically."""
-    from py_science.formula import AnalysisRequest, FormulaSyntax, OptimizationConfig, analyze
+    from goal_requests import optimize_analysis
+    from py_science.formula import AnalysisRequest, FormulaSyntax
 
     def population(index: str) -> list[tuple[tuple[str, ...], str]]:
-        outcome = analyze(
+        result = optimize_analysis(
             AnalysisRequest(
                 syntax=FormulaSyntax.SYMPY,
                 expression=f"Sum((x + 1)*(x + 1), ({index}, 0, 3))",
-                optimization=OptimizationConfig(max_suggestions=16),
-            )
+            ),
+            projection_limit=16,
         )
-        assert outcome.status == "success" and outcome.optimization is not None
+        assert result.status == "success"
         return [
             (tuple(step.kind for step in plan.trace), plan.suggestion.objective_savings)
-            for plan in outcome.optimization.plans
+            for plan in result.plans
         ]
 
     assert population("i") == population("j")
@@ -138,17 +146,18 @@ def test_composed_search_v1_alpha_renamed_binders_keep_population_order() -> Non
 
 def test_composed_search_v1_deduplicates_opposite_generated_producer_orders() -> None:
     """Independent producer introduction orders collapse to one final state."""
-    from py_science.formula import AnalysisRequest, FormulaSyntax, OptimizationConfig, analyze
+    from goal_requests import optimize_analysis
+    from py_science.formula import AnalysisRequest, FormulaSyntax
 
-    outcome = analyze(
+    result = optimize_analysis(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
             expression="(x + 1)*(x + 1) + (y + 1)*(y + 1)",
-            optimization=OptimizationConfig(max_suggestions=16),
-        )
+        ),
+        projection_limit=16,
     )
-    assert outcome.status == "success" and outcome.optimization is not None
-    composed = [plan for plan in outcome.optimization.plans if len(plan.trace) == 2]
+    assert result.status == "success"
+    composed = [plan for plan in result.plans if len(plan.trace) == 2]
 
     assert len(composed) == 1
     assert tuple(step.kind for step in composed[0].trace) == (
@@ -160,16 +169,15 @@ def test_composed_search_v1_deduplicates_opposite_generated_producer_orders() ->
 
 def test_composed_search_v1_equation_permutations_keep_logical_population() -> None:
     """Search policy is equation-order invariant while replay preserves caller order."""
+    from goal_requests import optimize_analysis
     from py_science.formula import (
         AnalysisRequest,
         EquationRequest,
         FormulaSyntax,
         IndexDomain,
         MathematicalDomain,
-        OptimizationConfig,
         OptimizationPlan,
         VariableDeclaration,
-        analyze,
     )
 
     equations = (
@@ -186,16 +194,16 @@ def test_composed_search_v1_equation_permutations_keep_logical_population() -> N
     )
 
     def plans(order: tuple[EquationRequest, ...]) -> tuple[OptimizationPlan, ...]:
-        outcome = analyze(
+        result = optimize_analysis(
             AnalysisRequest(
                 syntax=FormulaSyntax.SYMPY,
                 equations=order,
                 variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
-                optimization=OptimizationConfig(max_suggestions=16),
-            )
+            ),
+            projection_limit=16,
         )
-        assert outcome.status == "success" and outcome.optimization is not None
-        return outcome.optimization.plans
+        assert result.status == "success"
+        return result.plans
 
     forward = plans(equations)
     reversed_order = plans(tuple(reversed(equations)))

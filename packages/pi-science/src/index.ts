@@ -99,9 +99,9 @@ export async function start(
     name: "analyze_formula",
     label: "Analyze formula",
     description:
-      "Analyze or explicitly optimize one restricted SymPy expression or named equation system with bounded exact-symbolic replayable plans, compare two candidates, or identify bounded aggregate-work term dominance on one axis",
+      "Analyze restricted-SymPy formulas for qualified symbolic work, or explicitly optimize them against a required goal with bounded replayable plans, candidate comparison, or bounded one-axis aggregate-work term dominance",
     promptSnippet:
-      "Analyze or optimize restricted-SymPy formulas for qualified symbolic work and bounded replayable plans, candidate comparison, or bounded one-axis aggregate-work term dominance",
+      "Analyze restricted-SymPy formulas for qualified symbolic work, or explicitly optimize a required goal with bounded replayable plans, candidate comparison, or bounded one-axis aggregate-work term dominance",
     promptGuidelines: [
       "Before first using analyze_formula, read the available pi-science-formula-analysis skill for the accepted dialect, request modeling, and result interpretation.",
       "When analyze_formula rejects a request, use its Python-owned message and any returned path, span, or supported alternative to correct the request.",

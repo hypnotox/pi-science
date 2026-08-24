@@ -2,7 +2,6 @@ import type {
   MathematicalDomain,
   DomainConstraint,
   EquationRequest,
-  AlgorithmicOptimizationFamily,
   PropertyCheckRequest,
   SystemQueryRequest,
   QueryRequest,
@@ -523,7 +522,6 @@ function validComparisonResult(
               primitive_costs: request.primitive_costs,
               assumptions: request.assumptions,
               definitions: request.definitions,
-              optimization: { max_suggestions: 0 },
             }
           : {
               syntax: "sympy",
@@ -533,7 +531,6 @@ function validComparisonResult(
               primitive_costs: request.primitive_costs,
               assumptions: request.assumptions,
               definitions: request.definitions,
-              optimization: { max_suggestions: 0 },
             };
       return (
         validResult(analysis, candidateRequest) &&
@@ -1063,10 +1060,7 @@ function dominanceAnalysisRequest(request: DominanceRequest): AnalysisRequest {
     range: _range,
     ...analysis
   } = request;
-  return {
-    ...analysis,
-    optimization: { max_suggestions: 0 },
-  } as AnalysisRequest;
+  return analysis as AnalysisRequest;
 }
 function validDominanceResult(
   value: unknown,
@@ -1494,23 +1488,44 @@ function validOptimizationObjective(value: unknown): boolean {
   );
 }
 
+const OPTIMIZATION_FAMILIES = [
+  "repeated_subexpression",
+  "repeated_call",
+  "reciprocal_reuse",
+  "factoring",
+  "redundant_operation_removal",
+  "iterator_invariant_hoisting",
+  "cross_equation_sharing",
+  "horner",
+  "finite_polynomial_sum_v1",
+] as const;
+
 function requestedOptimizationObjective(
-  request: AnalysisRequest | OptimizeRequest,
+  request: OptimizeRequest,
 ): OptimizationObjective | null {
-  return canonicalOptimizationObjective(
-    "operation" in request
-      ? request.objective
-      : request.optimization?.objective,
-  );
+  return canonicalOptimizationObjective(request.goal.objective);
 }
 
-function requestedAlgorithmicFamilies(
-  request: AnalysisRequest | OptimizeRequest,
-): AlgorithmicOptimizationFamily[] {
+function validOptimizeRequest(request: OptimizeRequest): boolean {
+  const goal = request.goal;
   return (
-    ("operation" in request
-      ? request.enabled_algorithmic_families
-      : request.optimization?.enabled_algorithmic_families) ?? []
+    isRecord(goal) &&
+    exactKeys(goal, ["kind", "semantics", "objective"]) &&
+    goal.kind === "preserve_all_outputs_v1" &&
+    goal.semantics === "exact_symbolic_v1" &&
+    canonicalOptimizationObjective(goal.objective) !== null &&
+    isRecord(request.search) &&
+    exactKeys(request.search, ["kind"]) &&
+    request.search.kind === "bounded_goal_v1" &&
+    isRecord(request.proof) &&
+    exactKeys(request.proof, ["kind"]) &&
+    request.proof.kind === "verifier_backed_v1" &&
+    Number.isSafeInteger(request.projection_limit) &&
+    request.projection_limit >= 1 &&
+    request.projection_limit <= 16 &&
+    !("max_plans" in request) &&
+    !("objective" in request) &&
+    !("enabled_algorithmic_families" in request)
   );
 }
 
@@ -1852,7 +1867,10 @@ function analysisRequestForTrace(
     ? ({
         ...request,
         operation: undefined,
-        max_plans: undefined,
+        goal: undefined,
+        search: undefined,
+        proof: undefined,
+        projection_limit: undefined,
       } as unknown as AnalysisRequest)
     : request;
 }
@@ -1870,7 +1888,6 @@ function candidateAsAnalysisRequest(
     primitive_costs: candidate.primitive_costs,
     assumptions: candidate.assumptions,
     definitions: candidate.definitions,
-    optimization: { max_suggestions: 0 },
   };
 }
 
@@ -2469,20 +2486,23 @@ function validOptimizationPlan(
   value: unknown,
   request: AnalysisRequest | OptimizeRequest,
 ): value is OptimizationPlan {
-  const expectedObjective = requestedOptimizationObjective(request);
+  if ("operation" in request && !validOptimizeRequest(request)) return false;
+  const expectedObjective =
+    "operation" in request ? requestedOptimizationObjective(request) : null;
   if (
     !isRecord(value) ||
     !exactKeys(value, [
       "identity",
       "objective",
+      "claim",
       "candidate",
       "suggestion",
       "trace",
     ]) ||
     typeof value.identity !== "string" ||
     !validOptimizationObjective(value.objective) ||
-    expectedObjective === null ||
-    !sameJson(value.objective, expectedObjective) ||
+    (expectedObjective !== null &&
+      !sameJson(value.objective, expectedObjective)) ||
     Buffer.byteLength(value.identity, "utf8") > MAX_RESPONSE_BYTES ||
     !validOptimizationCandidate(value.candidate, request)
   )
@@ -2509,14 +2529,28 @@ function validOptimizationPlan(
   )
     return false;
   const trace = value.trace as unknown[];
-  const enabledAlgorithmic = requestedAlgorithmicFamilies(request);
   if (
-    trace.some(
-      (step) =>
-        isRecord(step) &&
-        step.kind === "finite_polynomial_sum_v1" &&
-        !enabledAlgorithmic.includes("finite_polynomial_sum_v1"),
-    )
+    !isRecord(value.claim) ||
+    !exactKeys(value.claim, [
+      "kind",
+      "proof_policy",
+      "objective",
+      "semantics",
+      "work_semantics",
+      "search_policy",
+      "families",
+      "monotonic_depth",
+      "engine",
+    ]) ||
+    value.claim.kind !== "strict_improvement" ||
+    value.claim.proof_policy !== "verifier_backed_v1" ||
+    !sameJson(value.claim.objective, value.objective) ||
+    value.claim.semantics !== "exact_symbolic_v1" ||
+    value.claim.work_semantics !== "aggregate_abstract_work_v1" ||
+    value.claim.search_policy !== "bounded_goal_v1" ||
+    !sameJson(value.claim.families, OPTIMIZATION_FAMILIES) ||
+    value.claim.monotonic_depth !== 2 ||
+    value.claim.engine !== "goal_optimizer_v1"
   )
     return false;
   const finalStep = trace[trace.length - 1];
@@ -2645,96 +2679,6 @@ function validOptimizationPlanPopulation(plans: unknown[]): boolean {
   });
 }
 
-function validOptimization(
-  value: unknown,
-  requested: unknown,
-  request: AnalysisRequest,
-): boolean {
-  if (
-    !isRecord(value) ||
-    !exactKeys(value, [
-      "requested_limit",
-      "status",
-      "suggestions",
-      "plans",
-      "qualifications",
-      "projection_status",
-      "projection_qualifications",
-    ])
-  )
-    return false;
-  const limit = value.requested_limit;
-  if (
-    typeof limit !== "number" ||
-    !Number.isSafeInteger(limit) ||
-    limit < 0 ||
-    limit > 16 ||
-    !["disabled", "complete", "incomplete", "failed"].includes(
-      String(value.status),
-    ) ||
-    !Array.isArray(value.suggestions) ||
-    !Array.isArray(value.plans) ||
-    value.plans.length !== value.suggestions.length ||
-    !validOptimizationPlanPopulation(value.plans) ||
-    !value.plans.every(
-      (plan, index) =>
-        validOptimizationPlan(plan, request) &&
-        sameJson(
-          (plan as OptimizationPlan).suggestion,
-          (value.suggestions as unknown[])[index],
-        ),
-    ) ||
-    value.suggestions.length > limit ||
-    !value.suggestions.every((item) =>
-      validOptimizationSuggestion(item, request),
-    ) ||
-    !validStringArray(value.qualifications) ||
-    value.qualifications.length > 128 ||
-    !value.qualifications.every((qualification) =>
-      validBoundedDiagnosticText(qualification, 4_096),
-    ) ||
-    !["complete", "truncated"].includes(String(value.projection_status)) ||
-    !validStringArray(value.projection_qualifications) ||
-    value.projection_qualifications.length > 128 ||
-    !value.projection_qualifications.every((qualification) =>
-      validBoundedDiagnosticText(qualification, 4_096),
-    ) ||
-    (value.projection_status === "complete") !==
-      (value.projection_qualifications.length === 0)
-  )
-    return false;
-  const effectiveLimit =
-    isRecord(requested) && requested.max_suggestions !== undefined
-      ? requested.max_suggestions
-      : 3;
-  if (limit !== effectiveLimit) return false;
-  if (value.status === "disabled")
-    return (
-      limit === 0 &&
-      value.suggestions.length === 0 &&
-      Array.isArray(value.plans) &&
-      value.plans.length === 0 &&
-      value.qualifications.length === 0 &&
-      value.projection_status === "complete" &&
-      value.projection_qualifications.length === 0
-    );
-  if (limit === 0 || value.status === "disabled") return false;
-  if (value.status === "failed")
-    return (
-      value.suggestions.length === 0 &&
-      Array.isArray(value.plans) &&
-      value.plans.length === 0 &&
-      value.qualifications.length > 0 &&
-      value.projection_status === "complete" &&
-      value.projection_qualifications.length === 0
-    );
-  if (value.status === "incomplete" && value.qualifications.length === 0)
-    return false;
-  if (value.status === "complete" && value.qualifications.length > 0)
-    return false;
-  return true;
-}
-
 function validResult(
   value: unknown,
   request?: AnalysisRequest,
@@ -2753,7 +2697,6 @@ function validResult(
       "queries",
     ];
     if ("system" in value) keys.push("system");
-    if ("optimization" in value) keys.push("optimization");
     return (
       exactKeys(value, keys) &&
       (isExpressionRequest(request) || "system" in value) &&
@@ -2777,9 +2720,7 @@ function validResult(
       validScenarioCorrelation(request, value.scenarios) &&
       Array.isArray(value.queries) &&
       value.queries.every(validQueryResult) &&
-      validQueryCorrelation(request, value.queries as QueryResult[]) &&
-      "optimization" in value &&
-      validOptimization(value.optimization, request.optimization, request)
+      validQueryCorrelation(request, value.queries as QueryResult[])
     );
   }
   if (value.status === "failure") {
@@ -2820,56 +2761,134 @@ function validResult(
   return false;
 }
 
+function validSearchScope(value: unknown): boolean {
+  const limitKeys = [
+    "depth_one_inspected_nodes",
+    "depth_two_inspected_nodes",
+    "whole_request_inspected_nodes",
+    "generated_transitions_per_depth",
+    "complete_reanalyses_per_depth",
+    "expanded_parents_depth_two",
+    "retained_states_per_depth",
+    "aggregate_transformation_nodes_per_depth",
+    "proof_steps_per_depth",
+    "proof_nodes_per_depth",
+    "work_comparison_nodes_per_depth",
+    "whole_request_proof_steps",
+    "whole_request_proof_nodes",
+    "whole_request_work_comparison_nodes",
+    "final_states",
+    "final_proof_steps",
+    "final_proof_nodes",
+    "final_work_comparison_nodes",
+  ];
+  return (
+    isRecord(value) &&
+    exactKeys(value, [
+      "policy",
+      "families",
+      "monotonic_depth",
+      "engine",
+      "limits",
+      "completion",
+      "qualifications",
+    ]) &&
+    value.policy === "bounded_goal_v1" &&
+    sameJson(value.families, OPTIMIZATION_FAMILIES) &&
+    value.monotonic_depth === 2 &&
+    value.engine === "goal_optimizer_v1" &&
+    isRecord(value.limits) &&
+    exactKeys(value.limits, limitKeys) &&
+    Object.values(value.limits).every(nonNegativeInteger) &&
+    (value.completion === "complete" || value.completion === "incomplete") &&
+    validStringArray(value.qualifications) &&
+    value.qualifications.length <= 128 &&
+    value.qualifications.every((item) =>
+      validBoundedDiagnosticText(item, MAX_DIAGNOSTIC_BYTES),
+    ) &&
+    (value.completion === "incomplete") === value.qualifications.length > 0
+  );
+}
+
+function validOptimizationBlocker(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    exactKeys(value, ["reason", "required_information", "family", "target"]) &&
+    [
+      "missing_primitive_cost",
+      "unproved_domain_or_cardinality",
+      "evaluator_limit",
+    ].includes(String(value.reason)) &&
+    [
+      "declare_primitive_cost",
+      "declare_domain_or_cardinality",
+      "reduce_evaluator_complexity",
+    ].includes(String(value.required_information)) &&
+    OPTIMIZATION_FAMILIES.includes(value.family as never) &&
+    boundedQueryText(value.target) &&
+    value.target.length <= 160
+  );
+}
+
 function validOptimizeResult(
   value: unknown,
   request: OptimizeRequest,
 ): boolean {
-  if (!isRecord(value)) return false;
-  if (value.status === "failed")
+  if (!validOptimizeRequest(request) || !isRecord(value)) return false;
+  if (value.status === "failure")
     return (
       exactKeys(value, ["status", "error"]) &&
       typeof value.error === "string" &&
+      value.error.length > 0 &&
       Buffer.byteLength(value.error, "utf8") <= MAX_DIAGNOSTIC_BYTES
     );
   if (
     value.status !== "success" ||
     !exactKeys(value, [
       "status",
-      "requested_limit",
-      "search_status",
+      "projection_limit",
+      "classification",
+      "selection",
+      "search_scope",
       "projection_status",
-      "plans",
-      "qualifications",
       "projection_qualifications",
+      "blockers",
+      "plans",
     ])
   )
     return false;
   if (
-    value.requested_limit !== (request.max_plans ?? 3) ||
-    (value.search_status !== "complete" &&
-      value.search_status !== "incomplete") ||
-    !Array.isArray(value.plans) ||
-    value.plans.length > (request.max_plans ?? 3) ||
-    !validOptimizationPlanPopulation(value.plans) ||
-    !value.plans.every((plan) => validOptimizationPlan(plan, request)) ||
-    !validStringArray(value.qualifications) ||
-    value.qualifications.length > 128 ||
-    !value.qualifications.every((item) =>
-      validBoundedDiagnosticText(item, MAX_DIAGNOSTIC_BYTES),
-    ) ||
+    value.projection_limit !== request.projection_limit ||
+    !isRecord(value.selection) ||
+    !exactKeys(value.selection, ["kind", "projection_limit"]) ||
+    value.selection.kind !== "deterministic_ranked_prefix" ||
+    value.selection.projection_limit !== request.projection_limit ||
+    !validSearchScope(value.search_scope) ||
     !["complete", "truncated"].includes(String(value.projection_status)) ||
     !validStringArray(value.projection_qualifications) ||
     value.projection_qualifications.length > 128 ||
     !value.projection_qualifications.every((item) =>
       validBoundedDiagnosticText(item, MAX_DIAGNOSTIC_BYTES),
     ) ||
-    (value.projection_status === "complete") !==
-      (value.projection_qualifications.length === 0)
+    (value.projection_status === "truncated") !==
+      value.projection_qualifications.length > 0 ||
+    !Array.isArray(value.blockers) ||
+    value.blockers.length > 16 ||
+    !value.blockers.every(validOptimizationBlocker) ||
+    !Array.isArray(value.plans) ||
+    value.plans.length > request.projection_limit ||
+    !validOptimizationPlanPopulation(value.plans) ||
+    !value.plans.every((plan) => validOptimizationPlan(plan, request)) ||
+    ![
+      "plans_returned",
+      "no_applicable_candidate",
+      "no_verified_improvement",
+    ].includes(String(value.classification))
   )
     return false;
-  return (
-    (value.search_status === "incomplete") === value.qualifications.length > 0
-  );
+  if (value.classification === "plans_returned")
+    return value.plans.length > 0 || value.projection_status === "truncated";
+  return value.plans.length === 0;
 }
 
 export function validateCorrelatedResult(

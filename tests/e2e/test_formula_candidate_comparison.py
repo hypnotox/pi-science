@@ -4,8 +4,10 @@ from typing import Literal
 import py_science.formula.comparison as comparison_service
 import py_science.formula.mapped_outputs as mapped_outputs
 import pytest
+from goal_requests import goal_request, optimize_analysis
 from py_science.formula import (
     AnalysisFailure,
+    AnalysisRequest,
     AnalysisSuccess,
     CandidateComparisonRequest,
     CandidateComparisonSuccess,
@@ -21,6 +23,7 @@ from py_science.formula import (
     IdentityEvidence,
     IndexDomain,
     MathematicalDomain,
+    OptimizeRequest,
     PropertyEvidence,
     QueryAnswer,
     VariableDeclaration,
@@ -110,7 +113,7 @@ def test_complete_candidate_replays_reciprocal_and_call_reuse_without_compositio
     assert replayed.aggregate_analysis.total_work != retained.aggregate_analysis.total_work
 
 
-def test_nested_analysis_disables_optimization() -> None:
+def test_nested_analysis_omits_optimization() -> None:
     request = CandidateComparisonRequest(
         syntax=FormulaSyntax.SYMPY,
         variables={
@@ -156,32 +159,21 @@ def test_nested_analysis_disables_optimization() -> None:
         "x/d",
         "x/d",
     )
-    ordinary_analyses: list[AnalysisSuccess] = []
     for candidate_request, candidate in zip(
         request.candidates, result.candidates, strict=True
     ):
-        assert candidate.analysis.optimization.model_dump() == {
-            "requested_limit": 0,
-            "status": "disabled",
-            "suggestions": (),
-            "plans": (),
-                "qualifications": (),
-                "projection_status": "complete",
-                "projection_qualifications": (),
-        }
+        assert "optimization" not in candidate.analysis.model_dump()
         ordinary = analyze(request.analysis_request(candidate_request))
         assert isinstance(ordinary, AnalysisSuccess)
-        ordinary_analyses.append(ordinary)
-        assert candidate.analysis.model_copy(
-            update={"optimization": ordinary.optimization}
-        ) == ordinary
-    optimizable = compare_candidates(_expression_request("x + 0", "x + 0"))
-    assert isinstance(optimizable, CandidateComparisonSuccess)
-    assert all(
-        candidate.analysis.optimization.status == "disabled"
-        for candidate in optimizable.candidates
+        assert candidate.analysis == ordinary
+    optimization = optimize_analysis(
+        AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 0")
     )
-    assert ordinary_analyses[0].optimization.requested_limit == 3
+    assert optimization.status == "success"
+    assert any(
+        plan.suggestion.kind == "redundant_operation_removal"
+        for plan in optimization.plans
+    )
     assert result.candidates[0].aggregate_work != result.candidates[1].aggregate_work
     assert result.work_comparison.delta == "-1"
     assert result.work_comparison.status == "second_lower"
@@ -852,24 +844,8 @@ def test_result_models_reject_invalid_qualification_truth_tables() -> None:
     ),
 )
 def test_candidate_comparison_rejects_optimizer_controls(control: dict[str, object]) -> None:
+    payload = goal_request(
+        AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 0")
+    ).model_dump()
     with pytest.raises(ValidationError):
-        CandidateComparisonRequest.model_validate(
-            {
-                "syntax": FormulaSyntax.SYMPY,
-                "operation": "compare_candidates",
-                **control,
-                "candidates": [
-                    {"name": "first", "expression": "x"},
-                    {"name": "second", "expression": "x + 0"},
-                ],
-                "outputs": [
-                    {
-                        "name": "value",
-                        "targets": [
-                            {"candidate": "first", "target": {"kind": "expression"}},
-                            {"candidate": "second", "target": {"kind": "expression"}},
-                        ],
-                    }
-                ],
-            }
-        )
+        OptimizeRequest.model_validate({**payload, **control})

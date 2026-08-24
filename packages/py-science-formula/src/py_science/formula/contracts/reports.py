@@ -14,7 +14,6 @@ from py_science.formula.contracts.common import (
     RelationshipUse,
     SymbolicOperationCounts,
 )
-from py_science.formula.contracts.optimization import OptimizationReport
 from py_science.formula.contracts.queries import QueryResult
 from pydantic import Field, model_validator
 
@@ -173,9 +172,6 @@ class AnalysisSuccess(StructuredModel):
     system: SystemReport | None = None
     scenarios: tuple[ScenarioResult, ...] = ()
     queries: tuple[QueryResult, ...] = ()
-    optimization: OptimizationReport = Field(
-        default_factory=lambda: OptimizationReport(requested_limit=0, status="disabled")
-    )
 
     @model_validator(mode="after")
     def validate_direct_work(self) -> "AnalysisSuccess":

@@ -33,6 +33,7 @@ from py_science.formula.models import (
     Interpretation,
     OptimizationIntermediate,
     OptimizationKind,
+    OptimizationObjective,
     OptimizationOccurrence,
     OptimizationOrdering,
     OptimizationSuggestion,
@@ -352,6 +353,7 @@ def _verify_candidate(
     budget: _OptimizationBudget,
     analyzer: _RetainedAnalyzer,
     *,
+    objective: OptimizationObjective,
     accounting: _OutcomeAccounting | None = None,
 ) -> _CandidateOutcome:
     transformations = candidate.transformed_targets or (
@@ -545,8 +547,8 @@ def _verify_candidate(
         )
     except _BudgetExhausted as error:
         return _Exhausted(str(error))
-    objective_before = project_optimization_objective(before, request.optimization.objective)
-    objective_after = project_optimization_objective(after, request.optimization.objective)
+    objective_before = project_optimization_objective(before, objective)
+    objective_after = project_optimization_objective(after, objective)
     relation = compare_aggregate_work(
         AggregateWorkComparisonInput(
             work=objective_after,
@@ -711,6 +713,7 @@ def _original_final_suggestion(
     budget: _OptimizationBudget,
     analyzer: _RetainedAnalyzer,
     *,
+    objective: OptimizationObjective,
     accounting: _OutcomeAccounting | None = None,
 ) -> tuple[OptimizationSuggestion, Expression] | _Rejected | _Exhausted:
     """Independently prove and measure a retained final against the submitted root."""
@@ -731,8 +734,8 @@ def _original_final_suggestion(
         return _Rejected("final aggregate work is unavailable")
     if root_work.direct_work_blockers or final_work.direct_work_blockers:
         return _Rejected("final aggregate work is unavailable")
-    root_objective = project_optimization_objective(root_work, request.optimization.objective)
-    final_objective = project_optimization_objective(final_work, request.optimization.objective)
+    root_objective = project_optimization_objective(root_work, objective)
+    final_objective = project_optimization_objective(final_work, objective)
     try:
         budget.work(expression_node_count(root_objective) + expression_node_count(final_objective))
     except _BudgetExhausted as error:

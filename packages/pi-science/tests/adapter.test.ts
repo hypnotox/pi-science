@@ -14,6 +14,24 @@ function invoke(input: string) {
   });
 }
 
+const goal = {
+  kind: "preserve_all_outputs_v1",
+  semantics: "exact_symbolic_v1",
+  objective: { kind: "unit_work_v1" },
+} as const;
+const optimizeRequest = (
+  request: Record<string, unknown>,
+  projection_limit = 16,
+) => ({
+  syntax: "sympy",
+  operation: "optimize",
+  ...request,
+  goal,
+  search: { kind: "bounded_goal_v1" },
+  proof: { kind: "verifier_backed_v1" },
+  projection_limit,
+});
+
 const comparisonRequest = {
   syntax: "sympy",
   operation: "compare_candidates",
@@ -113,10 +131,10 @@ const systemRequest = {
 };
 
 describe("formula adapter protocol boundary", () => {
-  it("round trips a lexical Let binding under protocol v15", () => {
+  it("round trips a lexical Let binding under protocol v17", () => {
     const result = invoke(
       JSON.stringify({
-        version: 16,
+        version: 17,
         request: {
           syntax: "sympy",
           expression: "Let(t, x*x, t + t)",
@@ -126,7 +144,7 @@ describe("formula adapter protocol boundary", () => {
 
     expect(result.status).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({
-      version: 16,
+      version: 17,
       result: {
         status: "success",
         interpretation: {
@@ -138,7 +156,7 @@ describe("formula adapter protocol boundary", () => {
 
     const malformed = invoke(
       JSON.stringify({
-        version: 16,
+        version: 17,
         request: {
           syntax: "sympy",
           expression: "Let(t, t + 1, t)",
@@ -147,7 +165,7 @@ describe("formula adapter protocol boundary", () => {
     );
     expect(malformed.status).toBe(0);
     expect(JSON.parse(malformed.stdout)).toMatchObject({
-      version: 16,
+      version: 17,
       result: {
         status: "failure",
         error: {
@@ -162,12 +180,8 @@ describe("formula adapter protocol boundary", () => {
   it("replays a projected optimization candidate unchanged", () => {
     const optimized = invoke(
       JSON.stringify({
-        version: 16,
-        request: {
-          syntax: "sympy",
-          operation: "optimize",
-          expression: "x*x + x*x",
-        },
+        version: 17,
+        request: optimizeRequest({ expression: "x*x + x*x" }),
       }),
     );
     expect(optimized.status).toBe(0);
@@ -180,7 +194,7 @@ describe("formula adapter protocol boundary", () => {
 
     const replayed = invoke(
       JSON.stringify({
-        version: 16,
+        version: 17,
         request: { syntax: "sympy", ...candidate },
       }),
     );
@@ -190,18 +204,15 @@ describe("formula adapter protocol boundary", () => {
 
     const optimizedSystem = invoke(
       JSON.stringify({
-        version: 16,
-        request: {
-          syntax: "sympy",
-          operation: "optimize",
+        version: 17,
+        request: optimizeRequest({
           equations: [
             { name: "a", expression: "Eq(a, x*x + 1)" },
             { name: "b", expression: "Eq(b, x*x - 1)" },
             { name: "untouched", expression: "Eq(untouched, (z + 1))" },
           ],
           variables: { x: { domain: "real" }, z: { domain: "real" } },
-          max_plans: 16,
-        },
+        }),
       }),
     );
     expect(optimizedSystem.status).toBe(0);
@@ -221,7 +232,7 @@ describe("formula adapter protocol boundary", () => {
 
     const replayedSystem = invoke(
       JSON.stringify({
-        version: 16,
+        version: 17,
         request: { syntax: "sympy", ...systemPlan.candidate },
       }),
     );
@@ -229,199 +240,211 @@ describe("formula adapter protocol boundary", () => {
     expect(JSON.parse(replayedSystem.stdout).result.status).toBe("success");
   });
 
-  it("round trips local, sharing, Horner, and incomplete optimization reports", () => {
-    const requests = [
-      { syntax: "sympy", expression: "x" },
-      {
-        syntax: "sympy",
-        expression: "x",
-        optimization: { max_suggestions: 0 },
-      },
-      { syntax: "sympy", expression: "x*y + x*z" },
-      {
-        syntax: "sympy",
-        equations: [
-          { name: "value", expression: "Eq(value, (x + 1) * (x + 1))" },
-        ],
-        variables: { x: { domain: "real" } },
-      },
-      {
-        syntax: "sympy",
-        expression: "2*x**3 + 3*x**2 + 4*x + 5",
-      },
-      {
-        syntax: "sympy",
-        equations: [
-          {
-            name: "left",
-            expression: "Eq(left[i], x[i]*x[i] + 1)",
-            domains: { i: { lower: "0", upper: "3" } },
-          },
-          {
-            name: "right",
-            expression: "Eq(right[j], x[j]*x[j] - 1)",
-            domains: { j: { lower: "0", upper: "3" } },
-          },
-        ],
-        variables: { x: { domain: "real" } },
-        optimization: { max_suggestions: 16 },
-      },
-      {
-        syntax: "sympy",
-        equations: Array.from({ length: 128 }, (_, index) => ({
-          name: `value_${index}`,
-          expression: `Eq(value_${index}, (x + 0) + (y + 0) + (z + 0))`,
-        })),
-        variables: {
-          x: { domain: "real" },
-          y: { domain: "real" },
-          z: { domain: "real" },
+  it("keeps ordinary analyses free of optimization controls and results", () => {
+    const ordinary = invoke(
+      JSON.stringify({
+        version: 17,
+        request: { syntax: "sympy", expression: "x*y + x*z" },
+      }),
+    );
+    expect(ordinary.status).toBe(0);
+    expect(JSON.parse(ordinary.stdout).result).not.toHaveProperty(
+      "optimization",
+    );
+
+    const rejected = invoke(
+      JSON.stringify({
+        version: 17,
+        request: {
+          syntax: "sympy",
+          expression: "x",
+          optimization: { max_suggestions: 0 },
         },
+      }),
+    );
+    expect(rejected.status).toBe(2);
+  });
+
+  it("returns explicit v17 goal-driven plans with claims, scope, and blockers", () => {
+    const result = invoke(
+      JSON.stringify({
+        version: 17,
+        request: optimizeRequest({ expression: "x*y + x*z" }),
+      }),
+    );
+    expect(result.status).toBe(0);
+    const optimization = JSON.parse(result.stdout).result;
+    expect(optimization).toMatchObject({
+      status: "success",
+      projection_limit: 16,
+      classification: "plans_returned",
+      selection: { kind: "deterministic_ranked_prefix", projection_limit: 16 },
+      search_scope: {
+        policy: "bounded_goal_v1",
+        monotonic_depth: 2,
+        engine: "goal_optimizer_v1",
+        completion: "complete",
+        qualifications: [],
+        limits: { depth_one_inspected_nodes: expect.any(Number) },
       },
-    ];
-    const reports = requests.map((request) => {
-      const result = invoke(JSON.stringify({ version: 16, request }));
-      expect(result.status).toBe(0);
-      return JSON.parse(result.stdout).result.optimization;
-    });
-    expect(reports[0]).toMatchObject({
-      requested_limit: 3,
-      status: "complete",
-      suggestions: [],
-    });
-    expect(reports[1]).toEqual({
-      requested_limit: 0,
-      status: "disabled",
-      suggestions: [],
-      plans: [],
-      qualifications: [],
       projection_status: "complete",
       projection_qualifications: [],
-    });
-    expect(reports[2].suggestions[0]).toMatchObject({
-      kind: "factoring",
-      transformations: [
+      blockers: [],
+      plans: [
         {
-          target: { kind: "expression", name: null },
-          occurrences: [{ path: [], binders: [], output_indices: [] }],
-          original: {
-            normalized_sympy: "x*y + x*z",
-            normalized_latex: "x y + x z",
+          claim: {
+            kind: "strict_improvement",
+            proof_policy: "verifier_backed_v1",
+            semantics: "exact_symbolic_v1",
+            work_semantics: "aggregate_abstract_work_v1",
+            search_policy: "bounded_goal_v1",
+            monotonic_depth: 2,
+            engine: "goal_optimizer_v1",
           },
-          proposed: {
-            normalized_sympy: "x*(y + z)",
-            normalized_latex: "x \\left(y + z\\right)",
+          suggestion: {
+            kind: "factoring",
+            objective_before: "3",
+            objective_after: "2",
+            objective_savings: "1",
           },
         },
       ],
-      intermediate: null,
-      objective_before: "3",
-      objective_after: "2",
-      objective_savings: "1",
     });
-    expect(reports[3].suggestions[0]).toMatchObject({
-      kind: "repeated_subexpression",
-      transformations: [{ target: { kind: "equation", name: "value" } }],
-    });
-    expect(reports[4].suggestions[0]).toMatchObject({
-      kind: "horner",
-      transformations: [{ target: { kind: "expression", name: null } }],
-      intermediate: null,
-    });
-    expect(reports[5].suggestions[0].kind).toBe("cross_equation_sharing");
-    expect(
-      reports[5].suggestions[0].transformations.map(
-        (item: {
-          target: { name: string };
-          occurrences: Array<{ output_indices: string[] }>;
-        }) => [item.target.name, item.occurrences[0].output_indices],
-      ),
-    ).toEqual([
-      ["left", ["i"]],
-      ["right", ["j"]],
-    ]);
-    expect(reports[5].suggestions[0].intermediate.scope_output_indices).toEqual(
-      ["i"],
-    );
-    expect(reports[6]).toMatchObject({
-      requested_limit: 3,
-      status: "incomplete",
-    });
-    expect(reports[6].qualifications[0]).toContain("generated transitions");
-    expect(reports[6].qualifications[0]).toContain("measured");
-    expect(reports[6].qualifications[0]).toContain("configured");
-    expect(reports[6].suggestions).toEqual([]);
-    expect(reports[6].qualifications).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining("final-acceptance proof steps"),
-      ]),
-    );
-  }, 30_000);
+  });
 
-  it("round trips the remaining local algebraic families through the real adapter", () => {
+  it("uses all fixed optimization families, including algorithmic finite sums", () => {
     const cases = [
-      {
-        kind: "repeated_call",
-        request: {
-          syntax: "sympy",
+      ["repeated_subexpression", { expression: "(x + 1) * (x + 1)" }],
+      ["factoring", { expression: "x*y + x*z" }],
+      ["horner", { expression: "2*x**3 + 3*x**2 + 4*x + 5" }],
+      [
+        "cross_equation_sharing",
+        {
+          equations: [
+            {
+              name: "left",
+              expression: "Eq(left[i], x[i]*x[i] + 1)",
+              domains: { i: { lower: "0", upper: "3" } },
+            },
+            {
+              name: "right",
+              expression: "Eq(right[j], x[j]*x[j] - 1)",
+              domains: { j: { lower: "0", upper: "3" } },
+            },
+          ],
+          variables: { x: { domain: "real" } },
+        },
+      ],
+      [
+        "repeated_call",
+        {
           expression: "f(x) + f(x)",
           variables: { x: { domain: "real" } },
           functions: [{ name: "f", parameters: ["z"], body: "z*z" }],
-          optimization: { max_suggestions: 16 },
         },
-      },
-      {
-        kind: "reciprocal_reuse",
-        request: {
-          syntax: "sympy",
-          expression: "1/x + 1/x",
-          variables: { x: { domain: "real" } },
-          optimization: { max_suggestions: 16 },
-        },
-      },
-      {
-        kind: "iterator_invariant_hoisting",
-        request: {
-          syntax: "sympy",
+      ],
+      [
+        "reciprocal_reuse",
+        { expression: "1/x + 1/x", variables: { x: { domain: "real" } } },
+      ],
+      [
+        "iterator_invariant_hoisting",
+        {
           expression: "Sum(x*x + i, (i, 0, 3))",
           variables: { x: { domain: "real" } },
-          optimization: { max_suggestions: 16 },
         },
-      },
-    ];
-
-    for (const item of cases) {
+      ],
+      [
+        "finite_polynomial_sum_v1",
+        { expression: "3 + Sum(Sum(i*j + j**2, (j, 0, i)), (i, 0, 100))" },
+      ],
+    ] as const;
+    for (const [kind, request] of cases) {
       const result = invoke(
-        JSON.stringify({ version: 16, request: item.request }),
+        JSON.stringify({ version: 17, request: optimizeRequest(request) }),
       );
       expect(result.status).toBe(0);
-      const suggestion = JSON.parse(
-        result.stdout,
-      ).result.optimization.suggestions.find(
-        (candidate: { kind: string }) => candidate.kind === item.kind,
+      const plan = JSON.parse(result.stdout).result.plans.find(
+        (item: { suggestion: { kind: string } }) =>
+          item.suggestion.kind === kind,
       );
-      expect(suggestion).toMatchObject({
-        kind: item.kind,
-        tier: "exact_algebraic_v1",
-        transformations: [{ target: { kind: "expression", name: null } }],
+      expect(plan).toMatchObject({
+        claim: {
+          kind: "strict_improvement",
+          families: expect.arrayContaining(["finite_polynomial_sum_v1"]),
+        },
+        suggestion: {
+          kind,
+          tier:
+            kind === "finite_polynomial_sum_v1"
+              ? "exact_algorithmic_v1"
+              : "exact_algebraic_v1",
+        },
       });
     }
   });
 
-  it("accepts zero-post-work suggestions from the real adapter", () => {
+  it("reports concrete blockers without turning them into optimization failures", () => {
     const result = invoke(
       JSON.stringify({
-        version: 16,
-        request: { syntax: "sympy", expression: "x + 0" },
+        version: 17,
+        request: optimizeRequest({ expression: "f(x) + f(x)" }),
       }),
     );
     expect(result.status).toBe(0);
-    const suggestion = JSON.parse(
-      result.stdout,
-    ).result.optimization.suggestions.find(
-      (item: { kind: string }) => item.kind === "redundant_operation_removal",
+    expect(JSON.parse(result.stdout).result).toMatchObject({
+      status: "success",
+      classification: "no_verified_improvement",
+      plans: [],
+      blockers: [
+        {
+          family: "repeated_call",
+          reason: "missing_primitive_cost",
+          required_information: "declare_primitive_cost",
+          target: "expression",
+        },
+      ],
+    });
+  });
+
+  it("keeps incomplete search scope distinct from projection status", () => {
+    const result = invoke(
+      JSON.stringify({
+        version: 17,
+        request: optimizeRequest({
+          equations: Array.from({ length: 128 }, (_, index) => ({
+            name: `value_${index}`,
+            expression: `Eq(value_${index}, (x + 0) + (y + 0) + (z + 0))`,
+          })),
+          variables: {
+            x: { domain: "real" },
+            y: { domain: "real" },
+            z: { domain: "real" },
+          },
+        }),
+      }),
     );
-    expect(suggestion).toMatchObject({
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout).result).toMatchObject({
+      status: "success",
+      search_scope: {
+        completion: "incomplete",
+        qualifications: expect.any(Array),
+      },
+      projection_status: "complete",
+      plans: [],
+    });
+  }, 30_000);
+
+  it("retains zero-post-work improvements in explicit results", () => {
+    const result = invoke(
+      JSON.stringify({
+        version: 17,
+        request: optimizeRequest({ expression: "x + 0" }),
+      }),
+    );
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout).result.plans[0].suggestion).toMatchObject({
       objective_before: "1",
       objective_after: "0",
       objective_savings: "1",
@@ -433,34 +456,28 @@ describe("formula adapter protocol boundary", () => {
     [
       "incompatible protocol",
       JSON.stringify({
-        version: 15,
-        request: {
-          syntax: "sympy",
-          operation: "optimize",
-          expression: "3 + Sum(Sum(i*j + j**2, (j, 0, i)), (i, 0, 100))",
-          max_plans: 16,
-          enabled_algorithmic_families: ["finite_polynomial_sum_v1"],
-        },
+        version: 16,
+        request: { syntax: "sympy", expression: "x" },
       }),
     ],
     [
       "extra request key",
       JSON.stringify({
-        version: 16,
+        version: 17,
         request: { syntax: "sympy", expression: "x", extra: true },
       }),
     ],
     [
       "invalid request type",
       JSON.stringify({
-        version: 16,
+        version: 17,
         request: { syntax: "sympy", expression: 1 },
       }),
     ],
     [
       "reserved query name",
       JSON.stringify({
-        version: 16,
+        version: 17,
         request: {
           syntax: "sympy",
           expression: "x",
@@ -471,7 +488,7 @@ describe("formula adapter protocol boundary", () => {
     [
       "reserved property variable",
       JSON.stringify({
-        version: 16,
+        version: 17,
         request: {
           syntax: "sympy",
           expression: "x",
@@ -488,7 +505,7 @@ describe("formula adapter protocol boundary", () => {
     [
       "reserved limit variable",
       JSON.stringify({
-        version: 16,
+        version: 17,
         request: {
           syntax: "sympy",
           expression: "x",
@@ -507,7 +524,7 @@ describe("formula adapter protocol boundary", () => {
     [
       "reserved asymptotic variable",
       JSON.stringify({
-        version: 16,
+        version: 17,
         request: {
           syntax: "sympy",
           expression: "x",
@@ -534,7 +551,6 @@ describe("formula adapter protocol boundary", () => {
     expect(result.stderr).toBe("");
     expect(Buffer.byteLength(result.stdout)).toBeLessThan(10_000);
     expect(JSON.parse(result.stdout)).toMatchObject({
-      version: 16,
       error: { kind: "request" },
     });
   });
@@ -560,7 +576,7 @@ print(module._encoded({"result": "x" * 524545}) is None)
   it("preserves mandatory nulls in populated protocol-v13 query answers", () => {
     const result = invoke(
       JSON.stringify({
-        version: 16,
+        version: 17,
         request: {
           syntax: "sympy",
           expression: "x",
@@ -584,10 +600,10 @@ print(module._encoded({"result": "x" * 524545}) is None)
     });
   });
 
-  it("round trips partial nested polynomial closed forms under protocol v15", () => {
+  it("round trips partial nested polynomial closed forms under protocol v17", () => {
     const success = invoke(
       JSON.stringify({
-        version: 16,
+        version: 17,
         request: {
           syntax: "sympy",
           expression: "Sum(Sum(1, (l, -k, k)), (k, 0, p))",
@@ -607,7 +623,7 @@ print(module._encoded({"result": "x" * 524545}) is None)
     expect(success.status).toBe(0);
     const envelope = JSON.parse(success.stdout);
     expect(envelope).toMatchObject({
-      version: 16,
+      version: 17,
       result: {
         status: "success",
         system: { equations: [{ name: "expression" }] },
@@ -642,7 +658,7 @@ print(module._encoded({"result": "x" * 524545}) is None)
 
     const unresolved = invoke(
       JSON.stringify({
-        version: 16,
+        version: 17,
         request: {
           syntax: "sympy",
           expression: "Sum(Sum(1, (l, -k, k)), (k, -1, 1))",
@@ -664,7 +680,7 @@ print(module._encoded({"result": "x" * 524545}) is None)
   it("canonicalizes exact real scenario values and interval endpoints", () => {
     const result = invoke(
       JSON.stringify({
-        version: 16,
+        version: 17,
         request: {
           syntax: "sympy",
           expression: "primitive(x)",
@@ -687,7 +703,7 @@ print(module._encoded({"result": "x" * 524545}) is None)
     expect(result.status).toBe(2); // One variable cannot have fixed and bound treatments.
     const bounded = invoke(
       JSON.stringify({
-        version: 16,
+        version: 17,
         request: {
           syntax: "sympy",
           expression: "primitive(x)",
@@ -719,12 +735,12 @@ print(module._encoded({"result": "x" * 524545}) is None)
 
   it("round trips candidate comparison through the real adapter", () => {
     const result = invoke(
-      JSON.stringify({ version: 16, request: comparisonRequest }),
+      JSON.stringify({ version: 17, request: comparisonRequest }),
     );
     expect(result.status).toBe(0);
     expect(result.stderr).toBe("");
     expect(JSON.parse(result.stdout)).toMatchObject({
-      version: 16,
+      version: 17,
       result: {
         kind: "candidate_comparison",
         status: "success",
@@ -756,13 +772,13 @@ print(module._encoded({"result": "x" * 524545}) is None)
 
   it("round trips a complete equation-system request through the real adapter", () => {
     const result = invoke(
-      JSON.stringify({ version: 16, request: systemRequest }),
+      JSON.stringify({ version: 17, request: systemRequest }),
     );
     expect(result.status).toBe(0);
     expect(result.stderr).toBe("");
     const envelope = JSON.parse(result.stdout);
     expect(envelope).toMatchObject({
-      version: 16,
+      version: 17,
       result: {
         status: "success",
         system: {
@@ -801,11 +817,11 @@ print(module._encoded({"result": "x" * 524545}) is None)
   });
 });
 
-describe("dominance protocol v15", () => {
+describe("dominance protocol v17", () => {
   it("round trips canonical bounded integer dominance", () => {
     const result = invoke(
       JSON.stringify({
-        version: 16,
+        version: 17,
         request: {
           syntax: "sympy",
           operation: "analyze_dominance",
@@ -845,83 +861,18 @@ describe("dominance protocol v15", () => {
   });
 });
 
-describe("retained optimization ownership", () => {
-  it("round trips nested retained optimization disabled through the real adapter", () => {
-    const requests = [
+describe("optimization request contract", () => {
+  it("strictly rejects omitted declarative controls and legacy knobs", () => {
+    for (const request of [
+      { syntax: "sympy", operation: "optimize", expression: "x" },
+      { ...optimizeRequest({ expression: "x" }), max_plans: 1 },
       {
-        syntax: "sympy",
-        operation: "compare_candidates",
-        candidates: [
-          { name: "first", expression: "x + 0" },
-          { name: "second", expression: "x + 0" },
-        ],
-        outputs: [
-          {
-            name: "value",
-            targets: [
-              { candidate: "first", target: { kind: "expression" } },
-              { candidate: "second", target: { kind: "expression" } },
-            ],
-          },
-        ],
+        ...optimizeRequest({ expression: "x" }),
+        enabled_algorithmic_families: ["finite_polynomial_sum_v1"],
       },
-      {
-        syntax: "sympy",
-        operation: "analyze_dominance",
-        expression: "cost(N)",
-        axis: "N",
-        variables: { N: { domain: "positive_integer" } },
-        primitive_costs: [{ name: "cost", parameters: ["n"], work: "n + 0" }],
-      },
-    ];
-    for (const request of requests) {
-      const result = invoke(JSON.stringify({ version: 16, request }));
-      expect(result.status).toBe(0);
-      const parsed = JSON.parse(result.stdout).result;
-      const analyses =
-        parsed.kind === "candidate_comparison"
-          ? parsed.candidates.map(
-              (candidate: { analysis: unknown }) => candidate.analysis,
-            )
-          : [parsed.analysis];
-      for (const analysis of analyses) {
-        expect(JSON.parse(JSON.stringify(analysis))).toMatchObject({
-          optimization: {
-            requested_limit: 0,
-            status: "disabled",
-            suggestions: [],
-            plans: [],
-            qualifications: [],
-          },
-        });
-      }
+    ]) {
+      const result = invoke(JSON.stringify({ version: 17, request }));
+      expect(result.status).toBe(2);
     }
-  });
-
-  it("round trips opt-in exact algorithmic finite-sum plans under protocol v16", () => {
-    const result = invoke(
-      JSON.stringify({
-        version: 16,
-        request: {
-          syntax: "sympy",
-          operation: "optimize",
-          expression: "3 + Sum(Sum(i*j + j**2, (j, 0, i)), (i, 0, 100))",
-          max_plans: 16,
-          enabled_algorithmic_families: ["finite_polynomial_sum_v1"],
-        },
-      }),
-    );
-    expect(result.status).toBe(0);
-    const envelope = JSON.parse(result.stdout);
-    expect(envelope.version).toBe(16);
-    const plan = envelope.result.plans.find(
-      (item: { trace: Array<{ kind: string }> }) =>
-        item.trace.some((step) => step.kind === "finite_polynomial_sum_v1"),
-    );
-    expect(plan).toMatchObject({
-      suggestion: { tier: "exact_algorithmic_v1" },
-      candidate: { expression: "21591278" },
-    });
-    expect(plan.identity).not.toContain("enabled_algorithmic_families");
   });
 });

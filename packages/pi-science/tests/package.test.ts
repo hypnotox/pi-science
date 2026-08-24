@@ -32,8 +32,9 @@ const bridgeExports = [
   "DirectedDefinition",
   "ExactScenarioScalar",
   "OptimizationObjectiveInput",
-  "AlgorithmicOptimizationFamily",
-  "OptimizationConfig",
+  "GoalSpec",
+  "OptimizationSearch",
+  "OptimizationProof",
   "IntervalBound",
   "Scenario",
   "EquationTarget",
@@ -72,7 +73,14 @@ const bridgeExports = [
   "OptimizationObjective",
   "OptimizationTraceStep",
   "OptimizationPlan",
-  "OptimizationReport",
+  "StrictImprovementClaim",
+  "SearchLimits",
+  "SearchScope",
+  "OptimizationBlocker",
+  "DeterministicRankedPrefixSelection",
+  "OptimizationResult",
+  "OptimizationFailure",
+  "OptimizationOutcome",
   "AnalysisSuccess",
   "ResolvedTarget",
   "PropertyCheck",
@@ -86,9 +94,6 @@ const bridgeExports = [
   "DominanceTerm",
   "DominanceCell",
   "DominanceSuccess",
-  "OptimizationOperationSuccess",
-  "OptimizationOperationFailure",
-  "OptimizationOperationResult",
   "BridgeResult",
   "appendResponseChunk",
   "BridgeFailureKind",
@@ -401,7 +406,7 @@ describe("npm package boundary", () => {
               probeExtension,
               bridgeImports +
                 "import { start } from " + JSON.stringify(extensionPath) + ";\\n" +
-                "export default (pi) => { if (BARREL_PROTOCOL_VERSION !== 16 || CHILD_PROTOCOL_VERSION !== 16) throw new Error(\\\"installed bridge changed protocol version\\\"); return start(pi, Promise.resolve({ ready: true, command: \\\"uv\\\", args: [\\\"run\\\", \\\"--project\\\", " +
+                "export default (pi) => { if (BARREL_PROTOCOL_VERSION !== 17 || CHILD_PROTOCOL_VERSION !== 17) throw new Error(\\\"installed bridge changed protocol version\\\"); return start(pi, Promise.resolve({ ready: true, command: \\\"uv\\\", args: [\\\"run\\\", \\\"--project\\\", " +
                 JSON.stringify(${JSON.stringify(root)}) +
                 ", \\\"--locked\\\", \\\"python\\\", " + JSON.stringify(adapter) + "] })); };\\n",
             );

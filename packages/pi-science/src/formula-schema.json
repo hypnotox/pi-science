@@ -83,127 +83,6 @@
           "maxItems": 128,
           "type": "array"
         },
-        "optimization": {
-          "additionalProperties": false,
-          "description": "Bounded, informational advice requested only for ordinary analysis.",
-          "properties": {
-            "enabled_algorithmic_families": {
-              "items": {
-                "enum": [
-                  "finite_polynomial_sum_v1"
-                ],
-                "type": "string"
-              },
-              "maxItems": 1,
-              "type": "array"
-            },
-            "max_suggestions": {
-              "default": 3,
-              "maximum": 16,
-              "minimum": 0,
-              "type": "integer"
-            },
-            "objective": {
-              "anyOf": [
-                {
-                  "additionalProperties": false,
-                  "properties": {
-                    "kind": {
-                      "enum": [
-                        "unit_work_v1"
-                      ],
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "kind"
-                  ],
-                  "type": "object"
-                },
-                {
-                  "additionalProperties": false,
-                  "properties": {
-                    "kind": {
-                      "enum": [
-                        "weighted_operations_v1"
-                      ],
-                      "type": "string"
-                    },
-                    "weights": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "additions": {
-                          "anyOf": [
-                            {
-                              "type": "string"
-                            },
-                            {
-                              "type": "integer"
-                            }
-                          ]
-                        },
-                        "divisions": {
-                          "anyOf": [
-                            {
-                              "type": "string"
-                            },
-                            {
-                              "type": "integer"
-                            }
-                          ]
-                        },
-                        "multiplications": {
-                          "anyOf": [
-                            {
-                              "type": "string"
-                            },
-                            {
-                              "type": "integer"
-                            }
-                          ]
-                        },
-                        "powers": {
-                          "anyOf": [
-                            {
-                              "type": "string"
-                            },
-                            {
-                              "type": "integer"
-                            }
-                          ]
-                        },
-                        "subtractions": {
-                          "anyOf": [
-                            {
-                              "type": "string"
-                            },
-                            {
-                              "type": "integer"
-                            }
-                          ]
-                        }
-                      },
-                      "required": [
-                        "additions",
-                        "subtractions",
-                        "multiplications",
-                        "divisions",
-                        "powers"
-                      ],
-                      "type": "object"
-                    }
-                  },
-                  "required": [
-                    "weights",
-                    "kind"
-                  ],
-                  "type": "object"
-                }
-              ]
-            }
-          },
-          "type": "object"
-        },
         "outputs": {
           "items": {
             "type": "string"
@@ -878,127 +757,6 @@
           },
           "maxItems": 128,
           "type": "array"
-        },
-        "optimization": {
-          "additionalProperties": false,
-          "description": "Bounded, informational advice requested only for ordinary analysis.",
-          "properties": {
-            "enabled_algorithmic_families": {
-              "items": {
-                "enum": [
-                  "finite_polynomial_sum_v1"
-                ],
-                "type": "string"
-              },
-              "maxItems": 1,
-              "type": "array"
-            },
-            "max_suggestions": {
-              "default": 3,
-              "maximum": 16,
-              "minimum": 0,
-              "type": "integer"
-            },
-            "objective": {
-              "anyOf": [
-                {
-                  "additionalProperties": false,
-                  "properties": {
-                    "kind": {
-                      "enum": [
-                        "unit_work_v1"
-                      ],
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "kind"
-                  ],
-                  "type": "object"
-                },
-                {
-                  "additionalProperties": false,
-                  "properties": {
-                    "kind": {
-                      "enum": [
-                        "weighted_operations_v1"
-                      ],
-                      "type": "string"
-                    },
-                    "weights": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "additions": {
-                          "anyOf": [
-                            {
-                              "type": "string"
-                            },
-                            {
-                              "type": "integer"
-                            }
-                          ]
-                        },
-                        "divisions": {
-                          "anyOf": [
-                            {
-                              "type": "string"
-                            },
-                            {
-                              "type": "integer"
-                            }
-                          ]
-                        },
-                        "multiplications": {
-                          "anyOf": [
-                            {
-                              "type": "string"
-                            },
-                            {
-                              "type": "integer"
-                            }
-                          ]
-                        },
-                        "powers": {
-                          "anyOf": [
-                            {
-                              "type": "string"
-                            },
-                            {
-                              "type": "integer"
-                            }
-                          ]
-                        },
-                        "subtractions": {
-                          "anyOf": [
-                            {
-                              "type": "string"
-                            },
-                            {
-                              "type": "integer"
-                            }
-                          ]
-                        }
-                      },
-                      "required": [
-                        "additions",
-                        "subtractions",
-                        "multiplications",
-                        "divisions",
-                        "powers"
-                      ],
-                      "type": "object"
-                    }
-                  },
-                  "required": [
-                    "weights",
-                    "kind"
-                  ],
-                  "type": "object"
-                }
-              ]
-            }
-          },
-          "type": "object"
         },
         "outputs": {
           "items": {
@@ -2487,16 +2245,6 @@
           "maxItems": 128,
           "type": "array"
         },
-        "enabled_algorithmic_families": {
-          "items": {
-            "enum": [
-              "finite_polynomial_sum_v1"
-            ],
-            "type": "string"
-          },
-          "maxItems": 1,
-          "type": "array"
-        },
         "expression": {
           "type": "string"
         },
@@ -2531,108 +2279,127 @@
           "maxItems": 128,
           "type": "array"
         },
-        "max_plans": {
-          "maximum": 16,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "objective": {
-          "anyOf": [
-            {
-              "additionalProperties": false,
-              "properties": {
-                "kind": {
-                  "enum": [
-                    "unit_work_v1"
-                  ],
-                  "type": "string"
-                }
-              },
-              "required": [
-                "kind"
+        "goal": {
+          "additionalProperties": false,
+          "description": "The fixed initial goal: preserve submitted outputs and minimize abstract work.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "preserve_all_outputs_v1"
               ],
-              "type": "object"
+              "type": "string"
             },
-            {
-              "additionalProperties": false,
-              "properties": {
-                "kind": {
-                  "enum": [
-                    "weighted_operations_v1"
-                  ],
-                  "type": "string"
-                },
-                "weights": {
+            "objective": {
+              "anyOf": [
+                {
                   "additionalProperties": false,
                   "properties": {
-                    "additions": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "integer"
-                        }
-                      ]
-                    },
-                    "divisions": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "integer"
-                        }
-                      ]
-                    },
-                    "multiplications": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "integer"
-                        }
-                      ]
-                    },
-                    "powers": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "integer"
-                        }
-                      ]
-                    },
-                    "subtractions": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "integer"
-                        }
-                      ]
+                    "kind": {
+                      "enum": [
+                        "unit_work_v1"
+                      ],
+                      "type": "string"
                     }
                   },
                   "required": [
-                    "additions",
-                    "subtractions",
-                    "multiplications",
-                    "divisions",
-                    "powers"
+                    "kind"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "weighted_operations_v1"
+                      ],
+                      "type": "string"
+                    },
+                    "weights": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "additions": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "integer"
+                            }
+                          ]
+                        },
+                        "divisions": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "integer"
+                            }
+                          ]
+                        },
+                        "multiplications": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "integer"
+                            }
+                          ]
+                        },
+                        "powers": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "integer"
+                            }
+                          ]
+                        },
+                        "subtractions": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "integer"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "additions",
+                        "subtractions",
+                        "multiplications",
+                        "divisions",
+                        "powers"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "weights",
+                    "kind"
                   ],
                   "type": "object"
                 }
-              },
-              "required": [
-                "weights",
-                "kind"
+              ]
+            },
+            "semantics": {
+              "enum": [
+                "exact_symbolic_v1"
               ],
-              "type": "object"
+              "type": "string"
             }
-          ]
+          },
+          "required": [
+            "objective",
+            "kind",
+            "semantics"
+          ],
+          "type": "object"
         },
         "operation": {
           "enum": [
@@ -2671,6 +2438,41 @@
           "maxItems": 128,
           "type": "array"
         },
+        "projection_limit": {
+          "maximum": 16,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "proof": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "verifier_backed_v1"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        "search": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "bounded_goal_v1"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
         "variables": {
           "additionalProperties": {
             "additionalProperties": false,
@@ -2696,7 +2498,10 @@
         }
       },
       "required": [
-        "operation",
+        "goal",
+        "search",
+        "proof",
+        "projection_limit",
         "expression"
       ],
       "type": "object"
@@ -2748,16 +2553,6 @@
             "type": "object"
           },
           "maxItems": 128,
-          "type": "array"
-        },
-        "enabled_algorithmic_families": {
-          "items": {
-            "enum": [
-              "finite_polynomial_sum_v1"
-            ],
-            "type": "string"
-          },
-          "maxItems": 1,
           "type": "array"
         },
         "equations": {
@@ -2867,108 +2662,127 @@
           "maxItems": 128,
           "type": "array"
         },
-        "max_plans": {
-          "maximum": 16,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "objective": {
-          "anyOf": [
-            {
-              "additionalProperties": false,
-              "properties": {
-                "kind": {
-                  "enum": [
-                    "unit_work_v1"
-                  ],
-                  "type": "string"
-                }
-              },
-              "required": [
-                "kind"
+        "goal": {
+          "additionalProperties": false,
+          "description": "The fixed initial goal: preserve submitted outputs and minimize abstract work.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "preserve_all_outputs_v1"
               ],
-              "type": "object"
+              "type": "string"
             },
-            {
-              "additionalProperties": false,
-              "properties": {
-                "kind": {
-                  "enum": [
-                    "weighted_operations_v1"
-                  ],
-                  "type": "string"
-                },
-                "weights": {
+            "objective": {
+              "anyOf": [
+                {
                   "additionalProperties": false,
                   "properties": {
-                    "additions": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "integer"
-                        }
-                      ]
-                    },
-                    "divisions": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "integer"
-                        }
-                      ]
-                    },
-                    "multiplications": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "integer"
-                        }
-                      ]
-                    },
-                    "powers": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "integer"
-                        }
-                      ]
-                    },
-                    "subtractions": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "integer"
-                        }
-                      ]
+                    "kind": {
+                      "enum": [
+                        "unit_work_v1"
+                      ],
+                      "type": "string"
                     }
                   },
                   "required": [
-                    "additions",
-                    "subtractions",
-                    "multiplications",
-                    "divisions",
-                    "powers"
+                    "kind"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "weighted_operations_v1"
+                      ],
+                      "type": "string"
+                    },
+                    "weights": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "additions": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "integer"
+                            }
+                          ]
+                        },
+                        "divisions": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "integer"
+                            }
+                          ]
+                        },
+                        "multiplications": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "integer"
+                            }
+                          ]
+                        },
+                        "powers": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "integer"
+                            }
+                          ]
+                        },
+                        "subtractions": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "integer"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "additions",
+                        "subtractions",
+                        "multiplications",
+                        "divisions",
+                        "powers"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "weights",
+                    "kind"
                   ],
                   "type": "object"
                 }
-              },
-              "required": [
-                "weights",
-                "kind"
+              ]
+            },
+            "semantics": {
+              "enum": [
+                "exact_symbolic_v1"
               ],
-              "type": "object"
+              "type": "string"
             }
-          ]
+          },
+          "required": [
+            "objective",
+            "kind",
+            "semantics"
+          ],
+          "type": "object"
         },
         "operation": {
           "enum": [
@@ -3007,6 +2821,41 @@
           "maxItems": 128,
           "type": "array"
         },
+        "projection_limit": {
+          "maximum": 16,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "proof": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "verifier_backed_v1"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        "search": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "bounded_goal_v1"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
         "variables": {
           "additionalProperties": {
             "additionalProperties": false,
@@ -3032,7 +2881,10 @@
         }
       },
       "required": [
-        "operation",
+        "goal",
+        "search",
+        "proof",
+        "projection_limit",
         "equations"
       ],
       "type": "object"

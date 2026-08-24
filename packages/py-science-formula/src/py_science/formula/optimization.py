@@ -77,7 +77,7 @@ from ._optimization.search import (
     _complete_candidate_schedule,
     _generate_candidate_lanes,
     _generate_candidates,
-    _optimization_report,
+    _optimization_result,
     _RetainedLaneCollector,
     _round_robin_descriptors,
     _SearchState,

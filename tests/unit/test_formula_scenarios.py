@@ -15,7 +15,6 @@ from py_science.formula import (
     IndexDomain,
     IntervalBound,
     MathematicalDomain,
-    OptimizationConfig,
     PrimitiveCost,
     Scenario,
     ScenarioResult,
@@ -76,13 +75,12 @@ def test_scenario_report_serialization_remains_exact_across_service_enrichment()
             expression="x + 1",
             variables={"x": declared()},
             scenarios=(Scenario(name="fixed", fixed={"x": 2}),),
-            optimization=OptimizationConfig(max_suggestions=0),
         )
     )
 
     assert isinstance(result, AnalysisSuccess)
     assert sha256(result.model_dump_json().encode()).hexdigest() == (
-        "2da5062395ed482276da0da6efbf66aff4008742a3395b41ed104b86719f40ea"
+        "7f6888cd3dd0c7163eac23c7bd4deeb9234590638be781576916dd2f7ee08b77"
     )
 
 
@@ -113,7 +111,6 @@ def test_scenario_definitions_are_parsed_once_before_service_enrichment(
                     fixed={"x": 2},
                 ),
             ),
-            optimization=OptimizationConfig(max_suggestions=0),
         )
     )
 
@@ -199,19 +196,9 @@ def test_exact_algorithmic_sum_v1_does_not_change_scenarios() -> None:
         scenarios=(Scenario(name="fixed", fixed={"n": 100}),),
     )
     baseline = analyze(request)
-    enabled = analyze(
-        request.model_copy(
-            update={
-                "optimization": OptimizationConfig(
-                    max_suggestions=16,
-                    enabled_algorithmic_families=("finite_polynomial_sum_v1",),
-                )
-            }
-        )
-    )
     assert isinstance(baseline, AnalysisSuccess)
-    assert isinstance(enabled, AnalysisSuccess)
-    assert enabled.scenarios == baseline.scenarios
+    assert "optimization" not in baseline.model_dump()
+    assert baseline.scenarios[0].substituted_work == "20604"
 
 
 def test_general_queries_do_not_fan_out_across_scenarios() -> None:

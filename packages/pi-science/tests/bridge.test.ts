@@ -13,7 +13,7 @@ import type {
 import type {
   CandidateComparisonSuccess,
   DominanceSuccess,
-  OptimizationOperationSuccess,
+  OptimizationResult,
   SystemReport,
 } from "../src/bridge/results.js";
 import {
@@ -106,16 +106,8 @@ const success = {
   direct_work_blockers: [],
   scenarios: [],
   queries: [],
-  optimization: {
-    requested_limit: 3,
-    status: "complete",
-    suggestions: [],
-    plans: [],
-    qualifications: [],
-    projection_status: "complete",
-    projection_qualifications: [],
-  },
 };
+
 const richSuccess = {
   ...success,
   interpretation: {
@@ -347,531 +339,121 @@ describe("private formula bridge", () => {
     expect(MAX_RESPONSE_BYTES).toBe(524_544);
   });
 
-  it("strictly transports zero-post-work correlated optimization reports without recomputing policy", async () => {
-    const suggestion = {
-      kind: "reciprocal_reuse",
-      tier: "exact_algebraic_v1",
-      transformations: [
-        {
-          target: { kind: "expression", name: null },
-          occurrences: [
-            { path: [0], binders: [], output_indices: [] },
-            { path: [1], binders: [], output_indices: [] },
-          ],
-          original: { normalized_sympy: "2/x", normalized_latex: "2/x" },
-          proposed: {
-            normalized_sympy: "2*optimization_tmp_1",
-            normalized_latex: "2t",
-          },
-        },
-      ],
-      intermediate: {
-        name: "optimization_tmp_1",
-        expression: { normalized_sympy: "1/x", normalized_latex: "1/x" },
-        scope_binders: [],
-        scope_output_indices: [],
-      },
-      conclusion: "proved_under_assumptions",
-      evidence: {
-        kind: "identity",
-        statement:
-          "checked exact symbolic equivalence from submitted computation to final candidate",
-      },
-      conditions: ["x != 0"],
-      assumptions_used: [],
-      objective_before: "3",
-      objective_after: "2",
-      objective_savings: "1",
-      ordering: { position: 1, relation_to_previous: null },
-      finite_precision_qualification: "exact_symbolic_only",
-    };
-    const populated = {
-      ...success,
-      optimization: {
-        requested_limit: 3,
-        status: "complete",
-        suggestions: [suggestion],
-        plans: [optimizationPlan(suggestion)],
-        qualifications: [],
-        projection_status: "complete",
-        projection_qualifications: [],
-      },
-    };
-    await expect(
-      invokeAdapter(node, responder(populated), request("1/x + 1/x")),
-    ).resolves.toMatchObject({ optimization: populated.optimization });
-
-    const zeroPostWork = {
-      ...populated,
-      optimization: {
-        ...populated.optimization,
-        suggestions: [
-          {
-            ...suggestion,
-            objective_before: "1",
-            objective_after: "0",
-            objective_savings: "1",
-          },
-        ],
-        plans: [
-          optimizationPlan({
-            ...suggestion,
-            objective_before: "1",
-            objective_after: "0",
-            objective_savings: "1",
-          }),
-        ],
-      },
-    };
-    await expect(
-      invokeAdapter(node, responder(zeroPostWork), request("1/x + 1/x")),
-    ).resolves.toMatchObject({ optimization: zeroPostWork.optimization });
-
-    const horner = {
-      ...suggestion,
-      kind: "horner",
-      transformations: [
-        {
-          target: { kind: "expression", name: null },
-          occurrences: [{ path: [], binders: [], output_indices: [] }],
-          original: {
-            normalized_sympy: "2*x**3 + 3*x**2 + 4*x + 5",
-            normalized_latex: "p",
-          },
-          proposed: {
-            normalized_sympy: "x*(x*(2*x + 3) + 4) + 5",
-            normalized_latex: "h",
-          },
-        },
-      ],
-      intermediate: null,
-      conclusion: "proved",
-      conditions: [],
-      objective_before: "8",
-      objective_after: "6",
-      objective_savings: "2",
-    };
-    const hornerReport = {
-      ...populated,
-      optimization: {
-        ...populated.optimization,
-        suggestions: [horner],
-        plans: [optimizationPlan(horner, "x*(x*(2*x + 3) + 4) + 5")],
-      },
-    };
-    await expect(
-      invokeAdapter(
-        node,
-        responder(hornerReport),
-        request("2*x**3 + 3*x**2 + 4*x + 5"),
-      ),
-    ).resolves.toMatchObject({ optimization: hornerReport.optimization });
-
-    const disabled = {
-      ...success,
-      optimization: {
-        requested_limit: 0,
-        status: "disabled",
-        suggestions: [],
-        plans: [],
-        qualifications: [],
-        projection_status: "complete",
-        projection_qualifications: [],
-      },
-    };
-    await expect(
-      invokeAdapter(node, responder(disabled), {
-        ...request(),
-        optimization: { max_suggestions: 0 },
-      }),
-    ).resolves.toMatchObject({ optimization: disabled.optimization });
-    await expect(
-      invokeAdapter(node, responder(disabled), request()),
-    ).rejects.toMatchObject({ kind: "protocol" });
-    await expect(
-      invokeAdapter(node, responder(disabled), {
-        ...request(),
-        optimization: { max_suggestions: 2 },
-      }),
-    ).rejects.toMatchObject({ kind: "protocol" });
-    for (const malformedPassive of [
-      {
-        ...disabled,
-        optimization: {
-          ...disabled.optimization,
-          projection_status: "truncated",
-        },
-      },
-      {
-        ...disabled,
-        optimization: {
-          ...disabled.optimization,
-          projection_qualifications: ["unexpected projection"],
-        },
-      },
-    ]) {
-      await expect(
-        invokeAdapter(node, responder(malformedPassive), {
-          ...request(),
-          optimization: { max_suggestions: 0 },
-        }),
-      ).rejects.toMatchObject({ kind: "protocol" });
-    }
-    const failed = {
-      ...disabled,
-      optimization: {
-        ...disabled.optimization,
-        requested_limit: 2,
-        status: "failed",
-        qualifications: ["bounded failure"],
-      },
-    };
-    for (const malformedFailed of [
-      {
-        ...failed,
-        optimization: {
-          ...failed.optimization,
-          projection_status: "truncated",
-        },
-      },
-      {
-        ...failed,
-        optimization: {
-          ...failed.optimization,
-          projection_qualifications: ["unexpected projection"],
-        },
-      },
-    ]) {
-      await expect(
-        invokeAdapter(node, responder(malformedFailed), {
-          ...request(),
-          optimization: { max_suggestions: 2 },
-        }),
-      ).rejects.toMatchObject({ kind: "protocol" });
-    }
-
-    const incomplete = {
-      ...success,
-      optimization: {
-        requested_limit: 3,
-        status: "incomplete",
-        suggestions: [suggestion],
-        plans: [optimizationPlan(suggestion)],
-        qualifications: ["optimization candidate budget exhausted"],
-        projection_status: "complete",
-        projection_qualifications: [],
-      },
-    };
-    await expect(
-      invokeAdapter(node, responder(incomplete), request("1/x + 1/x")),
-    ).resolves.toMatchObject({ optimization: incomplete.optimization });
-
-    const { optimization: _missing, ...missing } = populated;
-    for (const malformed of [
-      missing,
-      {
-        ...populated,
-        optimization: { ...populated.optimization, requested_limit: 4 },
-      },
-      {
-        ...populated,
-        optimization: {
-          ...populated.optimization,
-          suggestions: [{ ...suggestion, surplus: true }],
-        },
-      },
-      {
-        ...populated,
-        optimization: {
-          ...populated.optimization,
-          suggestions: [
-            { ...suggestion, target: { kind: "equation", name: "fabricated" } },
-          ],
-        },
-      },
-      {
-        ...populated,
-        optimization: {
-          ...populated.optimization,
-          status: "complete",
-          qualifications: ["contradictory"],
-        },
-      },
-      {
-        ...populated,
-        optimization: {
-          ...populated.optimization,
-          suggestions: [
-            {
-              ...suggestion,
-              conclusion: "proved_under_assumptions",
-              conditions: [],
-              assumptions_used: [],
-            },
-          ],
-        },
-      },
-      ...[
-        { objective_before: "0" },
-        { objective_before: "0.0" },
-        { objective_after: "-1" },
-        { objective_savings: "0" },
-        { objective_before: "2", objective_after: "3", objective_savings: "1" },
-        {
-          objective_before: "2e0",
-          objective_after: "3e0",
-          objective_savings: "1e0",
-        },
-        { objective_before: "3", objective_after: "2", objective_savings: "2" },
-      ].map((invalidWork) => ({
-        ...populated,
-        optimization: {
-          ...populated.optimization,
-          suggestions: [{ ...suggestion, ...invalidWork }],
-        },
-      })),
-    ]) {
-      await expect(
-        invokeAdapter(node, responder(malformed), request("1/x + 1/x")),
-      ).rejects.toMatchObject({ kind: "protocol" });
-    }
-
-    const symbolicWork = {
-      ...populated,
-      optimization: {
-        ...populated.optimization,
-        suggestions: [
-          {
-            ...suggestion,
-            objective_before: "N + 1",
-            objective_after: "N",
-            objective_savings: "1",
-          },
-        ],
-        plans: [
-          optimizationPlan({
-            ...suggestion,
-            objective_before: "N + 1",
-            objective_after: "N",
-            objective_savings: "1",
-          }),
-        ],
-      },
-    };
-    await expect(
-      invokeAdapter(node, responder(symbolicWork), request("1/x + 1/x")),
-    ).resolves.toMatchObject({ optimization: symbolicWork.optimization });
-  });
-
-  it("correlates indexed sharing transformations against one coherent intermediate interface", async () => {
+  it("strictly correlates protocol-v17 goal optimization results", async () => {
     const adapter = fileURLToPath(
       new URL("../bridge/formula_adapter.py", import.meta.url),
     );
-    const args = ["run", "--locked", "python", adapter];
-    const indexedRequest: AnalysisRequest = {
-      syntax: "sympy",
-      equations: [
-        {
-          name: "left",
-          expression: "Eq(left[i], x[i]*x[i] + 1)",
-          domains: { i: { lower: "0", upper: "3" } },
-        },
-        {
-          name: "right",
-          expression: "Eq(right[j], x[j]*x[j] - 1)",
-          domains: { j: { lower: "0", upper: "3" } },
-        },
-      ],
-      variables: { x: { domain: "real" } },
-      optimization: { max_suggestions: 16 },
-    };
-    type IndexedOptimization = {
-      optimization: {
-        suggestions: Array<{
-          kind: string;
-          transformations: Array<{
-            target: { name: string };
-            occurrences: Array<{ output_indices: string[] }>;
-          }>;
-          intermediate: null | { scope_output_indices: string[] };
-        }>;
-      };
-    };
-    const indexed = (await invokeAdapter(
-      "uv",
-      args,
-      indexedRequest,
-    )) as IndexedOptimization;
-    const sharing = indexed.optimization.suggestions.find(
-      (suggestion) => suggestion.kind === "cross_equation_sharing",
-    );
-    expect(sharing).toBeDefined();
-    expect(
-      sharing?.transformations.map((transformation) => [
-        transformation.target.name,
-        transformation.occurrences[0].output_indices,
-      ]),
-    ).toEqual([
-      ["left", ["i"]],
-      ["right", ["j"]],
-    ]);
-    expect(sharing?.intermediate?.scope_output_indices).toEqual(["i"]);
-
-    const malformed = structuredClone(indexed);
-    const malformedSharing = malformed.optimization.suggestions.find(
-      (suggestion) => suggestion.kind === "cross_equation_sharing",
-    );
-    if (malformedSharing?.intermediate === null || !malformedSharing) {
-      throw new Error("indexed sharing fixture requires an intermediate");
-    }
-    malformedSharing.intermediate.scope_output_indices = ["i", "j"];
-    await expect(
-      invokeAdapter(node, responder(malformed), indexedRequest),
-    ).rejects.toMatchObject({ kind: "protocol" });
-
-    const malformedLocal = structuredClone(indexed);
-    const multiTargetLocal = malformedLocal.optimization.suggestions.find(
-      (suggestion) => suggestion.kind === "cross_equation_sharing",
-    );
-    if (!multiTargetLocal) {
-      throw new Error("indexed sharing fixture requires a suggestion");
-    }
-    multiTargetLocal.kind = "repeated_subexpression";
-    await expect(
-      invokeAdapter(node, responder(malformedLocal), indexedRequest),
-    ).rejects.toMatchObject({ kind: "protocol" });
-  });
-
-  it("strictly correlates opt-in exact algorithmic trace structure", async () => {
-    const adapter = fileURLToPath(
-      new URL("../bridge/formula_adapter.py", import.meta.url),
-    );
-    const algorithmicRequest: OptimizeRequest = {
+    const request: OptimizeRequest = {
       syntax: "sympy",
       operation: "optimize",
-      expression: "Sum(Sum(i*j + j**2, (j, 0, i)), (i, 0, 100)) + 3",
-      max_plans: 16,
-      enabled_algorithmic_families: ["finite_polynomial_sum_v1"],
+      expression: "x*x + x*x",
+      goal: {
+        kind: "preserve_all_outputs_v1",
+        semantics: "exact_symbolic_v1",
+        objective: { kind: "unit_work_v1" },
+      },
+      search: { kind: "bounded_goal_v1" },
+      proof: { kind: "verifier_backed_v1" },
+      projection_limit: 3,
     };
     const result = await invokeAdapter(
       "uv",
       ["run", "--locked", "python", adapter],
-      algorithmicRequest,
+      request,
     );
-    expect(result).toMatchObject({ status: "success" });
-    if (!("plans" in result)) throw new Error("expected optimization plans");
-    const planIndex = result.plans.findIndex((plan) =>
-      plan.trace.some(
-        (step) =>
-          step.kind === "finite_polynomial_sum_v1" &&
-          step.tier === "exact_algorithmic_v1",
-      ),
-    );
-    expect(planIndex).toBeGreaterThanOrEqual(0);
+    if (result.status !== "success" || !("plans" in result))
+      throw new Error("expected optimization success");
+    const optimizationResult = result as OptimizationResult;
+    expect(optimizationResult.search_scope.families).toEqual([
+      "repeated_subexpression",
+      "repeated_call",
+      "reciprocal_reuse",
+      "factoring",
+      "redundant_operation_removal",
+      "iterator_invariant_hoisting",
+      "cross_equation_sharing",
+      "horner",
+      "finite_polynomial_sum_v1",
+    ]);
     await expect(
-      invokeAdapter(node, responder(result), algorithmicRequest),
-    ).resolves.toEqual(result);
+      invokeAdapter(node, responder(optimizationResult), request),
+    ).resolves.toEqual(optimizationResult);
 
-    const wrongOriginal = structuredClone(result);
-    wrongOriginal.plans[
-      planIndex
-    ]!.trace[0]!.transformations[0]!.original.normalized_sympy =
-      "4 + Sum(i*j + j**2, (j, 0, i), (i, 0, 100))";
-    wrongOriginal.plans[planIndex]!.suggestion.transformations =
-      wrongOriginal.plans[planIndex]!.trace[0]!.transformations;
-    const sameTokensWrongStructure = structuredClone(result);
-    sameTokensWrongStructure.plans[
-      planIndex
-    ]!.trace[0]!.transformations[0]!.original.normalized_sympy =
-      "3 + Sum(i + j*j**2, (j, 0, i), (i, 0, 100))";
-    sameTokensWrongStructure.plans[planIndex]!.suggestion.transformations =
-      sameTokensWrongStructure.plans[planIndex]!.trace[0]!.transformations;
-    const wrongPath = structuredClone(result);
-    wrongPath.plans[
-      planIndex
-    ]!.trace[0]!.transformations[0]!.occurrences[0]!.path = [1];
-    wrongPath.plans[planIndex]!.suggestion.transformations =
-      wrongPath.plans[planIndex]!.trace[0]!.transformations;
-    const innerPath = structuredClone(result);
-    const innerOccurrence =
-      innerPath.plans[planIndex]!.trace[0]!.transformations[0]!.occurrences[0]!;
-    innerOccurrence.path = [0, 2];
-    innerOccurrence.binders = ["i"];
-    innerPath.plans[planIndex]!.suggestion.transformations =
-      innerPath.plans[planIndex]!.trace[0]!.transformations;
-    const unreachablePath = structuredClone(result);
-    unreachablePath.plans[
-      planIndex
-    ]!.trace[0]!.transformations[0]!.occurrences[0]!.path = [1, 99];
-    unreachablePath.plans[planIndex]!.suggestion.transformations =
-      unreachablePath.plans[planIndex]!.trace[0]!.transformations;
-    const wrongBinders = structuredClone(result);
-    wrongBinders.plans[
-      planIndex
-    ]!.trace[0]!.transformations[0]!.occurrences[0]!.binders = ["i"];
-    wrongBinders.plans[planIndex]!.suggestion.transformations =
-      wrongBinders.plans[planIndex]!.trace[0]!.transformations;
-    for (const invalid of [
-      wrongOriginal,
-      sameTokensWrongStructure,
-      wrongPath,
-      innerPath,
-      unreachablePath,
-      wrongBinders,
-    ]) {
-      await expect(
-        invokeAdapter(node, responder(invalid), algorithmicRequest),
-      ).rejects.toMatchObject({ kind: "protocol" });
+    const mutations: Array<(value: OptimizationResult) => void> = [
+      (value) => {
+        value.projection_limit = 2;
+      },
+      (value) => {
+        value.selection.kind = "fabricated" as never;
+      },
+      (value) => {
+        value.search_scope.families.reverse();
+      },
+      (value) => {
+        value.search_scope.completion = "incomplete";
+      },
+      (value) => {
+        value.projection_status = "truncated";
+      },
+      (value) => {
+        value.classification = "no_verified_improvement";
+      },
+      (value) => {
+        value.blockers.push({
+          reason: "evaluator_limit",
+          required_information: "reduce_evaluator_complexity",
+          family: "factoring",
+          target: "x",
+          candidate: {},
+        } as never);
+      },
+      (value) => {
+        value.plans[0]!.claim.kind = "best" as never;
+      },
+      (value) => {
+        value.plans[0]!.claim.objective = {
+          kind: "weighted_operations_v1",
+          weights: {
+            additions: "1",
+            subtractions: "1",
+            multiplications: "1",
+            divisions: "1",
+            powers: "1",
+          },
+        };
+      },
+      (value) => {
+        value.plans[0]!.claim.families = ["horner"];
+      },
+    ];
+    for (const mutate of mutations) {
+      const malformed = structuredClone(optimizationResult);
+      mutate(malformed);
+      await kind(
+        invokeAdapter(node, responder(malformed), request),
+        "protocol",
+      );
     }
-
-    const systemRequest: OptimizeRequest = {
-      syntax: "sympy",
-      operation: "optimize",
-      equations: [
-        {
-          name: "value",
-          expression:
-            "Eq(value[k], 3 + Sum(Sum(i*j + j**2, (j, 0, i)), (i, 0, 100)))",
-          domains: { k: { lower: "0", upper: "3" } },
-        },
-      ],
-      max_plans: 16,
-      enabled_algorithmic_families: ["finite_polynomial_sum_v1"],
-    };
-    const system = await invokeAdapter(
-      "uv",
-      ["run", "--locked", "python", adapter],
-      systemRequest,
+    await expect(
+      invokeAdapter(
+        node,
+        responder({ status: "failure", error: "bounded failure" }),
+        request,
+      ),
+    ).resolves.toEqual({ status: "failure", error: "bounded failure" });
+    await kind(
+      invokeAdapter(
+        node,
+        responder({ status: "failed", error: "stale" }),
+        request,
+      ),
+      "protocol",
     );
-    if (system.status !== "success" || !("plans" in system))
-      throw new Error("expected system optimization plans");
-    const systemPlanIndex = system.plans.findIndex((plan) =>
-      plan.trace.some((step) => step.kind === "finite_polynomial_sum_v1"),
+    const stale = { ...request, max_plans: 3 } as unknown as OptimizeRequest;
+    await kind(
+      invokeAdapter(node, responder(optimizationResult), stale),
+      "protocol",
     );
-    expect(systemPlanIndex).toBeGreaterThanOrEqual(0);
-    const wrongOutputIndices = structuredClone(system);
-    wrongOutputIndices.plans[
-      systemPlanIndex
-    ]!.trace[0]!.transformations[0]!.occurrences[0]!.output_indices = [];
-    wrongOutputIndices.plans[systemPlanIndex]!.suggestion.transformations =
-      wrongOutputIndices.plans[systemPlanIndex]!.trace[0]!.transformations;
-    const wrongContext = structuredClone(system);
-    const contextPlan = wrongContext.plans[systemPlanIndex]!;
-    const contextCandidate = contextPlan.trace[0]!.candidate;
-    if (
-      !("equations" in contextCandidate) ||
-      contextCandidate.equations === undefined
-    )
-      throw new Error("expected system candidate");
-    const mutatedDomain = contextCandidate.equations[0]?.domains?.k;
-    if (mutatedDomain === undefined) throw new Error("expected output domain");
-    mutatedDomain.upper = "4";
-    refreshTraceIdentities(contextPlan);
-    for (const invalid of [wrongOutputIndices, wrongContext]) {
-      await expect(
-        invokeAdapter(node, responder(invalid), systemRequest),
-      ).rejects.toMatchObject({ kind: "protocol" });
-    }
   });
 
   it("round trips the actual adapter for success, lexical Let, and analysis failure", async () => {
@@ -1161,320 +743,6 @@ describe("private formula bridge", () => {
         },
       ],
     });
-  });
-
-  it("strictly validates replayable optimize plans from the real adapter", async () => {
-    const adapter = fileURLToPath(
-      new URL("../bridge/formula_adapter.py", import.meta.url),
-    );
-    const objective = {
-      kind: "weighted_operations_v1" as const,
-      weights: {
-        additions: 1,
-        subtractions: "1",
-        multiplications: "1",
-        divisions: "1",
-        powers: "5/2",
-      },
-    };
-    const optimizeRequest: OptimizeRequest = {
-      syntax: "sympy",
-      operation: "optimize",
-      expression: "x*x + x*x",
-      variables: { x: { domain: "real" } },
-      objective,
-    };
-    const ordinaryRequest: AnalysisRequest = {
-      syntax: "sympy",
-      expression: "x*x + x*x",
-      variables: { x: { domain: "real" } },
-      optimization: { objective },
-    };
-    const result = await invokeAdapter(
-      "uv",
-      ["run", "--locked", "python", adapter],
-      optimizeRequest,
-    );
-    if (result.status !== "success" || !("search_status" in result))
-      throw new Error("expected optimize success");
-    expect(result.plans.length).toBeGreaterThan(0);
-    expect(result.plans[0]?.candidate).not.toHaveProperty("syntax");
-    expect(result.plans[0]?.candidate.outputs).toEqual(["expression"]);
-    expect(result.plans[0]?.objective).toEqual({
-      kind: "weighted_operations_v1",
-      weights: {
-        additions: "1",
-        subtractions: "1",
-        multiplications: "1",
-        divisions: "1",
-        powers: "5/2",
-      },
-    });
-    await expect(
-      invokeAdapter(node, responder(result), optimizeRequest),
-    ).resolves.toEqual(result);
-    await expect(
-      invokeAdapter(
-        "uv",
-        ["run", "--locked", "python", adapter],
-        ordinaryRequest,
-      ),
-    ).resolves.toMatchObject({
-      status: "success",
-      optimization: { plans: [{ objective: result.plans[0]?.objective }] },
-    });
-
-    const malformed: unknown[] = [];
-    const surplus = structuredClone(result);
-    Object.assign(surplus.plans[0]!.candidate, { scenarios: [] });
-    malformed.push(surplus);
-    const outputMismatch = structuredClone(result);
-    outputMismatch.plans[0]!.candidate.outputs = ["wrong"];
-    malformed.push(outputMismatch);
-    const identityDrift = structuredClone(result);
-    identityDrift.plans[0]!.identity += " ";
-    malformed.push(identityDrift);
-    const suggestionDrift = structuredClone(result);
-    suggestionDrift.plans[0]!.suggestion.objective_savings = "999";
-    malformed.push(suggestionDrift);
-    const objectiveDrift = structuredClone(result);
-    objectiveDrift.plans[0]!.objective = { kind: "unit_work_v1" };
-    malformed.push(objectiveDrift);
-    const noncanonicalObjective = structuredClone(result);
-    if (
-      noncanonicalObjective.plans[0]!.objective.kind ===
-      "weighted_operations_v1"
-    )
-      noncanonicalObjective.plans[0]!.objective.weights.additions = "2/2";
-    malformed.push(noncanonicalObjective);
-    const duplicatePosition = structuredClone(result);
-    duplicatePosition.plans.push(structuredClone(duplicatePosition.plans[0]!));
-    malformed.push(duplicatePosition);
-    for (const invalid of malformed) {
-      await expect(
-        invokeAdapter(node, responder(invalid), optimizeRequest),
-      ).rejects.toMatchObject({ kind: "protocol" });
-    }
-
-    const invalidRequestWeights: Array<[unknown, string]> = [
-      [1.5, "3/2"],
-      ["+1", "1"],
-      ["1e0", "1"],
-      ["01", "1"],
-      ["1".repeat(1_025), "1".repeat(1_025)],
-    ];
-    for (const [invalidWeight, fabricatedCanonical] of invalidRequestWeights) {
-      const invalidRequest = structuredClone(optimizeRequest) as unknown as {
-        objective: { weights: { additions: unknown } };
-      };
-      invalidRequest.objective.weights.additions = invalidWeight;
-      const fabricated = structuredClone(result);
-      for (const plan of fabricated.plans) {
-        if (plan.objective.kind === "weighted_operations_v1")
-          plan.objective.weights.additions = fabricatedCanonical;
-      }
-      await expect(
-        invokeAdapter(
-          node,
-          responder(fabricated),
-          invalidRequest as unknown as OptimizeRequest,
-        ),
-      ).rejects.toMatchObject({ kind: "protocol" });
-    }
-
-    await expect(
-      invokeAdapter(
-        node,
-        responder({ status: "failed", error: "bounded failure" }),
-        optimizeRequest,
-      ),
-    ).resolves.toEqual({ status: "failed", error: "bounded failure" });
-    await expect(
-      invokeAdapter(
-        node,
-        responder({
-          ...result,
-          search_status: "incomplete",
-          qualifications: [],
-        }),
-        optimizeRequest,
-      ),
-    ).rejects.toMatchObject({ kind: "protocol" });
-  });
-
-  it("rejects broken parent, state, identity, and objective correlations in two-step traces", async () => {
-    const adapter = fileURLToPath(
-      new URL("../bridge/formula_adapter.py", import.meta.url),
-    );
-    const composedRequest: OptimizeRequest = {
-      syntax: "sympy",
-      operation: "optimize",
-      expression: "(x + 1)*(x + 1) + 0",
-    };
-    const composed = await invokeAdapter(
-      "uv",
-      ["run", "--locked", "python", adapter],
-      composedRequest,
-    );
-    if (composed.status !== "success" || !("plans" in composed))
-      throw new Error("expected optimize success");
-    const planIndex = composed.plans.findIndex(
-      (plan) => plan.trace.length === 2,
-    );
-    expect(planIndex).toBeGreaterThanOrEqual(0);
-
-    const brokenChain = structuredClone(composed);
-    brokenChain.plans[planIndex]!.trace[1]!.objective_before = "999";
-    const brokenIntermediate = structuredClone(composed);
-    brokenIntermediate.plans[planIndex]!.trace[0]!.intermediate!.name =
-      "uncorrelated_tmp";
-    const brokenStepIdentity = structuredClone(composed);
-    brokenStepIdentity.plans[planIndex]!.trace[0]!.identity += " ";
-    const brokenFinalIdentity = structuredClone(composed);
-    brokenFinalIdentity.plans[planIndex]!.identity += " ";
-    const brokenParentProof = structuredClone(composed);
-    brokenParentProof.plans[planIndex]!.trace[0]!.evidence.statement =
-      "fabricated parent proof";
-    const brokenFinalProof = structuredClone(composed);
-    brokenFinalProof.plans[planIndex]!.suggestion.evidence.statement =
-      "fabricated original-to-final proof";
-    const brokenIntermediateValue = structuredClone(composed);
-    brokenIntermediateValue.plans[
-      planIndex
-    ]!.trace[0]!.intermediate!.expression.normalized_sympy = "x";
-    const brokenLetValue = structuredClone(composed);
-    const letStep = brokenLetValue.plans[planIndex]!.trace[0]!;
-    if (!("expression" in letStep.candidate))
-      throw new Error("expected expression candidate");
-    const letExpression = letStep.candidate.expression;
-    if (letExpression === undefined)
-      throw new Error("expected expression candidate");
-    letStep.candidate.expression = letExpression.replace(
-      /Let\(([^,]+), [^,]+, /,
-      "Let($1, x, ",
-    );
-    refreshTraceIdentities(brokenLetValue.plans[planIndex]!);
-    const brokenFinalEvidence = structuredClone(composed);
-    brokenFinalEvidence.plans[planIndex]!.suggestion.objective_before = "999";
-    const brokenState = structuredClone(composed);
-    const first = brokenState.plans[planIndex]!.trace[0]!;
-    if (!("expression" in first.candidate))
-      throw new Error("expected expression candidate");
-    first.candidate.expression = "x";
-    first.identity = JSON.stringify({
-      syntax: "sympy",
-      ...first.candidate,
-      equations: [],
-    });
-    // Candidate content must be the complete state declared by each target's
-    // proposal, not merely a different expression with a matching identity.
-    const brokenFinalState = structuredClone(composed);
-    const final = brokenFinalState.plans[planIndex]!.trace[1]!;
-    if (!("expression" in final.candidate))
-      throw new Error("expected expression candidate");
-    final.candidate.expression = "x + 1";
-    final.identity = JSON.stringify({
-      syntax: "sympy",
-      ...final.candidate,
-      equations: [],
-    });
-    brokenFinalState.plans[planIndex]!.candidate = final.candidate;
-    brokenFinalState.plans[planIndex]!.identity = final.identity;
-
-    for (const invalid of [
-      brokenChain,
-      brokenIntermediate,
-      brokenIntermediateValue,
-      brokenLetValue,
-      brokenStepIdentity,
-      brokenFinalIdentity,
-      brokenParentProof,
-      brokenFinalProof,
-      brokenFinalEvidence,
-      brokenState,
-      brokenFinalState,
-    ]) {
-      await expect(
-        invokeAdapter(node, responder(invalid), composedRequest),
-      ).rejects.toMatchObject({ kind: "protocol" });
-    }
-  });
-
-  it("rejects state-correlated system trace mutations from the real adapter", async () => {
-    const adapter = fileURLToPath(
-      new URL("../bridge/formula_adapter.py", import.meta.url),
-    );
-    const systemRequest: OptimizeRequest = {
-      syntax: "sympy",
-      operation: "optimize",
-      equations: [
-        { name: "a", expression: "Eq(a, x*x + 1)" },
-        { name: "b", expression: "Eq(b, x*x - 1)" },
-        { name: "untouched", expression: "Eq(untouched, (z + 1))" },
-      ],
-      variables: { x: { domain: "real" }, z: { domain: "real" } },
-      max_plans: 16,
-    };
-    const system = await invokeAdapter(
-      "uv",
-      ["run", "--locked", "python", adapter],
-      systemRequest,
-    );
-    if (system.status !== "success" || !("plans" in system))
-      throw new Error("expected system optimize success");
-    const optimizedSystem: OptimizationOperationSuccess = system;
-    const planIndex = optimizedSystem.plans.findIndex(
-      (plan) => plan.suggestion.kind === "cross_equation_sharing",
-    );
-    expect(planIndex).toBeGreaterThanOrEqual(0);
-    await expect(
-      invokeAdapter(node, responder(optimizedSystem), systemRequest),
-    ).resolves.toEqual(optimizedSystem);
-
-    const mutate = (
-      change: (plan: (typeof optimizedSystem.plans)[number]) => void,
-    ) => {
-      const malformed = structuredClone(optimizedSystem);
-      const plan = malformed.plans[planIndex]!;
-      change(plan);
-      refreshTraceIdentities(plan);
-      return malformed;
-    };
-    const transformedRhs = mutate((plan) => {
-      const equation = plan.trace[0]!.candidate.equations!.find(
-        (item) => item.name === "a",
-      )!;
-      equation.expression = "Eq(a, fabricated)";
-    });
-    const untouchedSerialization = mutate((plan) => {
-      const equation = plan.trace[0]!.candidate.equations!.find(
-        (item) => item.name === "untouched",
-      )!;
-      equation.expression = "Eq(untouched, z + 1)";
-    });
-    const producerRhs = mutate((plan) => {
-      const producer = plan.trace[0]!.candidate.equations!.find(
-        (item) => item.name === "optimization_tmp_1",
-      )!;
-      producer.expression = "Eq(optimization_tmp_1, fabricated)";
-    });
-    const producerName = mutate((plan) => {
-      const producer = plan.trace[0]!.candidate.equations!.find(
-        (item) => item.name === "optimization_tmp_1",
-      )!;
-      producer.name = "fabricated_producer";
-      producer.expression = "Eq(fabricated_producer, x**2)";
-    });
-    for (const malformed of [
-      transformedRhs,
-      untouchedSerialization,
-      producerRhs,
-      producerName,
-    ]) {
-      await expect(
-        invokeAdapter(node, responder(malformed), systemRequest),
-      ).rejects.toMatchObject({ kind: "protocol" });
-    }
   });
 
   it("preserves canonical null systems for expression candidate reports", async () => {
@@ -3131,76 +2399,6 @@ describe("private formula bridge", () => {
         invokeAdapter(node, responder(invalid), dominance),
         "protocol",
       );
-    }
-  });
-});
-
-describe("retained optimization ownership", () => {
-  it("strictly correlates nested retained optimization disabled", async () => {
-    const adapter = fileURLToPath(
-      new URL("../bridge/formula_adapter.py", import.meta.url),
-    );
-    const requests = [
-      comparisonRequest(),
-      {
-        syntax: "sympy" as const,
-        operation: "analyze_dominance" as const,
-        expression: "cost(N)",
-        axis: "N",
-        variables: { N: { domain: "positive_integer" as const } },
-        primitive_costs: [{ name: "cost", parameters: ["n"], work: "n + 0" }],
-      },
-    ];
-    for (const request of requests) {
-      const result = await invokeAdapter(
-        "uv",
-        ["run", "--locked", "python", adapter],
-        request,
-      );
-      const analyses =
-        "kind" in result && result.kind === "candidate_comparison"
-          ? result.candidates.map((candidate) => candidate.analysis)
-          : "kind" in result && result.kind === "dominance_analysis"
-            ? [result.analysis]
-            : [];
-      expect(analyses).not.toHaveLength(0);
-      for (const analysis of analyses) {
-        expect(analysis.optimization).toEqual({
-          requested_limit: 0,
-          status: "disabled",
-          suggestions: [],
-          plans: [],
-          qualifications: [],
-          projection_status: "complete",
-          projection_qualifications: [],
-        });
-      }
-      await expect(
-        invokeAdapter(node, responder(result), request),
-      ).resolves.toEqual(result);
-      const malformed = structuredClone(result);
-      const malformedAnalyses =
-        "kind" in malformed && malformed.kind === "candidate_comparison"
-          ? malformed.candidates.map((candidate) => candidate.analysis)
-          : "kind" in malformed && malformed.kind === "dominance_analysis"
-            ? [malformed.analysis]
-            : [];
-      for (const analysis of malformedAnalyses) {
-        analysis.optimization = {
-          requested_limit: 3,
-          status: "complete",
-          suggestions: [],
-          plans: [],
-          qualifications: [],
-          projection_status: "complete",
-          projection_qualifications: [],
-        };
-      }
-      await expect(
-        invokeAdapter(node, responder(malformed), request),
-      ).rejects.toMatchObject({
-        kind: "protocol",
-      });
     }
   });
 });

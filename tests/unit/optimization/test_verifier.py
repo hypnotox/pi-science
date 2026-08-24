@@ -13,12 +13,16 @@ def _expression(source: str):
 
 
 def test_optimization_suggestion_rejects_invalid_zero_or_negative_work() -> None:
-    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+    from goal_requests import optimize_analysis
+    from py_science.formula import AnalysisRequest, FormulaSyntax
     from pydantic import ValidationError
 
-    outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x * y + x * z"))
-    assert outcome.status == "success" and outcome.optimization is not None
-    suggestion = outcome.optimization.suggestions[0]
+    outcome = optimize_analysis(
+        AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x * y + x * z")
+    )
+    assert outcome.status == "success"
+    suggestions = tuple(plan.suggestion for plan in outcome.plans)
+    suggestion = suggestions[0]
     zero_post_work = type(suggestion).model_validate(
         {
             **suggestion.model_dump(),
@@ -39,49 +43,28 @@ def test_optimization_suggestion_rejects_invalid_zero_or_negative_work() -> None
             type(suggestion).model_validate({**suggestion.model_dump(), **invalid_work})
 
 
-def test_report_and_suggestion_cross_field_truth_table() -> None:
+def test_result_search_scope_claim_and_suggestion_cross_field_truth_table() -> None:
+    from goal_requests import optimize_analysis
     from py_science.formula import (
         AnalysisRequest,
         FormulaSyntax,
-        OptimizationReport,
+        OptimizationResult,
         OptimizationTarget,
-        analyze,
+        SearchScope,
+        StrictImprovementClaim,
     )
     from pydantic import ValidationError
 
-    populated = analyze(
-        AnalysisRequest(
-            syntax=FormulaSyntax.SYMPY,
-            expression="(x + 1) * (x + 1)",
-        )
+    populated = optimize_analysis(
+        AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="(x + 1) * (x + 1)")
     )
-    assert populated.status == "success" and populated.optimization is not None
-    suggestion = populated.optimization.suggestions[0]
-    assert OptimizationReport(requested_limit=3, status="complete").suggestions == ()
-    assert OptimizationReport(
-        requested_limit=3, status="complete", suggestions=(suggestion,)
-    ).suggestions == (suggestion,)
-    assert (
-        OptimizationReport(
-            requested_limit=3,
-            status="incomplete",
-            suggestions=(suggestion,),
-            qualifications=("optimization candidate budget exhausted",),
-        ).status
-        == "incomplete"
-    )
-    for invalid in (
-        {"requested_limit": 0, "status": "complete"},
-        {"requested_limit": 3, "status": "disabled"},
-        {"requested_limit": 3, "status": "incomplete"},
-        {
-            "requested_limit": 3,
-            "status": "complete",
-            "qualifications": ("unexpected qualification",),
-        },
-    ):
-        with pytest.raises(ValidationError):
-            OptimizationReport.model_validate(invalid)
+    assert populated.status == "success"
+    assert populated.classification == "plans_returned"
+    assert populated.selection.projection_limit == populated.projection_limit
+    assert populated.search_scope.completion == "complete"
+    assert populated.projection_status == "complete"
+    suggestions = tuple(plan.suggestion for plan in populated.plans)
+    suggestion = suggestions[0]
     suggestion_data = suggestion.model_dump()
     transformation = suggestion.transformations[0]
     second_target = transformation.model_copy(
@@ -106,25 +89,44 @@ def test_report_and_suggestion_cross_field_truth_table() -> None:
     assert schema["properties"]["transformations"]["minItems"] == 1
     assert not ({"target", "occurrences", "original", "proposed"} & schema["properties"].keys())
     assert type(suggestion).model_validate_json(suggestion.model_dump_json()) == suggestion
+    for invalid in (
+        {**suggestion_data, "savings": "-1"},
+        {**suggestion_data, "intermediate": None},
+        {
+            **suggestion_data,
+            "conclusion": "proved_under_assumptions",
+            "conditions": (),
+            "assumptions_used": (),
+        },
+    ):
+        with pytest.raises(ValidationError):
+            type(suggestion).model_validate(invalid)
+    result_data = populated.model_dump()
+    for invalid in (
+        {**result_data, "projection_limit": 0},
+        {**result_data, "classification": "no_verified_improvement"},
+        {**result_data, "projection_status": "truncated", "projection_qualifications": ()},
+        {**result_data, "optimization": None},
+    ):
+        with pytest.raises(ValidationError):
+            OptimizationResult.model_validate(invalid)
     with pytest.raises(ValidationError):
-        type(suggestion).model_validate({**suggestion_data, "savings": "-1"})
-    with pytest.raises(ValidationError):
-        type(suggestion).model_validate({**suggestion_data, "intermediate": None})
-    with pytest.raises(ValidationError):
-        type(suggestion).model_validate(
-            {
-                **suggestion_data,
-                "conclusion": "proved_under_assumptions",
-                "conditions": (),
-                "assumptions_used": (),
-            }
+        SearchScope.model_validate(
+            {**populated.search_scope.model_dump(), "completion": "incomplete"}
         )
     with pytest.raises(ValidationError):
-        type(populated).model_validate({**populated.model_dump(), "optimization": None})
+        StrictImprovementClaim.model_validate(
+            {**populated.plans[0].claim.model_dump(), "families": ()}
+        )
+    drifted_claim = populated.plans[0].claim.model_copy(update={"families": ("factoring",)})
+    drifted_plan = populated.plans[0].model_copy(update={"claim": drifted_claim})
+    with pytest.raises(ValidationError):
+        OptimizationResult.model_validate({**result_data, "plans": (drifted_plan,)})
 
 
 def test_public_proposals_reparse_and_reconstruct_independently() -> None:
-    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+    from goal_requests import optimize_analysis
+    from py_science.formula import AnalysisRequest, FormulaSyntax
 
     for expression in (
         "(x + 1) * (x + 1)",
@@ -133,9 +135,11 @@ def test_public_proposals_reparse_and_reconstruct_independently() -> None:
         "(x + 0) * y",
         "Sum(x*x + i, (i, 0, 3))",
     ):
-        outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression))
-        assert outcome.status == "success" and outcome.optimization is not None
-        plan = outcome.optimization.plans[0]
+        outcome = optimize_analysis(
+            AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression)
+        )
+        assert outcome.status == "success"
+        plan = outcome.plans[0]
         proposed = _expression(plan.trace[0].transformations[0].proposed.normalized_sympy)
         assert plan.trace[0].candidate.expression is not None
         candidate = _expression(plan.trace[0].candidate.expression)
@@ -145,37 +149,38 @@ def test_public_proposals_reparse_and_reconstruct_independently() -> None:
             assert proposed != candidate
         else:
             assert proposed == candidate
-        replayed = analyze(AnalysisRequest.model_validate(plan.trace[0].candidate.model_dump()))
+        replayed = optimize_analysis(
+            AnalysisRequest.model_validate(plan.trace[0].candidate.model_dump())
+        )
         assert replayed.status == "success"
 
 
 def test_unexpected_reasoning_and_verifier_defects_propagate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
-    from py_science.formula import optimization as optimization_service
+    from goal_requests import goal_request
+    from py_science.formula import AnalysisRequest, FormulaSyntax, optimize
+    from py_science.formula._optimization import search as search_owner
 
     def defect(*_args: object, **_kwargs: object) -> object:
         raise RuntimeError("unexpected optimization defect")
 
-    monkeypatch.setattr(optimization_service.ReasoningContext, "build", defect)
-    result = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 0"))
-    assert result.status == "success"
-    assert result.optimization.status == "failed"
+    request = goal_request(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 0"))
+    monkeypatch.setattr(search_owner.ReasoningContext, "build", defect)
+    result = optimize(request)
+    assert result.status == "failure"
 
     monkeypatch.undo()
-    from py_science.formula._optimization import search as search_owner
-
     monkeypatch.setattr(search_owner, "_verify_candidate", defect)
-    result = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 0"))
-    assert result.status == "success"
-    assert result.optimization.status == "failed"
+    result = optimize(request)
+    assert result.status == "failure"
 
 
 def test_complete_candidate_proof_reads_the_replayed_output(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+    from goal_requests import optimize_analysis
+    from py_science.formula import AnalysisRequest, FormulaSyntax
     from py_science.formula._optimization import replay as replay_owner
     from py_science.formula.computation import RetainedComputation
     from py_science.formula.optimization import _CandidateComputation
@@ -194,14 +199,17 @@ def test_complete_candidate_proof_reads_the_replayed_output(
 
     monkeypatch.setattr(replay_owner, "_complete_candidate", falsified_complete_candidate)
 
-    outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x*y + x*z"))
+    outcome = optimize_analysis(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x*y + x*z"))
 
     assert outcome.status == "success"
-    assert all(item.kind != "factoring" for item in outcome.optimization.suggestions)
+    assert all(
+        item.kind != "factoring" for item in tuple(plan.suggestion for plan in outcome.plans)
+    )
 
 
 def test_composed_search_v1_refuses_conflicting_final_qualifications() -> None:
     """Trace denominator obligations must share a model with request assumptions."""
+
     from py_science.formula import AnalysisRequest, Assumption, FormulaSyntax
     from py_science.formula.optimization import _qualifications_compatible
 

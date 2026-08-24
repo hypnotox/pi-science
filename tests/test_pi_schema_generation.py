@@ -127,40 +127,46 @@ def test_generated_pi_schema_has_public_expression_and_system_branches() -> None
     assert "expression" not in system_candidate["properties"]
     assert system_candidate["properties"]["equations"]["minItems"] == 1
     assert comparison["properties"]["outputs"]["maxItems"] == 32
-    for ordinary in (expression, system):
-        optimization = ordinary["properties"]["optimization"]
-        assert optimization["additionalProperties"] is False
-        assert optimization["properties"]["max_suggestions"] == {
-            "default": 3,
-            "minimum": 0,
-            "maximum": 16,
-            "type": "integer",
-        }
-        assert optimization["properties"]["enabled_algorithmic_families"] == {
-            "type": "array",
-            "items": {"type": "string", "enum": ["finite_polynomial_sum_v1"]},
-            "maxItems": 1,
-        }
-        objective_variants = optimization["properties"]["objective"]["anyOf"]
-        assert {
-            variant["properties"]["kind"]["enum"][0]
-            for variant in objective_variants
-        } == {"unit_work_v1", "weighted_operations_v1"}
-    for direct in (_optimize_expression, _optimize_system):
-        assert direct["properties"]["enabled_algorithmic_families"] == {
-            "type": "array",
-            "items": {"type": "string", "enum": ["finite_polynomial_sum_v1"]},
-            "maxItems": 1,
-        }
-        objective_variants = direct["properties"]["objective"]["anyOf"]
-        assert {
-            variant["properties"]["kind"]["enum"][0]
-            for variant in objective_variants
-        } == {"unit_work_v1", "weighted_operations_v1"}
     assert all(
         "optimization" not in branch["properties"]
-        for branch in (comparison, dominance_expression, dominance_system)
+        for branch in (expression, system, comparison, dominance_expression, dominance_system)
     )
+    for direct, source in (
+        (_optimize_expression, "expression"),
+        (_optimize_system, "equations"),
+    ):
+        assert direct["required"] == [
+            "goal",
+            "search",
+            "proof",
+            "projection_limit",
+            source,
+        ]
+        assert not {
+            "max_plans",
+            "objective",
+            "enabled_algorithmic_families",
+        } & direct["properties"].keys()
+        goal = direct["properties"]["goal"]
+        assert goal["additionalProperties"] is False
+        assert goal["properties"]["kind"]["enum"] == ["preserve_all_outputs_v1"]
+        assert goal["properties"]["semantics"]["enum"] == ["exact_symbolic_v1"]
+        objective_variants = goal["properties"]["objective"]["anyOf"]
+        assert {
+            variant["properties"]["kind"]["enum"][0]
+            for variant in objective_variants
+        } == {"unit_work_v1", "weighted_operations_v1"}
+        assert direct["properties"]["search"]["properties"]["kind"]["enum"] == [
+            "bounded_goal_v1"
+        ]
+        assert direct["properties"]["proof"]["properties"]["kind"]["enum"] == [
+            "verifier_backed_v1"
+        ]
+        assert direct["properties"]["projection_limit"] == {
+            "maximum": 16,
+            "minimum": 1,
+            "type": "integer",
+        }
     assert dominance_expression["properties"]["operation"]["enum"] == ["analyze_dominance"]
     assert "syntax" not in dominance_expression["properties"]
     assert dominance_expression["required"] == ["operation", "expression", "axis"]

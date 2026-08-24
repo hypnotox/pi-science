@@ -4,17 +4,16 @@ import pytest
 
 
 def test_deterministic_ranking_prefers_unconditional_then_larger_exact_savings() -> None:
+    from goal_requests import optimize_analysis
     from py_science.formula import (
         AnalysisRequest,
         EquationRequest,
         FormulaSyntax,
         MathematicalDomain,
-        OptimizationConfig,
         VariableDeclaration,
-        analyze,
     )
 
-    unconditional = analyze(
+    unconditional = optimize_analysis(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
             equations=(
@@ -24,37 +23,36 @@ def test_deterministic_ranking_prefers_unconditional_then_larger_exact_savings()
             variables={
                 name: VariableDeclaration(domain=MathematicalDomain.REAL) for name in ("x", "y")
             },
-            optimization=OptimizationConfig(max_suggestions=16),
         )
     )
-    ranked = analyze(
+    ranked = optimize_analysis(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
             expression="(x + 1) * (x + 1) + (x + 1) + (y + 1) * (y + 1)",
-            optimization=OptimizationConfig(max_suggestions=16),
         )
     )
-    assert unconditional.status == "success" and unconditional.optimization is not None
-    assert unconditional.optimization.suggestions[0].conclusion == "proved"
-    assert ranked.status == "success" and ranked.optimization is not None
+    assert unconditional.status == "success"
+    unconditional_suggestions = tuple(plan.suggestion for plan in unconditional.plans)
+    assert unconditional_suggestions[0].conclusion == "proved"
+    assert ranked.status == "success"
+    ranked_suggestions = tuple(plan.suggestion for plan in ranked.plans)
     exact_savings = [
         int(item.savings)
-        for item in ranked.optimization.suggestions
+        for item in ranked_suggestions
         if item.conclusion == "proved" and item.savings.isdigit()
     ]
     assert exact_savings == sorted(exact_savings, reverse=True)
 
 
 def test_comparable_symbolic_savings_rank_by_proof_before_stable_ties() -> None:
+    from goal_requests import optimize_analysis
     from py_science.formula import (
         AnalysisRequest,
         EquationRequest,
         FormulaSyntax,
         IndexDomain,
         MathematicalDomain,
-        OptimizationConfig,
         VariableDeclaration,
-        analyze,
     )
 
     equations = tuple(
@@ -70,7 +68,7 @@ def test_comparable_symbolic_savings_rank_by_proof_before_stable_ties() -> None:
             ("d", "l", "2*N", "-"),
         )
     )
-    outcome = analyze(
+    outcome = optimize_analysis(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
             equations=equations,
@@ -78,13 +76,12 @@ def test_comparable_symbolic_savings_rank_by_proof_before_stable_ties() -> None:
                 "N": VariableDeclaration(domain=MathematicalDomain.NONNEGATIVE_INTEGER),
                 "x": VariableDeclaration(domain=MathematicalDomain.REAL),
             },
-            optimization=OptimizationConfig(max_suggestions=16),
         )
     )
-    assert outcome.status == "success" and outcome.optimization is not None
+    assert outcome.status == "success"
     sharing = [
         plan.trace[0]
-        for plan in outcome.optimization.plans
+        for plan in outcome.plans
         if len(plan.trace) == 1 and plan.trace[0].kind == "cross_equation_sharing"
     ]
     assert [(item.transformations[0].target.name, item.objective_savings) for item in sharing] == [
@@ -93,64 +90,46 @@ def test_comparable_symbolic_savings_rank_by_proof_before_stable_ties() -> None:
     ]
 
 
-def test_objective_v1_default_and_weighted_request_shapes() -> None:
-    from py_science.formula import AnalysisRequest, FormulaSyntax, OptimizeRequest
+def _weighted_objective(*, powers: str = "1", operation_weight: str = "1"):
+    from py_science.formula import WeightedOperationsObjective
 
-    ordinary = AnalysisRequest.model_validate(
+    return WeightedOperationsObjective.model_validate(
         {
-            "syntax": FormulaSyntax.SYMPY,
-            "expression": "x + 1",
-            "optimization": {"objective": {"kind": "unit_work_v1"}},
-        }
-    )
-    direct = OptimizeRequest.model_validate(
-        {
-            "syntax": FormulaSyntax.SYMPY,
-            "expression": "x + 1",
-            "objective": {
-                "kind": "weighted_operations_v1",
-                "weights": {
-                    "additions": "1",
-                    "subtractions": "1",
-                    "multiplications": "1",
-                    "divisions": "1",
-                    "powers": "5/2",
-                },
+            "kind": "weighted_operations_v1",
+            "weights": {
+                "additions": operation_weight,
+                "subtractions": operation_weight,
+                "multiplications": operation_weight,
+                "divisions": operation_weight,
+                "powers": powers,
             },
         }
     )
-    assert ordinary.optimization.objective.kind == "unit_work_v1"
-    assert direct.objective.kind == "weighted_operations_v1"
-    assert direct.objective.weights.powers == "5/2"
+
+
+def test_objective_v1_default_and_weighted_request_shapes() -> None:
+    from goal_requests import goal_request
+    from py_science.formula import AnalysisRequest, FormulaSyntax
+    from pydantic import ValidationError
+
+    ordinary = AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 1")
+    direct = goal_request(ordinary, objective=_weighted_objective(powers="5/2"))
+    assert direct.goal.objective.kind == "weighted_operations_v1"
+    assert direct.goal.objective.weights.powers == "5/2"
+    with pytest.raises(ValidationError):
+        AnalysisRequest.model_validate({**ordinary.model_dump(), "optimization": {}})
+    with pytest.raises(ValidationError):
+        type(direct).model_validate({**direct.model_dump(), "objective": {"kind": "unit_work_v1"}})
 
 
 @pytest.mark.parametrize("weight", ["0", "-1", True, "wat", "1/0"])
 def test_objective_v1_rejects_nonpositive_or_malformed_weights(weight: object) -> None:
-    from py_science.formula import AnalysisRequest, FormulaSyntax
-
     with pytest.raises(ValueError):
-        AnalysisRequest.model_validate(
-            {
-                "syntax": FormulaSyntax.SYMPY,
-                "expression": "x + 1",
-                "optimization": {
-                    "objective": {
-                        "kind": "weighted_operations_v1",
-                        "weights": {
-                            "additions": weight,
-                            "subtractions": "1",
-                            "multiplications": "1",
-                            "divisions": "1",
-                            "powers": "1",
-                        },
-                    }
-                },
-            }
-        )
+        _weighted_objective(operation_weight=weight)  # type: ignore[arg-type]
 
 
 def test_objective_v1_rejects_incomplete_extra_and_over_bound_weights() -> None:
-    from py_science.formula import AnalysisRequest, FormulaSyntax
+    from py_science.formula import WeightedOperationsObjective
     from pydantic import ValidationError
 
     weights: dict[str, object] = {
@@ -160,130 +139,67 @@ def test_objective_v1_rejects_incomplete_extra_and_over_bound_weights() -> None:
         "divisions": "1",
         "powers": "1",
     }
-    base = {
-        "syntax": FormulaSyntax.SYMPY,
-        "expression": "x + 1",
-        "optimization": {"objective": {"kind": "weighted_operations_v1", "weights": weights}},
-    }
-    assert AnalysisRequest.model_validate(base).optimization.objective.kind == (
-        "weighted_operations_v1"
-    )
+    assert _weighted_objective().kind == "weighted_operations_v1"
     for invalid in (
         {**weights, "additions": "1e4097"},
         {key: value for key, value in weights.items() if key != "powers"},
         {**weights, "opaque": "1"},
     ):
         with pytest.raises(ValidationError):
-            AnalysisRequest.model_validate(
-                {
-                    **base,
-                    "optimization": {
-                        "objective": {
-                            "kind": "weighted_operations_v1",
-                            "weights": invalid,
-                        }
-                    },
-                }
+            WeightedOperationsObjective.model_validate(
+                {"kind": "weighted_operations_v1", "weights": invalid}
             )
 
 
 def test_objective_v1_default_all_one_parity_and_stable_identity() -> None:
-    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+    from goal_requests import optimize_analysis
+    from py_science.formula import AnalysisRequest, FormulaSyntax
 
-    expression = "(x + 1)*(x + 1) + (y*z + y*w)"
-    default = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression))
-    all_one = analyze(
-        AnalysisRequest.model_validate(
-            {
-                "syntax": FormulaSyntax.SYMPY,
-                "expression": expression,
-                "optimization": {
-                    "objective": {
-                        "kind": "weighted_operations_v1",
-                        "weights": {
-                            "additions": "1",
-                            "subtractions": "1",
-                            "multiplications": "1",
-                            "divisions": "1",
-                            "powers": "1",
-                        },
-                    }
-                },
-            }
-        )
+    request = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY, expression="(x + 1)*(x + 1) + (y*z + y*w)"
     )
+    default = optimize_analysis(request)
+    all_one = optimize_analysis(request, objective=_weighted_objective())
     assert default.status == "success" and all_one.status == "success"
-    assert [plan.identity for plan in default.optimization.plans] == [
-        plan.identity for plan in all_one.optimization.plans
-    ]
-    assert [plan.candidate for plan in default.optimization.plans] == [
-        plan.candidate for plan in all_one.optimization.plans
-    ]
-    assert [item.objective_savings for item in default.optimization.suggestions] == [
-        item.objective_savings for item in all_one.optimization.suggestions
+    assert [plan.identity for plan in default.plans] == [plan.identity for plan in all_one.plans]
+    assert [plan.candidate for plan in default.plans] == [plan.candidate for plan in all_one.plans]
+    assert [item.objective_savings for item in (plan.suggestion for plan in default.plans)] == [
+        item.objective_savings for item in (plan.suggestion for plan in all_one.plans)
     ]
 
 
 def test_objective_v1_weighted_power_reverses_plan_order() -> None:
-    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+    from goal_requests import optimize_analysis
+    from py_science.formula import AnalysisRequest, FormulaSyntax
 
-    expression = "(x + 1)*(x + 1) + (y*z + y*w)"
-    default = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression))
-    weighted = analyze(
-        AnalysisRequest.model_validate(
-            {
-                "syntax": FormulaSyntax.SYMPY,
-                "expression": expression,
-                "optimization": {
-                    "objective": {
-                        "kind": "weighted_operations_v1",
-                        "weights": {
-                            "additions": "1",
-                            "subtractions": "1",
-                            "multiplications": "1",
-                            "divisions": "1",
-                            "powers": "5/2",
-                        },
-                    }
-                },
-            }
-        )
+    request = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY, expression="(x + 1)*(x + 1) + (y*z + y*w)"
     )
+    default = optimize_analysis(request)
+    weighted = optimize_analysis(request, objective=_weighted_objective(powers="5/2"))
     assert default.status == "success" and weighted.status == "success"
-    assert default.optimization.plans[0].objective.kind == "unit_work_v1"
-    assert weighted.optimization.plans[0].objective.kind == "weighted_operations_v1"
-    assert weighted.optimization.plans[1].suggestion.ordering.relation_to_previous in {
+    assert default.plans[0].objective.kind == "unit_work_v1"
+    assert weighted.plans[0].objective.kind == "weighted_operations_v1"
+    assert weighted.plans[1].suggestion.ordering.relation_to_previous in {
         "previous_proved_superior",
         "deterministic_non_superiority",
     }
 
 
 def test_objective_v1_opaque_work_keeps_fixed_coefficient_one() -> None:
-    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+    from goal_requests import optimize_analysis
+    from py_science.formula import AnalysisRequest, FormulaSyntax, PrimitiveCost
 
-    outcome = analyze(
-        AnalysisRequest.model_validate(
-            {
-                "syntax": FormulaSyntax.SYMPY,
-                "expression": "f(x) + f(x)",
-                "primitive_costs": ({"name": "f", "parameters": ("z",), "work": "5"},),
-                "optimization": {
-                    "objective": {
-                        "kind": "weighted_operations_v1",
-                        "weights": {
-                            "additions": "2",
-                            "subtractions": "2",
-                            "multiplications": "2",
-                            "divisions": "2",
-                            "powers": "2",
-                        },
-                    }
-                },
-            }
-        )
+    outcome = optimize_analysis(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="f(x) + f(x)",
+            primitive_costs=(PrimitiveCost(name="f", parameters=("z",), work="5"),),
+        ),
+        objective=_weighted_objective(operation_weight="2"),
     )
     assert outcome.status == "success"
-    suggestion = outcome.optimization.plans[0].suggestion
+    suggestion = outcome.plans[0].suggestion
     assert suggestion.kind == "repeated_call"
     assert (
         suggestion.objective_before,
@@ -293,51 +209,27 @@ def test_objective_v1_opaque_work_keeps_fixed_coefficient_one() -> None:
 
 
 def test_objective_v1_plans_carry_canonical_provenance_and_evidence() -> None:
-    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+    from goal_requests import optimize_analysis
+    from py_science.formula import AnalysisRequest, FormulaSyntax
 
-    outcome = analyze(
-        AnalysisRequest.model_validate(
-            {
-                "syntax": FormulaSyntax.SYMPY,
-                "expression": "(x + 1)*(x + 1) + (y*z + y*w)",
-                "optimization": {
-                    "objective": {
-                        "kind": "weighted_operations_v1",
-                        "weights": {
-                            "additions": "1",
-                            "subtractions": "1",
-                            "multiplications": "1",
-                            "divisions": "1",
-                            "powers": "5/2",
-                        },
-                    }
-                },
-            }
-        )
+    outcome = optimize_analysis(
+        AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="(x + 1)*(x + 1) + (y*z + y*w)"),
+        objective=_weighted_objective(powers="5/2"),
     )
     assert outcome.status == "success"
-    plan = outcome.optimization.plans[0]
-    assert plan.objective.model_dump() == {
-        "kind": "weighted_operations_v1",
-        "weights": {
-            "additions": "1",
-            "subtractions": "1",
-            "multiplications": "1",
-            "divisions": "1",
-            "powers": "5/2",
-        },
-    }
+    plan = outcome.plans[0]
+    assert plan.objective.model_dump() == _weighted_objective(powers="5/2").model_dump()
     assert plan.suggestion.objective_before
     assert plan.suggestion.ordering.position == 1
     assert plan.suggestion.ordering.relation_to_previous is None
 
 
 def test_objective_v1_qualified_mismatches_never_claim_adjacent_superiority() -> None:
+    from goal_requests import optimize_analysis
     from py_science.formula import (
         AnalysisRequest,
         FormulaSyntax,
         RelationshipUse,
-        analyze,
     )
     from py_science.formula.expressions import IntegerLiteral
     from py_science.formula.optimization import (
@@ -350,9 +242,9 @@ def test_objective_v1_qualified_mismatches_never_claim_adjacent_superiority() ->
         syntax=FormulaSyntax.SYMPY,
         expression="(x + 1)*(x + 1) + (y*z + y*w)",
     )
-    outcome = analyze(request)
-    assert outcome.status == "success" and len(outcome.optimization.plans) >= 2
-    previous, current = outcome.optimization.plans[:2]
+    outcome = optimize_analysis(request)
+    assert outcome.status == "success" and len(outcome.plans) >= 2
+    previous, current = outcome.plans[:2]
     mismatches = (
         current.suggestion.model_copy(update={"conclusion": "proved_under_assumptions"}),
         current.suggestion.model_copy(update={"conditions": ("x != 0",)}),
@@ -377,7 +269,8 @@ def test_objective_v1_comparison_qualifications_never_claim_superiority(
 ) -> None:
     from types import SimpleNamespace
 
-    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+    from goal_requests import optimize_analysis
+    from py_science.formula import AnalysisRequest, FormulaSyntax
     from py_science.formula._optimization import objectives as objectives_owner
     from py_science.formula.expressions import Symbol
     from py_science.formula.optimization import (
@@ -390,9 +283,9 @@ def test_objective_v1_comparison_qualifications_never_claim_superiority(
         syntax=FormulaSyntax.SYMPY,
         expression="(x + 1)*(x + 1) + (y*z + y*w)",
     )
-    outcome = analyze(request)
-    assert outcome.status == "success" and len(outcome.optimization.plans) >= 2
-    previous, current = outcome.optimization.plans[:2]
+    outcome = optimize_analysis(request)
+    assert outcome.status == "success" and len(outcome.plans) >= 2
+    previous, current = outcome.plans[:2]
 
     def qualified_relation(*_args: object, **_kwargs: object) -> SimpleNamespace:
         return SimpleNamespace(status="second_lower", conditions=("N > M",), assumptions_used=())
@@ -418,24 +311,15 @@ def test_objective_v1_comparison_qualifications_never_claim_superiority(
 
 
 def test_objective_v1_result_models_reject_population_drift() -> None:
-    from py_science.formula import (
-        AnalysisRequest,
-        FormulaSyntax,
-        OptimizationConfig,
-        OptimizationReport,
-        OptimizationSuccess,
-        analyze,
-    )
+    from goal_requests import optimize_analysis
+    from py_science.formula import AnalysisRequest, FormulaSyntax, OptimizationResult
     from pydantic import ValidationError
 
-    outcome = analyze(
-        AnalysisRequest(
-            syntax=FormulaSyntax.SYMPY,
-            expression="(x + 1)*(x + 1) + (y*z + y*w)",
-        )
+    outcome = optimize_analysis(
+        AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="(x + 1)*(x + 1) + (y*z + y*w)")
     )
-    assert outcome.status == "success" and len(outcome.optimization.plans) >= 2
-    plans = outcome.optimization.plans[:2]
+    assert outcome.status == "success" and len(outcome.plans) >= 2
+    plans = outcome.plans[:2]
     drifted_second = plans[1].model_copy(
         update={
             "suggestion": plans[1].suggestion.model_copy(
@@ -444,44 +328,12 @@ def test_objective_v1_result_models_reject_population_drift() -> None:
         }
     )
     with pytest.raises(ValidationError):
-        OptimizationSuccess(
-            requested_limit=3,
-            search_status="complete",
-            plans=(plans[0], drifted_second),
-        )
-    with pytest.raises(ValidationError):
-        OptimizationReport(
-            requested_limit=3,
-            status="complete",
-            suggestions=(plans[0].suggestion, drifted_second.suggestion),
-            plans=(plans[0], drifted_second),
+        OptimizationResult.model_validate(
+            {**outcome.model_dump(), "plans": (plans[0], drifted_second)}
         )
 
-    weighted = OptimizationConfig.model_validate(
-        {
-            "objective": {
-                "kind": "weighted_operations_v1",
-                "weights": {
-                    "additions": "1",
-                    "subtractions": "1",
-                    "multiplications": "1",
-                    "divisions": "1",
-                    "powers": "1",
-                },
-            }
-        }
-    ).objective
-    objective_drift = plans[1].model_copy(update={"objective": weighted})
+    objective_drift = plans[1].model_copy(update={"objective": _weighted_objective()})
     with pytest.raises(ValidationError):
-        OptimizationSuccess(
-            requested_limit=3,
-            search_status="complete",
-            plans=(plans[0], objective_drift),
-        )
-    with pytest.raises(ValidationError):
-        OptimizationReport(
-            requested_limit=3,
-            status="complete",
-            suggestions=(plans[0].suggestion, objective_drift.suggestion),
-            plans=(plans[0], objective_drift),
+        OptimizationResult.model_validate(
+            {**outcome.model_dump(), "plans": (plans[0], objective_drift)}
         )

@@ -5,17 +5,17 @@ from __future__ import annotations
 
 from py_science.formula._analysis.retained import RetainedComputation
 from py_science.formula.models import (
-    AnalysisRequest,
     OptimizationCandidate,
     OptimizationPlan,
     OptimizationTraceStep,
+    StrictImprovementClaim,
 )
 
 from .verifier import _Accepted
 
 
 def project_plan(
-    item: _Accepted, request: AnalysisRequest, computed: RetainedComputation
+    item: _Accepted, claim: StrictImprovementClaim, computed: RetainedComputation
 ) -> OptimizationPlan:
     """Project an accepted final state into the public immutable plan model."""
     candidate_request = item.candidate
@@ -77,7 +77,8 @@ def project_plan(
     )
     return OptimizationPlan(
         identity=identity,
-        objective=request.optimization.objective,
+        objective=claim.objective,
+        claim=claim,
         candidate=candidate,
         suggestion=item.suggestion,
         trace=trace,

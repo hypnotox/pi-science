@@ -21,18 +21,12 @@ def test_retained_analysis_disables_optimization() -> None:
     retained = analyze_retained(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 0"))
 
     assert not isinstance(retained, AnalysisFailure)
-    assert retained.success.optimization.model_dump() == {
-        "requested_limit": 0,
-        "status": "disabled",
-        "suggestions": (),
-        "plans": (),
-        "qualifications": (),
-        "projection_status": "complete",
-        "projection_qualifications": (),
-    }
+    assert "optimization" not in retained.success.model_dump()
     assert (
-        type(retained.success).model_validate_json(retained.success.model_dump_json()).optimization
-        == retained.success.optimization
+        "optimization"
+        not in type(retained.success)
+        .model_validate_json(retained.success.model_dump_json())
+        .model_dump()
     )
 
 
@@ -96,54 +90,44 @@ def test_complete_candidate_schedule_preserves_all_kinds_and_the_tail() -> None:
     assert scheduled[-1] is candidates[-1]
 
 
-def test_ordinary_analysis_optimization_ownership() -> None:
-    from py_science.formula import AnalysisRequest, FormulaSyntax, OptimizationConfig, analyze
+def test_ordinary_analysis_has_no_optimization_field_or_optimizer_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+    from py_science.formula._service import optimization as optimization_service
 
-    default = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 0"))
-    disabled = analyze(
-        AnalysisRequest(
-            syntax=FormulaSyntax.SYMPY,
-            expression="x + 0",
-            optimization=OptimizationConfig(max_suggestions=0),
-        )
+    monkeypatch.setattr(
+        optimization_service,
+        "optimize",
+        lambda _request: pytest.fail("ordinary analysis dispatched optimizer"),  # pyright: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
     )
+    outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 0"))
 
-    assert default.status == "success"
-    assert default.optimization.requested_limit == 3
-    assert default.optimization.status == "complete"
-    assert any(
-        suggestion.kind == "redundant_operation_removal"
-        for suggestion in default.optimization.suggestions
-    )
-    assert disabled.status == "success"
-    assert disabled.optimization.model_dump() == {
-        "requested_limit": 0,
-        "status": "disabled",
-        "suggestions": (),
-        "plans": (),
-        "qualifications": (),
-        "projection_status": "complete",
-        "projection_qualifications": (),
-    }
+    assert outcome.status == "success"
+    assert "optimization" not in outcome.model_dump()
+    assert "optimization" not in outcome.model_dump_json()
 
 
 def test_optimize_operation_returns_replayable_complete_plans() -> None:
+    from goal_requests import goal_request
     from py_science.formula import (
         AnalysisRequest,
         FormulaSyntax,
-        OptimizeRequest,
         analyze,
         optimize,
     )
 
-    request = OptimizeRequest(
-        syntax=FormulaSyntax.SYMPY,
-        expression="x*x + x*x",
+    request = goal_request(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="x*x + x*x",
+        )
     )
     result = optimize(request)
 
     assert result.status == "success"
-    assert result.requested_limit == 3
+    assert result.projection_limit == 16
+
     assert result.plans
     plan = result.plans[0]
     assert plan.candidate.syntax == FormulaSyntax.SYMPY
@@ -177,31 +161,33 @@ def test_analysis_replay_rejects_invalid_output_identities() -> None:
 
 
 def test_optimize_system_plan_outputs_exclude_generated_producers() -> None:
+    from goal_requests import goal_request
     from py_science.formula import (
         AnalysisRequest,
         EquationRequest,
         FormulaSyntax,
         MathematicalDomain,
-        OptimizationSuccess,
-        OptimizeRequest,
+        OptimizationResult,
         VariableDeclaration,
         analyze,
         optimize,
     )
 
     result = optimize(
-        OptimizeRequest(
-            syntax=FormulaSyntax.SYMPY,
-            equations=(
-                EquationRequest(name="a", expression="Eq(a, x*x + 1)"),
-                EquationRequest(name="b", expression="Eq(b, x*x - 1)"),
+        goal_request(
+            AnalysisRequest(
+                syntax=FormulaSyntax.SYMPY,
+                equations=(
+                    EquationRequest(name="a", expression="Eq(a, x*x + 1)"),
+                    EquationRequest(name="b", expression="Eq(b, x*x - 1)"),
+                ),
+                variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
             ),
-            variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
-            max_plans=16,
+            projection_limit=16,
         )
     )
 
-    assert isinstance(result, OptimizationSuccess)
+    assert isinstance(result, OptimizationResult)
     sharing = next(
         plan for plan in result.plans if plan.suggestion.kind == "cross_equation_sharing"
     )
@@ -217,21 +203,26 @@ def test_optimize_system_plan_outputs_exclude_generated_producers() -> None:
 
 def test_composed_search_v1_emits_replayable_trace() -> None:
     """A composed plan is represented by replayable parent-relative steps."""
-    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+    from goal_requests import optimize_analysis
+    from py_science.formula import AnalysisRequest, FormulaSyntax
 
-    outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="(x + 1)*(x + 1) + 0"))
+    outcome = optimize_analysis(
+        AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="(x + 1)*(x + 1) + 0")
+    )
     assert outcome.status == "success"
-    # Protocol v15 replaces the former single-family suggestion payload.
-    assert any(len(plan.trace) == 2 for plan in outcome.optimization.plans)
+    assert any(len(plan.trace) == 2 for plan in outcome.plans)
 
 
 def test_composed_search_v1_trace_objectives_are_continuous_and_replayable() -> None:
     """Every local transition connects its parent objective to the final proof."""
+    from goal_requests import optimize_analysis
     from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
 
-    outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="(x + 1)*(x + 1) + 0"))
-    assert outcome.status == "success" and outcome.optimization is not None
-    plan = next(item for item in outcome.optimization.plans if len(item.trace) == 2)
+    outcome = optimize_analysis(
+        AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="(x + 1)*(x + 1) + 0")
+    )
+    assert outcome.status == "success"
+    plan = next(item for item in outcome.plans if len(item.trace) == 2)
 
     assert plan.trace[0].objective_before == plan.suggestion.objective_before
     assert plan.trace[-1].objective_after == plan.suggestion.objective_after
@@ -275,7 +266,7 @@ def _analyzer_boundary_violations(source: str) -> set[str]:
             node
             for node in tree.body
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name == "_optimization_report"
+            and node.name == "_optimization_result"
         ),
         None,
     )
@@ -315,12 +306,12 @@ def _imported_modules(source: str) -> set[str]:
         ("from py_science.formula import service\n", "service-import"),
         (
             "_fallback: _RetainedAnalyzer | None = None\n"
-            "def _optimization_report(*, analyzer: _RetainedAnalyzer = _fallback):\n"
+            "def _optimization_result(*, analyzer: _RetainedAnalyzer = _fallback):\n"
             "    return analyzer\n",
             "process-global-state",
         ),
         (
-            "def _optimization_report(analyzer: _RetainedAnalyzer | None = None):\n"
+            "def _optimization_result(analyzer: _RetainedAnalyzer | None = None):\n"
             "    return analyzer\n",
             "analyzer-not-required-keyword-only",
         ),
@@ -333,10 +324,10 @@ def test_neutral_analyzer_dependency_probe_detects_regressions(source: str, expe
 def test_neutral_analyzer_is_explicit_and_has_no_service_or_registry_edge() -> None:
     """Replay callers receive the neutral analyzer without process-global setup."""
     from py_science.formula._analysis.computation import analyze_retained
-    from py_science.formula.optimization import _optimization_report
+    from py_science.formula.optimization import _optimization_result
     from py_science.formula.service import _analyze_computation
 
-    optimization_source = Path(_optimization_report.__code__.co_filename).read_text()
+    optimization_source = Path(_optimization_result.__code__.co_filename).read_text()
     formula_directory = Path(analyze_retained.__code__.co_filename).parents[1]
     comparison_source = formula_directory.joinpath("comparison.py").read_text()
     service_source = formula_directory.joinpath("service.py").read_text()
@@ -541,9 +532,7 @@ def _service_dag_violations(source: str) -> set[str]:
     for edge in edges:
         if edge == _SERVICE_PACKAGE:
             violations.add(f"barrel:{edge}")
-        elif edge == "py_science.formula.service" or edge.startswith(
-            "py_science.formula.service."
-        ):
+        elif edge == "py_science.formula.service" or edge.startswith("py_science.formula.service."):
             violations.add(f"facade:{edge}")
         elif edge == "py_science.formula.optimization" or edge.startswith(
             "py_science.formula.optimization."
@@ -567,21 +556,21 @@ def test_service_owner_dag_uses_direct_acyclic_seams_and_falsified_regressions()
     }
     assert _cycle(graph) is None
     assert {
-        f"{_SERVICE_PACKAGE}.optimization",
         f"{_SERVICE_PACKAGE}.query_execution",
         f"{_SERVICE_PACKAGE}.result_bounds",
         f"{_SERVICE_PACKAGE}.scenario_execution",
     } <= graph[f"{_SERVICE_PACKAGE}.orchestration"]
+    assert f"{_SERVICE_PACKAGE}.optimization" not in graph[f"{_SERVICE_PACKAGE}.orchestration"]
     assert f"{_SERVICE_PACKAGE}.result_bounds" in graph[f"{_SERVICE_PACKAGE}.optimization"]
     assert _service_dag_violations("from py_science.formula.service import analyze\n") == {
         "facade:py_science.formula.service",
         "facade:py_science.formula.service.analyze",
     }
     assert _service_dag_violations(
-        "from py_science.formula.optimization import _optimization_report\n"
+        "from py_science.formula.optimization import _optimization_result\n"
     ) == {
         "optimizer-facade:py_science.formula.optimization",
-        "optimizer-facade:py_science.formula.optimization._optimization_report",
+        "optimizer-facade:py_science.formula.optimization._optimization_result",
     }
     assert _service_dag_violations("from . import orchestration\n") == {
         f"barrel:{_SERVICE_PACKAGE}"
@@ -707,7 +696,7 @@ def test_facade_private_consumers_are_direct_owner_aliases(
     from py_science.formula.reasoning import ReasoningContext
 
     owner_aliases = {
-        "_optimization_report": search._optimization_report,
+        "_optimization_result": search._optimization_result,
         "_CandidateComputation": candidates._CandidateComputation,
         "_CandidateDescriptor": candidates._CandidateDescriptor,
         "_Accepted": verifier._Accepted,
@@ -740,8 +729,8 @@ def test_facade_private_consumers_are_direct_owner_aliases(
     for name in vars(budgets):
         if name.startswith("MAX_"):
             assert getattr(facade, name) is getattr(budgets, name), name
-    assert inspect.signature(facade._optimization_report) == inspect.signature(
-        search._optimization_report
+    assert inspect.signature(facade._optimization_result) == inspect.signature(
+        search._optimization_result
     )
 
     request = AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x + 0")

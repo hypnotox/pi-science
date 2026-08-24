@@ -1,7 +1,7 @@
 import type {
   AnalysisSuccess,
   BridgeResult,
-  OptimizationObjective,
+  OptimizationResult,
 } from "./results.js";
 
 const MAX_COMPACT_DERIVED_CANDIDATES = 3;
@@ -13,61 +13,66 @@ function compactExpression(expression: string): string {
     : `${expression.slice(0, MAX_COMPACT_EXPRESSION_LENGTH - 3)}...`;
 }
 
-function objectiveProfile(objective: OptimizationObjective): string {
-  return objective.kind;
+function compactOptimization(result: OptimizationResult): string {
+  const plans = result.plans.flatMap((plan, index) => {
+    const computation =
+      plan.candidate.expression ??
+      plan.candidate.equations
+        .map((equation) => equation.expression)
+        .join("; ");
+    const replay = plan.trace
+      .map(
+        (step, stepIndex) =>
+          `${stepIndex + 1}. ${step.kind} [tier ${step.tier}] (${step.transformations
+            .map((item) =>
+              item.target.kind === "expression"
+                ? "expression"
+                : `equation ${item.target.name}`,
+            )
+            .join(", ")})`,
+      )
+      .join(" → ");
+    return [
+      `- Plan ${index + 1}: ${replay}; outputs: ${plan.candidate.outputs.join(", ")}`,
+      `  Candidate: ${compactExpression(computation)}`,
+      `  strict_improvement: ${plan.claim.proof_policy}; ${plan.claim.semantics}; ${plan.claim.work_semantics}; objective ${plan.claim.objective.kind}`,
+    ];
+  });
+  const scope = result.search_scope;
+  return [
+    "Optimization",
+    "Classification",
+    `- ${result.classification}`,
+    "Plans",
+    ...(plans.length ? plans : ["- none"]),
+    "Deterministic ranked prefix",
+    `- ${result.selection.kind}; projection limit ${result.selection.projection_limit}`,
+    "Search scope",
+    `- ${scope.policy}; depth ${scope.monotonic_depth}; families: ${scope.families.join(", ")}; engine: ${scope.engine}; completion: ${scope.completion}`,
+    ...(scope.qualifications.length
+      ? scope.qualifications.map((qualification) => `- ${qualification}`)
+      : ["- none"]),
+    "Output projection",
+    `- ${result.projection_status}; projection limit ${result.projection_limit}`,
+    ...(result.projection_qualifications.length
+      ? result.projection_qualifications.map(
+          (qualification) => `- ${qualification}`,
+        )
+      : ["- none"]),
+    "Blockers",
+    ...(result.blockers.length
+      ? result.blockers.map(
+          (blocker) =>
+            `- missing information: ${blocker.required_information}; ${blocker.reason}; ${blocker.family}; ${blocker.target}`,
+        )
+      : ["- none"]),
+  ].join("\n");
 }
 
 function compactToolText(result: BridgeResult): string {
-  if (result.status === "failed")
-    return ["Optimization", "- failed", "Blockers", `- ${result.error}`].join(
-      "\n",
-    );
-
-  if (result.status === "success" && "search_status" in result) {
-    const plans = result.plans.flatMap((plan, index) => {
-      const computation =
-        plan.candidate.expression ??
-        plan.candidate.equations
-          .map((equation) => equation.expression)
-          .join("; ");
-      const steps = plan.trace
-        .map(
-          (step, stepIndex) =>
-            `${stepIndex + 1}. ${step.kind} [tier ${step.tier}] (${step.transformations.map((item) => (item.target.kind === "expression" ? "expression" : `equation ${item.target.name}`)).join(", ")})`,
-        )
-        .join(" → ");
-      return [
-        `- Plan ${index + 1}: ${steps}; outputs: ${plan.candidate.outputs.join(", ")}`,
-        `  Candidate: ${compactExpression(computation)}`,
-        `  Objective profile: ${objectiveProfile(plan.objective)}`,
-        `  Original-to-final selected-objective savings: ${plan.suggestion.objective_savings}; ${plan.suggestion.finite_precision_qualification}; exact symbolic qualification only; no runtime or finite-precision claim`,
-        ...(index === 0
-          ? []
-          : [
-              `  Relation to previous: ${plan.suggestion.ordering.relation_to_previous === "previous_proved_superior" ? "previous plan proved superior" : "deterministic non-superiority tie-break"}`,
-            ]),
-      ];
-    });
-    return [
-      "Optimization plans",
-      ...(plans.length ? plans : ["- none"]),
-      "Search status",
-      `- ${result.search_status}`,
-      "Search qualifications",
-      ...(result.qualifications.length
-        ? result.qualifications.map((qualification) => `- ${qualification}`)
-        : ["- none"]),
-      "Output projection",
-      `- ${result.projection_status}`,
-      ...(result.projection_qualifications.length
-        ? result.projection_qualifications.map(
-            (qualification) => `- ${qualification}`,
-          )
-        : ["- none"]),
-    ].join("\n");
-  }
-
-  if (result.status === "failure")
+  if (result.status === "failure") {
+    if (typeof result.error === "string")
+      return ["Optimization", "Failure", `- ${result.error}`].join("\n");
     return [
       "Interpretation",
       "- unavailable",
@@ -78,6 +83,10 @@ function compactToolText(result: BridgeResult): string {
       "Blockers",
       `- ${result.error.message}`,
     ].join("\n");
+  }
+
+  if (result.status === "success" && "classification" in result)
+    return compactOptimization(result);
 
   if ("kind" in result && result.kind === "dominance_analysis") {
     const cellLabel = (cell: (typeof result.cells)[number]) =>
@@ -189,71 +198,6 @@ function compactToolText(result: BridgeResult): string {
             `- Specialized evaluation work (scenario ${scenario.name}): ${scenario.substituted_work}`,
         )),
   ];
-  const optimization = (() => {
-    const report = analysis.optimization;
-    if (report.status === "disabled") return [];
-
-    if (report.suggestions.length === 0) {
-      return [
-        "Optimization advice",
-        `- ${report.status === "complete" ? "no proved opportunity found within completed search" : "search incomplete; no proved suggestion was retained; inspect details for the local bound"}`,
-        ...report.qualifications.map(
-          (qualification) => `- qualification: ${qualification}`,
-        ),
-      ];
-    }
-
-    const suggestion = report.suggestions[0]!;
-    const firstPlan = report.plans[0]!;
-    const transformations = firstPlan.trace
-      .map(
-        (step, index) =>
-          `${index + 1}. ${step.kind}: ${step.transformations
-            .map((transformation) => {
-              const target =
-                transformation.target.kind === "expression"
-                  ? "expression"
-                  : `equation ${transformation.target.name}`;
-              return `${target}: ${transformation.original.normalized_sympy} → ${transformation.proposed.normalized_sympy}`;
-            })
-            .join("; ")} [tier ${step.tier}]`,
-      )
-      .join(" → ");
-    const intermediate = firstPlan.trace[0]?.intermediate
-      ? `; shared intermediate ${firstPlan.trace[0].intermediate.name} = ${firstPlan.trace[0].intermediate.expression.normalized_sympy}`
-      : "";
-    const conditions = suggestion.conditions.length
-      ? `; conditions: ${suggestion.conditions.join(", ")}`
-      : "";
-    const assumptions = suggestion.assumptions_used.length
-      ? `; assumptions used: ${suggestion.assumptions_used
-          .map(
-            (assumption) => `${assumption.name} (${assumption.relationship})`,
-          )
-          .join(", ")}`
-      : "";
-    const additional = report.suggestions.length - 1;
-    return [
-      "Optimization advice",
-      `- optimization plan: ${transformations}${intermediate}; objective ${objectiveProfile(firstPlan.objective)}: ${suggestion.objective_before} → ${suggestion.objective_after}; original-to-final saving ${suggestion.objective_savings}${conditions}${assumptions}; ${suggestion.finite_precision_qualification}; exact symbolic qualification only; no runtime or finite-precision claim`,
-      ...(additional === 0
-        ? []
-        : [
-            `- ${additional} additional proved suggestion${additional === 1 ? "" : "s"} in details`,
-          ]),
-      ...(report.status === "incomplete"
-        ? ["- search incomplete; inspect details for the local bound"]
-        : []),
-      ...(report.projection_status === "truncated"
-        ? [
-            "- output truncated after search; inspect details for the byte bound",
-          ]
-        : []),
-      ...report.qualifications.map(
-        (qualification) => `- qualification: ${qualification}`,
-      ),
-    ];
-  })();
   const blockers = [
     ...analysis.direct_work_blockers,
     ...(analysis.system?.unknown_costs.map((cost) => `unknown cost: ${cost}`) ??
@@ -278,7 +222,6 @@ function compactToolText(result: BridgeResult): string {
     ...(queryConclusions.length === 0 ? ["- none"] : queryConclusions),
     "Work",
     ...work,
-    ...optimization,
     "Blockers",
     ...(blockers.length === 0
       ? ["- none"]

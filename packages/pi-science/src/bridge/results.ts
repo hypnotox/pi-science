@@ -186,22 +186,84 @@ export type OptimizationTraceStep = Omit<OptimizationSuggestion, "ordering"> & {
   candidate: OptimizationCandidate;
   identity: string;
 };
+export type StrictImprovementClaim = {
+  kind: "strict_improvement";
+  proof_policy: "verifier_backed_v1";
+  objective: OptimizationObjective;
+  semantics: "exact_symbolic_v1";
+  work_semantics: "aggregate_abstract_work_v1";
+  search_policy: "bounded_goal_v1";
+  families: OptimizationSuggestion["kind"][];
+  monotonic_depth: 2;
+  engine: "goal_optimizer_v1";
+};
 export type OptimizationPlan = {
   identity: string;
   objective: OptimizationObjective;
+  claim: StrictImprovementClaim;
   candidate: OptimizationCandidate;
   suggestion: OptimizationSuggestion;
   trace: OptimizationTraceStep[];
 };
-export type OptimizationReport = {
-  requested_limit: number;
-  status: "disabled" | "complete" | "incomplete" | "failed";
-  suggestions: OptimizationSuggestion[];
-  plans: OptimizationPlan[];
+export type SearchLimits = {
+  depth_one_inspected_nodes: number;
+  depth_two_inspected_nodes: number;
+  whole_request_inspected_nodes: number;
+  generated_transitions_per_depth: number;
+  complete_reanalyses_per_depth: number;
+  expanded_parents_depth_two: number;
+  retained_states_per_depth: number;
+  aggregate_transformation_nodes_per_depth: number;
+  proof_steps_per_depth: number;
+  proof_nodes_per_depth: number;
+  work_comparison_nodes_per_depth: number;
+  whole_request_proof_steps: number;
+  whole_request_proof_nodes: number;
+  whole_request_work_comparison_nodes: number;
+  final_states: number;
+  final_proof_steps: number;
+  final_proof_nodes: number;
+  final_work_comparison_nodes: number;
+};
+export type SearchScope = {
+  policy: "bounded_goal_v1";
+  families: OptimizationSuggestion["kind"][];
+  monotonic_depth: 2;
+  engine: "goal_optimizer_v1";
+  limits: SearchLimits;
+  completion: "complete" | "incomplete";
   qualifications: string[];
+};
+export type OptimizationBlocker = {
+  reason:
+    | "missing_primitive_cost"
+    | "unproved_domain_or_cardinality"
+    | "evaluator_limit";
+  required_information:
+    | "declare_primitive_cost"
+    | "declare_domain_or_cardinality"
+    | "reduce_evaluator_complexity";
+  family: OptimizationSuggestion["kind"];
+  target: string;
+};
+export type DeterministicRankedPrefixSelection = {
+  kind: "deterministic_ranked_prefix";
+  projection_limit: number;
+};
+export type OptimizationResult = {
+  status: "success";
+  projection_limit: number;
+  classification:
+    "plans_returned" | "no_applicable_candidate" | "no_verified_improvement";
+  selection: DeterministicRankedPrefixSelection;
+  search_scope: SearchScope;
   projection_status: "complete" | "truncated";
   projection_qualifications: string[];
+  blockers: OptimizationBlocker[];
+  plans: OptimizationPlan[];
 };
+export type OptimizationFailure = { status: "failure"; error: string };
+export type OptimizeResult = OptimizationResult | OptimizationFailure;
 
 export type AnalysisSuccess = {
   status: "success";
@@ -213,7 +275,6 @@ export type AnalysisSuccess = {
   system?: SystemReport;
   scenarios: ScenarioResult[];
   queries: QueryResult[];
-  optimization: OptimizationReport;
 };
 export type ResolvedTarget =
   { kind: "expression" } | { kind: "equation"; name: string } | DerivedTarget;
@@ -374,20 +435,8 @@ export type DominanceSuccess = {
   }>;
   dominance_status: "complete" | "unresolved" | "empty";
 };
-export type OptimizationOperationSuccess = {
-  status: "success";
-  requested_limit: number;
-  search_status: "complete" | "incomplete";
-  projection_status: "complete" | "truncated";
-  plans: OptimizationPlan[];
-  qualifications: string[];
-  projection_qualifications: string[];
-};
-export type OptimizationOperationFailure = { status: "failed"; error: string };
-export type OptimizationOperationResult =
-  OptimizationOperationSuccess | OptimizationOperationFailure;
 export type BridgeResult =
-  | OptimizationOperationResult
+  | OptimizeResult
   | AnalysisSuccess
   | CandidateComparisonSuccess
   | DominanceSuccess

@@ -8,6 +8,7 @@ import sys
 from typing import Any, cast
 
 from py_science.formula import (
+    AnalysisFailure,
     AnalysisRequest,
     CandidateComparisonRequest,
     DominanceAnalysisRequest,
@@ -19,7 +20,7 @@ from py_science.formula import (
 )
 from pydantic import TypeAdapter, ValidationError
 
-PROTOCOL_VERSION = 16
+PROTOCOL_VERSION = 17
 REQUEST_ADAPTER: TypeAdapter[
     AnalysisRequest | CandidateComparisonRequest | DominanceAnalysisRequest | OptimizeRequest
 ] = TypeAdapter(
@@ -143,12 +144,6 @@ def main() -> int:
             if outcome.status == "success":
                 result["abstract_work"] = outcome.abstract_work
                 result["queries"] = [query.model_dump(mode="json") for query in outcome.queries]
-                assert outcome.optimization is not None
-                # Optimization target/intermediate nulls are correlation-bearing
-                # protocol fields, unlike absent optional ordinary report sections.
-                result["optimization"] = outcome.optimization.model_dump(
-                    mode="json", exclude_none=False
-                )
                 if outcome.system is not None:
                     system_result = result["system"]
                     counts = outcome.system.aggregate_operation_counts
@@ -176,11 +171,7 @@ def main() -> int:
                         )
         typed_result = cast(dict[str, object], result)
         _project_plan_candidates(typed_result.get("plans"))
-        optimization = typed_result.get("optimization")
-        if isinstance(optimization, dict):
-            typed_optimization = cast(dict[str, object], optimization)
-            _project_plan_candidates(typed_optimization.get("plans"))
-        if outcome.status == "failure":
+        if isinstance(outcome, AnalysisFailure):
             error = result["error"]
             error.update(
                 {

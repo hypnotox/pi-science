@@ -44,12 +44,6 @@ export type OptimizationObjectiveInput =
         ExactScenarioScalar
       >;
     };
-export type AlgorithmicOptimizationFamily = "finite_polynomial_sum_v1";
-export type OptimizationConfig = {
-  max_suggestions?: number;
-  objective?: OptimizationObjectiveInput;
-  enabled_algorithmic_families?: AlgorithmicOptimizationFamily[];
-};
 export type IntervalBound = {
   lower: ExactScenarioScalar;
   upper: ExactScenarioScalar;
@@ -175,7 +169,6 @@ type RequestMetadata<Query extends QueryRequest> = {
   definitions?: DirectedDefinition[];
   scenarios?: Scenario[];
   queries?: Query[];
-  optimization?: OptimizationConfig;
 };
 export type ExpressionAnalysisRequest =
   RequestMetadata<ExpressionQueryRequest> & {
@@ -201,7 +194,7 @@ export type CandidateOutputMapping = {
 };
 export type CandidateComparisonRequest = Omit<
   RequestMetadata<QueryRequest>,
-  "scenarios" | "queries" | "optimization"
+  "scenarios" | "queries"
 > & {
   syntax: "sympy";
   operation: "compare_candidates";
@@ -216,7 +209,7 @@ export type DominanceRange = {
 };
 export type DominanceRequest = Omit<
   RequestMetadata<QueryRequest>,
-  "scenarios" | "queries" | "optimization"
+  "scenarios" | "queries"
 > & {
   syntax: "sympy";
   operation: "analyze_dominance";
@@ -227,15 +220,23 @@ export type DominanceRequest = Omit<
     | { expression: string; equations?: never }
     | { equations: EquationRequest[]; expression?: never }
   );
+export type OptimizationGoal = {
+  kind: "preserve_all_outputs_v1";
+  semantics: "exact_symbolic_v1";
+  objective: OptimizationObjectiveInput;
+};
+export type OptimizationSearch = { kind: "bounded_goal_v1" };
+export type OptimizationProof = { kind: "verifier_backed_v1" };
 export type OptimizeRequest = Omit<
   RequestMetadata<QueryRequest>,
-  "scenarios" | "queries" | "optimization"
+  "scenarios" | "queries"
 > & {
   syntax: "sympy";
   operation: "optimize";
-  max_plans?: number;
-  objective?: OptimizationObjectiveInput;
-  enabled_algorithmic_families?: AlgorithmicOptimizationFamily[];
+  goal: OptimizationGoal;
+  search: OptimizationSearch;
+  proof: OptimizationProof;
+  projection_limit: number;
 } & (
     | { expression: string; equations?: never }
     | { equations: EquationRequest[]; expression?: never }

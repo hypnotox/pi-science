@@ -20,15 +20,12 @@ from py_science.formula.models import (
     AnalysisFailure,
     AnalysisOutcome,
     AnalysisRequest,
-    AnalysisSuccess,
     DominanceAnalysisOutcome,
     DominanceAnalysisRequest,
-    OptimizationReport,
     SourceReference,
 )
 from py_science.formula.reasoning import ReasoningContext
 
-from .optimization import _optimization_report
 from .query_execution import _attach_queries
 from .result_bounds import MAX_RESULT_BYTES, _bound_result
 from .scenario_execution import scenario_results
@@ -42,18 +39,6 @@ def analyze(request: AnalysisRequest) -> AnalysisOutcome:
     outcome: AnalysisOutcome = result.success
     if request.queries:
         outcome = _attach_queries(request, result)
-    if isinstance(outcome, AnalysisSuccess):
-        try:
-            optimization = _optimization_report(
-                request, result, result.work_context, analyzer=analyze_retained
-            )
-        except Exception:
-            optimization = OptimizationReport(
-                requested_limit=request.optimization.max_suggestions,
-                status="failed",
-                qualifications=("optimization advice failed unexpectedly",),
-            )
-        outcome = outcome.model_copy(update={"optimization": optimization})
     return _bound_result(outcome)
 
 

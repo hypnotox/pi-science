@@ -1,7 +1,7 @@
 # ruff: noqa: E501
 # pyright: reportPrivateUsage=false
 import re
-from typing import Literal, cast
+from typing import Literal
 
 from py_science.formula.contracts._base import StructuredModel
 from py_science.formula.contracts.common import (
@@ -28,11 +28,10 @@ from py_science.formula.contracts.common import (
     _require_unique,
     _validate_output_identities,
 )
-from py_science.formula.contracts.optimization import (
-    AlgorithmicOptimizationFamily,
-    OptimizationConfig,
-    OptimizationObjective,
-    UnitWorkObjective,
+from py_science.formula.contracts.goals import (
+    BoundedGoalSearchPolicy,
+    GoalSpec,
+    VerifierBackedProofPolicy,
 )
 from py_science.formula.contracts.queries import (
     AsymptoticQuery,
@@ -43,7 +42,7 @@ from py_science.formula.contracts.queries import (
     PropertiesQuery,
     QueryRequest,
 )
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, model_validator
 
 
 class AnalysisRequest(StructuredModel):
@@ -58,7 +57,6 @@ class AnalysisRequest(StructuredModel):
     outputs: tuple[str, ...] = Field(default=(), max_length=MAX_EQUATIONS)
     scenarios: tuple[Scenario, ...] = Field(default=(), max_length=MAX_SCENARIOS)
     queries: tuple[QueryRequest, ...] = Field(default=(), max_length=32)
-    optimization: OptimizationConfig = Field(default_factory=OptimizationConfig)
 
     @model_validator(mode="after")
     def validate_request(self) -> "AnalysisRequest":
@@ -145,7 +143,7 @@ class AnalysisRequest(StructuredModel):
 
 
 class OptimizeRequest(StructuredModel):
-    """Explicit bounded optimization; analysis-only controls are intentionally absent."""
+    """One explicit goal-driven optimization operation."""
 
     syntax: FormulaSyntax
     operation: Literal["optimize"] = "optimize"
@@ -156,40 +154,15 @@ class OptimizeRequest(StructuredModel):
     primitive_costs: tuple[PrimitiveCost, ...] = Field(default=(), max_length=MAX_PRIMITIVE_COSTS)
     assumptions: tuple[Assumption, ...] = Field(default=(), max_length=MAX_ASSUMPTIONS)
     definitions: tuple[DirectedDefinition, ...] = Field(default=(), max_length=MAX_DEFINITIONS)
-    max_plans: int = Field(default=3, ge=1, le=16)
-    objective: OptimizationObjective = Field(default_factory=UnitWorkObjective)
-    enabled_algorithmic_families: tuple[AlgorithmicOptimizationFamily, ...] = Field(
-        default=(), max_length=1
-    )
-
-    @field_validator("enabled_algorithmic_families", mode="before")
-    @classmethod
-    def accept_algorithmic_family_list(cls, value: object) -> object:
-        return tuple(cast(list[object], value)) if isinstance(value, list) else value
-
-    @field_validator("enabled_algorithmic_families")
-    @classmethod
-    def canonical_algorithmic_families(
-        cls, value: tuple[AlgorithmicOptimizationFamily, ...]
-    ) -> tuple[AlgorithmicOptimizationFamily, ...]:
-        if len(set(value)) != len(value):
-            raise ValueError("enabled algorithmic families must be unique")
-        if value != tuple(sorted(value)):
-            raise ValueError("enabled algorithmic families must use canonical order")
-        return value
-
-    @field_validator("max_plans")
-    @classmethod
-    def strict_max_plans(cls, value: int) -> int:
-        if isinstance(value, bool):
-            raise ValueError("max_plans must be a strict integer")
-        return value
+    goal: GoalSpec
+    search: BoundedGoalSearchPolicy
+    proof: VerifierBackedProofPolicy
+    projection_limit: int = Field(ge=1, le=16)
 
     @model_validator(mode="after")
     def request_shape(self) -> "OptimizeRequest":
         if (self.expression is None) != bool(self.equations):
             raise ValueError("provide exactly one expression or a nonempty equation list")
-        # Reuse the ordinary semantic contract, while refusing its analysis-only knobs.
         AnalysisRequest.model_validate(
             {
                 "syntax": self.syntax,

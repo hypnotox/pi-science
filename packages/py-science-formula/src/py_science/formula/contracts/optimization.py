@@ -1,7 +1,7 @@
 # ruff: noqa: E501
-# pyright: reportPrivateUsage=false
+# pyright: reportPrivateUsage=false, reportUnusedFunction=false
 from fractions import Fraction
-from typing import Annotated, Literal, cast
+from typing import Annotated, Literal
 
 from py_science.formula.contracts._base import StructuredModel
 from py_science.formula.contracts.common import (
@@ -62,35 +62,6 @@ class WeightedOperationsObjective(StructuredModel):
 type OptimizationObjective = Annotated[
     UnitWorkObjective | WeightedOperationsObjective, Field(discriminator="kind")
 ]
-
-
-type AlgorithmicOptimizationFamily = Literal["finite_polynomial_sum_v1"]
-
-
-class OptimizationConfig(StructuredModel):
-    """Bounded, informational advice requested only for ordinary analysis."""
-
-    max_suggestions: int = Field(default=3, ge=0, le=16)
-    objective: OptimizationObjective = Field(default_factory=UnitWorkObjective)
-    enabled_algorithmic_families: tuple[AlgorithmicOptimizationFamily, ...] = Field(
-        default=(), max_length=1
-    )
-
-    @field_validator("enabled_algorithmic_families", mode="before")
-    @classmethod
-    def accept_algorithmic_family_list(cls, value: object) -> object:
-        return tuple(cast(list[object], value)) if isinstance(value, list) else value
-
-    @field_validator("enabled_algorithmic_families")
-    @classmethod
-    def canonical_algorithmic_families(
-        cls, value: tuple[AlgorithmicOptimizationFamily, ...]
-    ) -> tuple[AlgorithmicOptimizationFamily, ...]:
-        if len(set(value)) != len(value):
-            raise ValueError("enabled algorithmic families must be unique")
-        if value != tuple(sorted(value)):
-            raise ValueError("enabled algorithmic families must use canonical order")
-        return value
 
 
 class OptimizationCandidate(StructuredModel):
@@ -308,11 +279,26 @@ class OptimizationTraceStep(StructuredModel):
         return self
 
 
+class StrictImprovementClaim(StructuredModel):
+    """The exact claim independently established for one published plan."""
+
+    kind: Literal["strict_improvement"] = "strict_improvement"
+    proof_policy: Literal["verifier_backed_v1"] = "verifier_backed_v1"
+    objective: OptimizationObjective
+    semantics: Literal["exact_symbolic_v1"] = "exact_symbolic_v1"
+    work_semantics: Literal["aggregate_abstract_work_v1"] = "aggregate_abstract_work_v1"
+    search_policy: Literal["bounded_goal_v1"] = "bounded_goal_v1"
+    families: tuple[OptimizationKind, ...] = Field(min_length=1, max_length=16)
+    monotonic_depth: Literal[2] = 2
+    engine: Literal["goal_optimizer_v1"] = "goal_optimizer_v1"
+
+
 class OptimizationPlan(StructuredModel):
     """One independently replayable, verified optimization result."""
 
     identity: str = Field(min_length=1, max_length=262_144)
     objective: OptimizationObjective
+    claim: StrictImprovementClaim
     candidate: OptimizationCandidate
     suggestion: OptimizationSuggestion
     trace: tuple[OptimizationTraceStep, ...] = Field(min_length=1, max_length=2)
@@ -323,92 +309,6 @@ class OptimizationPlan(StructuredModel):
             raise ValueError("optimization plan must equal its final trace step")
         if self.suggestion.tier != self.trace[-1].tier:
             raise ValueError("optimization summary tier must match the final trace step")
-        return self
-
-
-class OptimizationFailure(StructuredModel):
-    status: Literal["failed"] = "failed"
-    error: str = Field(min_length=1, max_length=4_096)
-
-
-def _validate_optimization_plan_population(
-    plans: tuple[OptimizationPlan, ...], requested_limit: int
-) -> None:
-    if len(plans) > requested_limit:
-        raise ValueError("optimization plans exceed requested limit")
-    if not plans:
-        return
-    objective = plans[0].objective
-    for position, plan in enumerate(plans, start=1):
-        if plan.objective != objective:
-            raise ValueError("optimization plans require common objective provenance")
-        if plan.suggestion.ordering.position != position:
-            raise ValueError("optimization plan positions must be contiguous")
-
-
-class OptimizationSuccess(StructuredModel):
-    status: Literal["success"] = "success"
-    requested_limit: int = Field(ge=1, le=16)
-    search_status: Literal["complete", "incomplete"]
-    projection_status: Literal["complete", "truncated"] = "complete"
-    plans: tuple[OptimizationPlan, ...] = Field(default=(), max_length=16)
-    qualifications: tuple[BoundedQueryText, ...] = Field(default=(), max_length=128)
-    projection_qualifications: tuple[BoundedQueryText, ...] = Field(default=(), max_length=128)
-
-    @model_validator(mode="after")
-    def success_shape(self) -> "OptimizationSuccess":
-        _validate_optimization_plan_population(self.plans, self.requested_limit)
-        if (self.search_status == "incomplete") != bool(self.qualifications):
-            raise ValueError("optimization search status must agree with qualifications")
-        if (self.projection_status == "truncated") != bool(self.projection_qualifications):
-            raise ValueError("optimization projection status must agree with qualifications")
-        return self
-
-
-type OptimizeOutcome = Annotated[
-    OptimizationSuccess | OptimizationFailure, Field(discriminator="status")
-]
-
-
-class OptimizationReport(StructuredModel):
-    requested_limit: int = Field(ge=0, le=16)
-    status: Literal["disabled", "complete", "incomplete", "failed"]
-    suggestions: tuple[OptimizationSuggestion, ...] = Field(default=(), max_length=16)
-    plans: tuple[OptimizationPlan, ...] = Field(default=(), max_length=16)
-    qualifications: tuple[BoundedQueryText, ...] = Field(default=(), max_length=128)
-    projection_status: Literal["complete", "truncated"] = "complete"
-    projection_qualifications: tuple[BoundedQueryText, ...] = Field(default=(), max_length=128)
-
-    @model_validator(mode="after")
-    def report_shape(self) -> "OptimizationReport":
-        if len(self.suggestions) > self.requested_limit:
-            raise ValueError("optimization suggestions exceed requested limit")
-        _validate_optimization_plan_population(self.plans, self.requested_limit)
-        if self.plans and tuple(item.suggestion for item in self.plans) != self.suggestions:
-            raise ValueError("optimization plans must project the same suggestions")
-        if (self.projection_status == "truncated") != bool(self.projection_qualifications):
-            raise ValueError("optimization projection status must agree with qualifications")
-        if self.status == "disabled" and (
-            self.requested_limit != 0
-            or self.suggestions
-            or self.plans
-            or self.qualifications
-            or self.projection_status != "complete"
-            or self.projection_qualifications
-        ):
-            raise ValueError("disabled optimization requires an empty zero-limit report")
-        if self.requested_limit == 0 and self.status != "disabled":
-            raise ValueError("zero-limit optimization must be disabled")
-        if self.status == "incomplete" and not self.qualifications:
-            raise ValueError("incomplete optimization requires an exhaustion qualification")
-        if self.status == "complete" and self.qualifications:
-            raise ValueError("complete optimization cannot carry search qualifications")
-        if self.status == "failed" and (
-            self.suggestions
-            or self.plans
-            or not self.qualifications
-            or self.projection_status != "complete"
-            or self.projection_qualifications
-        ):
-            raise ValueError("failed optimization must contain only a bounded diagnostic")
+        if self.claim.objective != self.objective:
+            raise ValueError("optimization plan objective must match its strict-improvement claim")
         return self

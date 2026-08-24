@@ -199,13 +199,6 @@ def generate_schema() -> JsonObject:
         for name, schema in properties.items()
         if name not in {"syntax", "expression", "equations", "queries"}
     }
-    optimization = metadata.get("optimization")
-    if not isinstance(optimization, dict):
-        raise ValueError("AnalysisRequest optimization schema is unavailable")
-    optimization_limit = optimization.get("properties", {}).get("max_suggestions")
-    if not isinstance(optimization_limit, dict):
-        raise ValueError("AnalysisRequest optimization limit schema is unavailable")
-    optimization_limit["default"] = 3
     outputs = metadata.get("outputs")
     if not isinstance(outputs, dict):
         raise ValueError("AnalysisRequest output identities schema is unavailable")
@@ -327,6 +320,11 @@ def generate_schema() -> JsonObject:
         for name, item in optimize_properties.items()
         if name not in {"syntax", "expression", "equations"}
     }
+    optimize_required = [
+        name
+        for name in optimize_raw.get("required", [])
+        if name not in {"syntax", "expression", "equations"}
+    ]
     optimize_expression = {
         "additionalProperties": False,
         "properties": {
@@ -335,7 +333,7 @@ def generate_schema() -> JsonObject:
             ),
             **optimize_metadata,
         },
-        "required": ["operation", "expression"],
+        "required": [*optimize_required, "expression"],
         "type": "object",
     }
     optimize_equations = _normalize(
@@ -345,7 +343,7 @@ def generate_schema() -> JsonObject:
     optimize_system = {
         "additionalProperties": False,
         "properties": {"equations": optimize_equations, **optimize_metadata},
-        "required": ["operation", "equations"],
+        "required": [*optimize_required, "equations"],
         "type": "object",
     }
     schema = {

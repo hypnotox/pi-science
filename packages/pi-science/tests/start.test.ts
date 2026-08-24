@@ -87,54 +87,8 @@ function context(hasUI: boolean) {
   };
 }
 
-function optimizationPlan(
-  suggestion: Record<string, unknown>,
-  options: {
-    expression?: string;
-    variables?: Record<string, unknown>;
-    assumptions?: unknown[];
-  } = {},
-) {
-  const transformations = suggestion.transformations as Array<{
-    proposed: { normalized_sympy: string };
-  }>;
-  const candidate = {
-    expression:
-      options.expression ??
-      transformations[0]?.proposed.normalized_sympy ??
-      "x",
-    variables: options.variables ?? {},
-    functions: [],
-    primitive_costs: [],
-    assumptions: options.assumptions ?? [],
-    definitions: [],
-    outputs: ["expression"],
-  };
-  const { ordering: _ordering, ...step } = suggestion;
-  const localStep = {
-    ...step,
-    evidence: {
-      kind: "identity",
-      statement:
-        "checked exact symbolic equivalence for every transformed retained output",
-    },
-  };
-  const identity = JSON.stringify({
-    syntax: "sympy",
-    ...candidate,
-    equations: [],
-  });
-  return {
-    identity,
-    objective: { kind: "unit_work_v1" },
-    candidate,
-    suggestion,
-    trace: [{ ...localStep, candidate, identity }],
-  };
-}
-
 describe("readiness gate", () => {
-  it("advertises bounded optimization advice and uses the real command signature", async () => {
+  it("advertises explicit goal optimization and uses the real command signature", async () => {
     const current = host();
     const response = {
       status: "success",
@@ -151,15 +105,6 @@ describe("readiness gate", () => {
       direct_work_blockers: [],
       scenarios: [],
       queries: [],
-      optimization: {
-        requested_limit: 3,
-        status: "complete",
-        suggestions: [],
-        plans: [],
-        qualifications: [],
-        projection_status: "complete",
-        projection_qualifications: [],
-      },
     };
     await start(
       current.api,
@@ -169,7 +114,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 16, result: response }),
+            JSON.stringify({ version: 17, result: response }),
           )}))`,
         ],
       }),
@@ -178,10 +123,10 @@ describe("readiness gate", () => {
     expect(current.tools).toHaveLength(1);
     expect(current.tools[0]).toMatchObject({
       description: expect.stringMatching(
-        /restricted SymPy.*bounded exact-symbolic replayable plans.*candidate.*dominance/,
+        /restricted-SymPy.*required goal.*bounded replayable plans.*candidate.*dominance/,
       ),
       promptSnippet: expect.stringMatching(
-        /qualified symbolic work.*bounded replayable plans.*candidate.*dominance/,
+        /qualified symbolic work.*required goal.*bounded replayable plans.*candidate.*dominance/,
       ),
       promptGuidelines: [
         expect.stringMatching(
@@ -192,6 +137,25 @@ describe("readiness gate", () => {
     });
     const parameters = current.tools[0]!.parameters;
     expect(Value.Check(parameters, { expression: "x" })).toBe(true);
+    const goalOptimization = {
+      operation: "optimize",
+      expression: "x*y + x*z",
+      goal: {
+        kind: "preserve_all_outputs_v1",
+        semantics: "exact_symbolic_v1",
+        objective: { kind: "unit_work_v1" },
+      },
+      search: { kind: "bounded_goal_v1" },
+      proof: { kind: "verifier_backed_v1" },
+      projection_limit: 1,
+    };
+    expect(Value.Check(parameters, goalOptimization)).toBe(true);
+    expect(
+      Value.Check(parameters, {
+        ...goalOptimization,
+        projection_limit: undefined,
+      }),
+    ).toBe(false);
     const comparison = {
       operation: "compare_candidates",
       candidates: [
@@ -395,8 +359,6 @@ describe("readiness gate", () => {
             "Work",
             "- General direct work: 0",
             "- Specialized evaluation work: none",
-            "Optimization advice",
-            "- no proved opportunity found within completed search",
             "Blockers",
             "- none",
           ].join("\n"),
@@ -406,7 +368,27 @@ describe("readiness gate", () => {
     });
   });
 
-  it("presents direct replayable optimization plans through the registered tool", async () => {
+  it("keeps ordinary analysis free of optimization presentation", async () => {
+    const current = host();
+    const adapter = fileURLToPath(
+      new URL("../bridge/formula_adapter.py", import.meta.url),
+    );
+    await start(
+      current.api,
+      Promise.resolve({
+        ready: true,
+        command: "uv",
+        args: ["run", "--locked", "python", adapter],
+      }),
+    );
+    const result = await current.tools[0]!.execute("id", {
+      expression: "x*y + x*z",
+    });
+    expect(result.content[0]!.text).not.toContain("Optimization");
+    expect(result.details).not.toHaveProperty("optimization");
+  });
+
+  it("presents explicit goal optimization claims, scope, projection, and blockers", async () => {
     const current = host();
     const adapter = fileURLToPath(
       new URL("../bridge/formula_adapter.py", import.meta.url),
@@ -421,55 +403,43 @@ describe("readiness gate", () => {
     );
     const result = await current.tools[0]!.execute("id", {
       operation: "optimize",
-      expression: "x*x + x*x",
+      expression: "x*y + x*z",
+      goal: {
+        kind: "preserve_all_outputs_v1",
+        semantics: "exact_symbolic_v1",
+        objective: { kind: "unit_work_v1" },
+      },
+      search: { kind: "bounded_goal_v1" },
+      proof: { kind: "verifier_backed_v1" },
+      projection_limit: 1,
     });
     const text = result.content[0]!.text;
-    expect(text).toContain("Optimization plans");
+    expect(text).toContain("Classification\n- plans_returned");
     expect(text).toContain("Plan 1");
-    expect(text).toContain("outputs: expression");
     expect(text).toContain("Candidate:");
-    expect(text).toContain("Objective profile: unit_work_v1");
-    expect(text).toContain("Original-to-final selected-objective savings:");
-    expect(text).toContain(
-      "Relation to previous: deterministic non-superiority tie-break",
-    );
-    expect(text).toContain("exact_symbolic_only");
-    expect(text).toContain("Search status\n- complete");
+    expect(text).toContain("strict_improvement: verifier_backed_v1");
+    expect(text).toContain("deterministic_ranked_prefix; projection limit 1");
+    expect(text).toContain("bounded_goal_v1; depth 2");
+    expect(text).toContain("engine: goal_optimizer_v1; completion:");
+    expect(text).toContain("Output projection");
+    expect(text).toContain("Blockers");
+    expect(text).not.toMatch(/best|optimal|runtime/i);
     expect(result.details).toMatchObject({
       status: "success",
-      requested_limit: 3,
-      search_status: "complete",
+      classification: "plans_returned",
+      selection: { kind: "deterministic_ranked_prefix", projection_limit: 1 },
+      search_scope: {
+        policy: "bounded_goal_v1",
+        monotonic_depth: 2,
+        engine: "goal_optimizer_v1",
+      },
+      plans: [{ claim: { kind: "strict_improvement" } }],
     });
-    const details = result.details as {
-      plans: Array<{ candidate: { outputs: string[] } }>;
-    };
-    expect(details.plans[0]?.candidate.outputs).toEqual(["expression"]);
-
-    const provedOrder = await current.tools[0]!.execute("id", {
-      operation: "optimize",
-      expression: "(x + 1)*(x + 1) + (y*z + y*w)",
-    });
-    expect(provedOrder.content[0]!.text).toContain(
-      "Relation to previous: previous plan proved superior",
-    );
-
-    const algorithmic = await current.tools[0]!.execute("id", {
-      operation: "optimize",
-      expression: "3 + Sum(Sum(i*j + j**2, (j, 0, i)), (i, 0, 100))",
-      max_plans: 16,
-      enabled_algorithmic_families: ["finite_polynomial_sum_v1"],
-    });
-    expect(algorithmic.content[0]!.text).toContain(
-      "finite_polynomial_sum_v1 [tier exact_algorithmic_v1]",
-    );
-    expect(algorithmic.content[0]!.text).toContain(
-      "no runtime or finite-precision claim",
-    );
   });
 
-  it("presents typed direct optimization failures without analysis casting", async () => {
+  it("presents explicit goal optimization failures as string failures", async () => {
     const current = host();
-    const failure = { status: "failed", error: "bounded optimizer failure" };
+    const failure = { status: "failure", error: "bounded optimizer failure" };
     await start(
       current.api,
       Promise.resolve({
@@ -478,7 +448,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 16, result: failure }),
+            JSON.stringify({ version: 17, result: failure }),
           )}))`,
         ],
       }),
@@ -486,381 +456,19 @@ describe("readiness gate", () => {
     const result = await current.tools[0]!.execute("id", {
       operation: "optimize",
       expression: "x",
+      goal: {
+        kind: "preserve_all_outputs_v1",
+        semantics: "exact_symbolic_v1",
+        objective: { kind: "unit_work_v1" },
+      },
+      search: { kind: "bounded_goal_v1" },
+      proof: { kind: "verifier_backed_v1" },
+      projection_limit: 1,
     });
     expect(result.content[0]!.text).toBe(
-      "Optimization\n- failed\nBlockers\n- bounded optimizer failure",
+      "Optimization\nFailure\n- bounded optimizer failure",
     );
     expect(result.details).toEqual(failure);
-  });
-
-  it("presents first-ranked optimization advice compactly with canonical details", async () => {
-    const current = host();
-    const adapter = fileURLToPath(
-      new URL("../bridge/formula_adapter.py", import.meta.url),
-    );
-    await start(
-      current.api,
-      Promise.resolve({
-        ready: true,
-        command: "uv",
-        args: ["run", "--locked", "python", adapter],
-      }),
-    );
-    const result = await current.tools[0]!.execute("id", {
-      expression: "x*y + x*z",
-    });
-    const text = result.content[0]!.text;
-    expect(text).toContain("Optimization advice");
-    expect(text).toContain("optimization plan");
-    expect(text).toContain("factoring: expression: x*y + x*z → x*(y + z)");
-    expect(text).toContain(
-      "objective unit_work_v1: 3 → 2; original-to-final saving 1",
-    );
-    expect(text).toContain("exact_symbolic_only");
-    expect(result.details).toMatchObject({
-      optimization: {
-        requested_limit: 3,
-        status: "complete",
-        suggestions: [
-          {
-            kind: "factoring",
-            objective_before: "3",
-            objective_after: "2",
-            objective_savings: "1",
-          },
-        ],
-      },
-    });
-  });
-
-  it("presents Python-ranked incomparable advice without claiming superiority", async () => {
-    const current = host();
-    const suggestion = (
-      kind: "factoring" | "horner",
-      proposed: string,
-      workAfter: string,
-      objective_savings: string,
-    ) => ({
-      kind,
-      tier: "exact_algebraic_v1" as const,
-      transformations: [
-        {
-          target: { kind: "expression", name: null },
-          occurrences: [{ path: [], binders: [], output_indices: [] }],
-          original: { normalized_sympy: "x", normalized_latex: "x" },
-          proposed: { normalized_sympy: proposed, normalized_latex: proposed },
-        },
-      ],
-      intermediate: null,
-      conclusion: "proved",
-      evidence: {
-        kind: "identity",
-        statement:
-          "checked exact symbolic equivalence from submitted computation to final candidate",
-      },
-      conditions: [],
-      assumptions_used: [],
-      objective_before: "N + M + 4",
-      objective_after: workAfter,
-      objective_savings,
-      ordering: { position: 1, relation_to_previous: null },
-      finite_precision_qualification: "exact_symbolic_only",
-    });
-    const suggestions = [
-      suggestion("factoring", "first_candidate", "M + 4", "N"),
-      {
-        ...suggestion("horner", "second_candidate", "N + 4", "M"),
-        ordering: {
-          position: 2,
-          relation_to_previous: "deterministic_non_superiority" as const,
-        },
-      },
-    ];
-    const variables = {
-      N: { domain: "positive_integer" as const },
-      M: { domain: "positive_integer" as const },
-    };
-    const response = {
-      status: "success",
-      interpretation: { normalized_sympy: "x", normalized_latex: "x" },
-      operation_counts: {
-        additions: 0,
-        subtractions: 0,
-        multiplications: 0,
-        divisions: 0,
-        powers: 0,
-      },
-      abstract_work: 0,
-      direct_work_applicability: "finite",
-      direct_work_blockers: [],
-      scenarios: [],
-      queries: [],
-      optimization: {
-        requested_limit: 3,
-        status: "complete",
-        suggestions,
-        plans: suggestions.map((item) => optimizationPlan(item, { variables })),
-        qualifications: [],
-        projection_status: "complete",
-        projection_qualifications: [],
-      },
-    };
-    await start(
-      current.api,
-      Promise.resolve({
-        ready: true,
-        command: process.execPath,
-        args: [
-          "-e",
-          `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 16, result: response }),
-          )}))`,
-        ],
-      }),
-    );
-
-    const result = await current.tools[0]!.execute("id", {
-      expression: "x",
-      variables,
-    });
-    const text = result.content[0]!.text;
-    expect(text).toContain(
-      "optimization plan: 1. factoring: expression: x → first_candidate",
-    );
-    expect(text).toContain("1 additional proved suggestion in details");
-    expect(text).not.toContain("second_candidate");
-    expect(text).not.toMatch(/best|superior/i);
-    expect(result.details).toMatchObject({
-      optimization: {
-        suggestions: [
-          { kind: "factoring", objective_savings: "N" },
-          { kind: "horner", objective_savings: "M" },
-        ],
-      },
-    });
-  });
-
-  it("keeps disabled optimization advice out of compact output", async () => {
-    const current = host();
-    const adapter = fileURLToPath(
-      new URL("../bridge/formula_adapter.py", import.meta.url),
-    );
-    await start(
-      current.api,
-      Promise.resolve({
-        ready: true,
-        command: "uv",
-        args: ["run", "--locked", "python", adapter],
-      }),
-    );
-    const result = await current.tools[0]!.execute("id", {
-      expression: "x*y + x*z",
-      optimization: { max_suggestions: 0 },
-    });
-    expect(result.content[0]!.text).not.toContain("Optimization advice");
-    expect(result.details).toMatchObject({
-      optimization: { status: "disabled", suggestions: [] },
-    });
-  });
-
-  it("keeps complete compact transformations and every retained qualification visible", async () => {
-    const current = host();
-    const longReplacement = `x + ${"y".repeat(600)}`;
-    const suggestion = {
-      kind: "factoring",
-      tier: "exact_algebraic_v1",
-      transformations: [
-        {
-          target: { kind: "expression", name: null },
-          occurrences: [{ path: [], binders: [], output_indices: [] }],
-          original: { normalized_sympy: "x + y", normalized_latex: "x+y" },
-          proposed: {
-            normalized_sympy: longReplacement,
-            normalized_latex: "p",
-          },
-        },
-      ],
-      intermediate: null,
-      conclusion: "proved_under_assumptions",
-      evidence: {
-        kind: "identity",
-        statement:
-          "checked exact symbolic equivalence from submitted computation to final candidate",
-      },
-      conditions: [],
-      assumptions_used: [{ name: "known", relationship: "x > 0" }],
-      objective_before: "3",
-      objective_after: "2",
-      objective_savings: "1",
-      ordering: { position: 1, relation_to_previous: null },
-      finite_precision_qualification: "exact_symbolic_only",
-    };
-    const suggestions = [
-      suggestion,
-      {
-        ...suggestion,
-        kind: "redundant_operation_removal",
-        conclusion: "proved",
-        assumptions_used: [],
-        ordering: {
-          position: 2,
-          relation_to_previous: "deterministic_non_superiority",
-        },
-      },
-    ];
-    const response = {
-      status: "success",
-      interpretation: { normalized_sympy: "x", normalized_latex: "x" },
-      operation_counts: {
-        additions: 0,
-        subtractions: 0,
-        multiplications: 0,
-        divisions: 0,
-        powers: 0,
-      },
-      abstract_work: 0,
-      direct_work_applicability: "finite",
-      direct_work_blockers: [],
-      scenarios: [],
-      queries: [],
-      optimization: {
-        requested_limit: 3,
-        status: "incomplete",
-        suggestions,
-        plans: suggestions.map((item) =>
-          optimizationPlan(item, {
-            assumptions: [{ name: "known", relationship: "x > 0" }],
-          }),
-        ),
-        qualifications: [
-          "optimization inspected nodes budget exhausted (measured 4, configured 3)",
-        ],
-        projection_status: "complete",
-        projection_qualifications: [],
-      },
-    };
-    await start(
-      current.api,
-      Promise.resolve({
-        ready: true,
-        command: process.execPath,
-        args: [
-          "-e",
-          `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 16, result: response }),
-          )}))`,
-        ],
-      }),
-    );
-
-    const result = await current.tools[0]!.execute("id", {
-      expression: "x",
-      assumptions: [{ name: "known", relationship: "x > 0" }],
-    });
-    const text = result.content[0]!.text;
-    expect(text).toContain("optimization plan");
-    expect(text).toContain(longReplacement);
-    expect(text).not.toContain(`${longReplacement.slice(0, 512)}...`);
-    expect(text).toContain("assumptions used: known (x > 0)");
-    expect(text).toContain("1 additional proved suggestion in details");
-    expect(text).toContain(
-      "search incomplete; inspect details for the local bound",
-    );
-    expect(text).toContain(
-      "qualification: optimization inspected nodes budget exhausted (measured 4, configured 3)",
-    );
-  });
-
-  it("keeps empty incomplete-search qualifications visible", async () => {
-    const current = host();
-    const response = {
-      status: "success",
-      interpretation: { normalized_sympy: "x", normalized_latex: "x" },
-      operation_counts: {
-        additions: 0,
-        subtractions: 0,
-        multiplications: 0,
-        divisions: 0,
-        powers: 0,
-      },
-      abstract_work: 0,
-      direct_work_applicability: "finite",
-      direct_work_blockers: [],
-      scenarios: [],
-      queries: [],
-      optimization: {
-        requested_limit: 3,
-        status: "incomplete",
-        suggestions: [],
-        plans: [],
-        qualifications: [
-          "optimization proof nodes budget exhausted (measured 4, configured 3)",
-        ],
-        projection_status: "complete",
-        projection_qualifications: [],
-      },
-    };
-    await start(
-      current.api,
-      Promise.resolve({
-        ready: true,
-        command: process.execPath,
-        args: [
-          "-e",
-          `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 16, result: response }),
-          )}))`,
-        ],
-      }),
-    );
-
-    const result = await current.tools[0]!.execute("id", { expression: "x" });
-    const text = result.content[0]!.text;
-    expect(text).toContain(
-      "search incomplete; no proved suggestion was retained",
-    );
-    expect(text).toContain(
-      "qualification: optimization proof nodes budget exhausted (measured 4, configured 3)",
-    );
-  });
-
-  it("renders one atomic multi-target suggestion without a primary target", async () => {
-    const current = host();
-    const adapter = fileURLToPath(
-      new URL("../bridge/formula_adapter.py", import.meta.url),
-    );
-    await start(
-      current.api,
-      Promise.resolve({
-        ready: true,
-        command: "uv",
-        args: ["run", "--locked", "python", adapter],
-      }),
-    );
-    const result = await current.tools[0]!.execute("id", {
-      equations: [
-        {
-          name: "left",
-          expression: "Eq(left[i], x[i]*x[i] + 1)",
-          domains: { i: { lower: "0", upper: "3" } },
-        },
-        {
-          name: "right",
-          expression: "Eq(right[j], x[j]*x[j] - 1)",
-          domains: { j: { lower: "0", upper: "3" } },
-        },
-      ],
-      variables: { x: { domain: "real" } },
-      optimization: { max_suggestions: 16 },
-    });
-    const text = result.content[0]!.text;
-    expect(text).toContain("optimization plan");
-    expect(text).toContain("cross_equation_sharing:");
-    expect(text).toContain("equation left:");
-    expect(text).toContain("equation right:");
-    expect(text).toContain("shared intermediate");
-    expect(text).toContain("exact_symbolic_only");
-    expect(text).not.toContain("primary target");
   });
 
   it("surfaces localized dominance blockers in compact output", async () => {
@@ -1067,15 +675,6 @@ describe("readiness gate", () => {
           ],
         },
       ],
-      optimization: {
-        requested_limit: 3,
-        status: "complete",
-        suggestions: [],
-        plans: [],
-        qualifications: [],
-        projection_status: "complete",
-        projection_qualifications: [],
-      },
     };
     await start(
       current.api,
@@ -1085,7 +684,7 @@ describe("readiness gate", () => {
         args: [
           "-e",
           `process.stdin.resume();process.stdin.on("end",()=>process.stdout.write(${JSON.stringify(
-            JSON.stringify({ version: 16, result: response }),
+            JSON.stringify({ version: 17, result: response }),
           )}))`,
         ],
       }),

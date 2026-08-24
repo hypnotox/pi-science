@@ -12,91 +12,81 @@ def _expression(source: str):
     return cast(Expression, parsed)
 
 
-def test_optimization_config_is_strict_and_bounded() -> None:
+def test_analysis_request_rejects_the_former_optimization_key() -> None:
     from py_science.formula import AnalysisRequest, FormulaSyntax
     from pydantic import ValidationError
 
-    default = AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x")
-    disabled = AnalysisRequest.model_validate(
-        {
-            "syntax": FormulaSyntax.SYMPY,
-            "expression": "x",
-            "optimization": {"max_suggestions": 0},
-        }
-    )
-    assert default.optimization.max_suggestions == 3
-    assert disabled.optimization.max_suggestions == 0
     with pytest.raises(ValidationError) as error:
         AnalysisRequest.model_validate(
             {
                 "syntax": FormulaSyntax.SYMPY,
                 "expression": "x",
-                "optimization": {"max_suggestions": 17},
+                "optimization": {"max_suggestions": 0},
             }
         )
-    assert error.value.errors()[0]["loc"] == ("optimization", "max_suggestions")
+    assert error.value.errors()[0]["loc"] == ("optimization",)
 
 
-def test_disabled_optimization_preserves_every_ordinary_field() -> None:
-    from py_science.formula import AnalysisRequest, FormulaSyntax, OptimizationConfig, analyze
+def test_ordinary_analysis_has_no_optimization_serialization_or_invocation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from goal_requests import optimize_analysis
+    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+    from py_science.formula._service import optimization as optimization_service
 
-    enabled = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="(x + 1) * (x + 1)"))
-    disabled = analyze(
-        AnalysisRequest(
-            syntax=FormulaSyntax.SYMPY,
-            expression="(x + 1) * (x + 1)",
-            optimization=OptimizationConfig(max_suggestions=0),
-        )
+    calls = 0
+    original = optimization_service._optimization_result
+
+    def counted_optimization(*args: Any, **kwargs: Any):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(optimization_service, "_optimization_result", counted_optimization)
+    computation = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY, expression="(x + 1) * (x + 1)"
     )
-    assert enabled.status == "success" and disabled.status == "success"
-    assert enabled.model_copy(update={"optimization": None}) == disabled.model_copy(
-        update={"optimization": None}
-    )
-    assert disabled.optimization is not None
-    assert disabled.optimization.status == "disabled"
+    ordinary = analyze(computation)
+    assert ordinary.status == "success"
+    assert "optimization" not in ordinary.model_dump()
+    assert calls == 0
+
+    explicit = optimize_analysis(computation, projection_limit=16)
+    assert explicit.status == "success"
+    assert explicit.plans
+    assert calls == 1
 
 
-def test_optimization_config_truth_table_and_exact_error_paths() -> None:
-    from py_science.formula import AnalysisRequest, FormulaSyntax
+def test_optimize_request_rejects_former_passive_controls() -> None:
+    from goal_requests import goal_request
+    from py_science.formula import AnalysisRequest, FormulaSyntax, OptimizeRequest
     from pydantic import ValidationError
 
-    base = {"syntax": FormulaSyntax.SYMPY, "expression": "x"}
-    assert AnalysisRequest.model_validate(base).optimization.max_suggestions == 3
-    for accepted in (0, 16):
-        assert (
-            AnalysisRequest.model_validate(
-                {**base, "optimization": {"max_suggestions": accepted}}
-            ).optimization.max_suggestions
-            == accepted
-        )
-    for rejected in (-1, 17, 1.5, "3"):
+    request = goal_request(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x"))
+    for former in (
+        {"max_plans": 1},
+        {"objective": {"kind": "unit_work_v1"}},
+        {"enabled_algorithmic_families": ["finite_polynomial_sum_v1"]},
+    ):
         with pytest.raises(ValidationError) as error:
-            AnalysisRequest.model_validate({**base, "optimization": {"max_suggestions": rejected}})
-        assert error.value.errors()[0]["loc"] == (
-            "optimization",
-            "max_suggestions",
-        )
-    with pytest.raises(ValidationError) as error:
-        AnalysisRequest.model_validate(
-            {**base, "optimization": {"max_suggestions": 3, "extra": True}}
-        )
-    assert error.value.errors()[0]["loc"] == ("optimization", "extra")
+            OptimizeRequest.model_validate({**request.model_dump(), **former})
+        assert error.value.errors()[0]["loc"] == tuple(former)
 
 
 def test_composed_search_v1_max_plans_is_an_exact_ranked_prefix() -> None:
-    """Changing the output limit neither changes nor reruns the search population."""
-    from py_science.formula import AnalysisRequest, FormulaSyntax, OptimizationConfig, analyze
+    """Changing the projection limit neither changes nor reruns the search population."""
+    from goal_requests import optimize_analysis
+    from py_science.formula import AnalysisRequest, FormulaSyntax
 
     def plans(limit: int):
-        outcome = analyze(
+        outcome = optimize_analysis(
             AnalysisRequest(
-                syntax=FormulaSyntax.SYMPY,
-                expression="(x + 1)*(x + 1) + 0",
-                optimization=OptimizationConfig(max_suggestions=limit),
-            )
+                syntax=FormulaSyntax.SYMPY, expression="(x + 1)*(x + 1) + 0"
+            ),
+            projection_limit=limit,
         )
-        assert outcome.status == "success" and outcome.optimization is not None
-        return outcome.optimization.plans
+        assert outcome.status == "success"
+        return outcome.plans
 
     full = plans(16)
     assert len(full) >= 2
@@ -110,13 +100,14 @@ def test_composed_search_v1_retained_lanes_are_round_robin_and_order_invariant(
     """The bounded depth population is independent of family and emission order."""
     from dataclasses import replace
 
+    from goal_requests import goal_request
     from py_science.formula import AnalysisFailure, AnalysisRequest, FormulaSyntax
     from py_science.formula._analysis.computation import analyze_retained
     from py_science.formula._optimization import search as search_owner
     from py_science.formula.optimization import (
         _CandidateComputation,
         _CandidateDescriptor,
-        _optimization_report,
+        _optimization_result,
         _OptimizationBudget,
         _OptimizationBudgetConfig,
         _RetainedLaneCollector,
@@ -156,8 +147,6 @@ def test_composed_search_v1_retained_lanes_are_round_robin_and_order_invariant(
         selected = collector.schedule()
         return selected, calls, budget, collector
 
-    # Family registration and descriptor emission do not choose the bounded
-    # population.  Only the selected fair prefix constructs a candidate.
     baseline, calls, budget, collector = collect(False, False)
     reversed_population, reversed_calls, reversed_budget, reversed_collector = collect(True, True)
     assert baseline == reversed_population
@@ -173,20 +162,42 @@ def test_composed_search_v1_retained_lanes_are_round_robin_and_order_invariant(
         )
     )
 
-    request = AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="(x + 1)*(x + 1) + (y + 0)")
-    computed = analyze_retained(request)
+    computation = AnalysisRequest(
+        syntax=FormulaSyntax.SYMPY, expression="(x + 1)*(x + 1) + (y + 0)"
+    )
+    request = goal_request(computation)
+    computed = analyze_retained(computation)
     assert not isinstance(computed, AnalysisFailure)
     seam = replace(_OptimizationBudgetConfig(), candidates=2, complete_reanalyses=2)
-    baseline = _optimization_report(
+    baseline = _optimization_result(
         request, computed, computed.work_context, seam, analyzer=analyze_retained
     )
     original_order = search_owner._FAMILY_ORDER
     patched_order = tuple(reversed(original_order))
     monkeypatch.setattr(search_owner, "_FAMILY_ORDER", patched_order)
-    reversed_families = _optimization_report(
+    reversed_families = _optimization_result(
         request, computed, computed.work_context, seam, analyzer=analyze_retained
     )
-    assert reversed_families == baseline
+    # The public result reports the patched lane order, but the all-lane
+    # search population and every replayed plan remain exactly invariant.
+    def normalized_families(result: object):
+        typed = cast("Any", result)
+        families = baseline.search_scope.families
+        return typed.model_copy(
+            update={
+                "search_scope": typed.search_scope.model_copy(update={"families": families}),
+                "plans": tuple(
+                    plan.model_copy(
+                        update={"claim": plan.claim.model_copy(update={"families": families})}
+                    )
+                    for plan in typed.plans
+                ),
+            }
+        )
+
+    assert set(baseline.search_scope.families) == set(original_order)
+    assert set(reversed_families.search_scope.families) == set(original_order)
+    assert normalized_families(reversed_families) == baseline
     monkeypatch.undo()
     assert original_order == search_owner._FAMILY_ORDER
 
@@ -195,13 +206,15 @@ def test_private_accounting_records_observed_rejections_without_extra_work(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Accounting observes the existing schedule; it never changes it or reruns it."""
+    from goal_requests import goal_request
     from py_science.formula import AnalysisFailure, AnalysisRequest, FormulaSyntax
     from py_science.formula._analysis.computation import analyze_retained
     from py_science.formula._optimization import search as search_owner
     from py_science.formula._optimization.diagnostics import _OutcomeAccounting
 
-    request = AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="f(x) + f(x)")
-    computed = analyze_retained(request)
+    computation = AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="f(x) + f(x)")
+    request = goal_request(computation)
+    computed = analyze_retained(computation)
     assert not isinstance(computed, AnalysisFailure)
     accounting = _OutcomeAccounting()
     calls = {"generation": 0, "verification": 0}
@@ -218,20 +231,13 @@ def test_private_accounting_records_observed_rejections_without_extra_work(
 
     monkeypatch.setattr(search_owner, "_generate_candidate_lanes", counted_generation)
     monkeypatch.setattr(search_owner, "_verify_candidate", counted_verification)
-    report = search_owner._optimization_report(
-        request,
-        computed,
-        computed.work_context,
-        analyzer=analyze_retained,
-        accounting=accounting,
+    result = search_owner._optimization_result(
+        request, computed, computed.work_context, analyzer=analyze_retained, accounting=accounting
     )
 
-    assert (
-        report.model_dump()
-        == search_owner._optimization_report(
-            request, computed, computed.work_context, analyzer=analyze_retained
-        ).model_dump()
-    )
+    assert result.model_dump() == search_owner._optimization_result(
+        request, computed, computed.work_context, analyzer=analyze_retained
+    ).model_dump()
     assert calls == {"generation": 2, "verification": 2}
     assert accounting.generation_events == 1
     assert accounting.proposals == accounting.transition_verifications == 1
@@ -243,17 +249,19 @@ def test_private_accounting_records_observed_rejections_without_extra_work(
 
 
 def test_private_accounting_distinguishes_empty_and_nonpositive_outcomes() -> None:
+    from goal_requests import goal_request
     from py_science.formula import AnalysisFailure, AnalysisRequest, FormulaSyntax
     from py_science.formula._analysis.computation import analyze_retained
     from py_science.formula._optimization.diagnostics import _OutcomeAccounting
-    from py_science.formula._optimization.search import _optimization_report
+    from py_science.formula._optimization.search import _optimization_result
 
     def observe(expression: str) -> _OutcomeAccounting:
-        request = AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression)
-        computed = analyze_retained(request)
+        computation = AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression)
+        request = goal_request(computation)
+        computed = analyze_retained(computation)
         assert not isinstance(computed, AnalysisFailure)
         accounting = _OutcomeAccounting()
-        _optimization_report(
+        _optimization_result(
             request,
             computed,
             computed.work_context,
@@ -268,11 +276,7 @@ def test_private_accounting_distinguishes_empty_and_nonpositive_outcomes() -> No
         empty.proposals,
         empty.transition_verifications,
         empty.rejected_before_final_acceptance,
-    ) == (
-        0,
-        0,
-        0,
-    )
+    ) == (0, 0, 0)
     assert (
         nonpositive.proposals,
         nonpositive.transition_verifications,
@@ -282,26 +286,24 @@ def test_private_accounting_distinguishes_empty_and_nonpositive_outcomes() -> No
 
 
 def test_private_accounting_omits_unrelated_unresolved_assumptions() -> None:
+    from goal_requests import goal_request
     from py_science.formula import AnalysisFailure, AnalysisRequest, Assumption, FormulaSyntax
     from py_science.formula._analysis.computation import analyze_retained
     from py_science.formula._optimization.diagnostics import _OutcomeAccounting
-    from py_science.formula._optimization.search import _optimization_report
+    from py_science.formula._optimization.search import _optimization_result
 
-    request = AnalysisRequest(
+    computation = AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,
         expression="(x + 1) * (x + 1)",
         assumptions=(Assumption(name="positive", relationship="x > 0"),),
     )
-    computed = analyze_retained(request)
+    request = goal_request(computation)
+    computed = analyze_retained(computation)
     assert not isinstance(computed, AnalysisFailure)
     accounting = _OutcomeAccounting()
 
-    _optimization_report(
-        request,
-        computed,
-        computed.work_context,
-        analyzer=analyze_retained,
-        accounting=accounting,
+    _optimization_result(
+        request, computed, computed.work_context, analyzer=analyze_retained, accounting=accounting
     )
 
     assert accounting.proposals == accounting.transition_verifications == 1
@@ -310,32 +312,27 @@ def test_private_accounting_omits_unrelated_unresolved_assumptions() -> None:
 
 
 def test_private_accounting_records_target_local_cardinality_fact() -> None:
+    from goal_requests import goal_request
     from py_science.formula import AnalysisFailure, AnalysisRequest, FormulaSyntax
     from py_science.formula._analysis.computation import analyze_retained
     from py_science.formula._optimization.diagnostics import _OutcomeAccounting
-    from py_science.formula._optimization.search import _optimization_report
+    from py_science.formula._optimization.search import _optimization_result
 
-    request = AnalysisRequest(
+    computation = AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,
         expression="Sum((x + 1) * (x + 1), (i, a, b))",
     )
-    computed = analyze_retained(request)
+    request = goal_request(computation)
+    computed = analyze_retained(computation)
     assert not isinstance(computed, AnalysisFailure)
     accounting = _OutcomeAccounting()
 
-    report = _optimization_report(
-        request,
-        computed,
-        computed.work_context,
-        analyzer=analyze_retained,
-        accounting=accounting,
+    result = _optimization_result(
+        request, computed, computed.work_context, analyzer=analyze_retained, accounting=accounting
     )
 
-    assert report == _optimization_report(
-        request,
-        computed,
-        computed.work_context,
-        analyzer=analyze_retained,
+    assert result == _optimization_result(
+        request, computed, computed.work_context, analyzer=analyze_retained
     )
     assert any(
         blocker.reason == "unproved_domain_or_cardinality"
@@ -346,6 +343,7 @@ def test_private_accounting_records_target_local_cardinality_fact() -> None:
 
 
 def test_private_accounting_omits_unknown_cost_from_another_system_output() -> None:
+    from goal_requests import goal_request
     from py_science.formula import (
         AnalysisFailure,
         AnalysisRequest,
@@ -356,9 +354,9 @@ def test_private_accounting_omits_unknown_cost_from_another_system_output() -> N
     )
     from py_science.formula._analysis.computation import analyze_retained
     from py_science.formula._optimization.diagnostics import _OutcomeAccounting
-    from py_science.formula._optimization.search import _optimization_report
+    from py_science.formula._optimization.search import _optimization_result
 
-    request = AnalysisRequest(
+    computation = AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,
         equations=(
             EquationRequest(name="target", expression="Eq(target, x*y + x*z)"),
@@ -369,16 +367,13 @@ def test_private_accounting_omits_unknown_cost_from_another_system_output() -> N
             for name in ("x", "y", "z")
         },
     )
-    computed = analyze_retained(request)
+    request = goal_request(computation)
+    computed = analyze_retained(computation)
     assert not isinstance(computed, AnalysisFailure)
     accounting = _OutcomeAccounting()
 
-    _optimization_report(
-        request,
-        computed,
-        computed.work_context,
-        analyzer=analyze_retained,
-        accounting=accounting,
+    _optimization_result(
+        request, computed, computed.work_context, analyzer=analyze_retained, accounting=accounting
     )
 
     assert accounting.proposals == accounting.transition_verifications == 1

@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import assert_never
 
 import pytest
+from goal_requests import goal_request, optimize_analysis
 from py_science.formula import (
     AnalysisError,
     AnalysisErrorCode,
@@ -20,12 +21,11 @@ from py_science.formula import (
     Interpretation,
     MathematicalDomain,
     OperationCounts,
-    OptimizationConfig,
-    OptimizationReport,
     SourceLocation,
     SymbolicOperationCounts,
     SystemReport,
     VariableDeclaration,
+    WeightedOperationsObjective,
     analyze,
 )
 from pydantic import ValidationError
@@ -44,23 +44,15 @@ def test_exact_algorithmic_sum_v1_e2e_replays_without_changing_submitted_work() 
     baseline = analyze(
         AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=source)
     )
-    enabled = analyze(
-        AnalysisRequest(
-            syntax=FormulaSyntax.SYMPY,
-            expression=source,
-            optimization=OptimizationConfig(
-                max_suggestions=16,
-                enabled_algorithmic_families=("finite_polynomial_sum_v1",),
-            ),
-        )
-    )
-    assert isinstance(baseline, AnalysisSuccess) and isinstance(enabled, AnalysisSuccess)
-    assert enabled.abstract_work == baseline.abstract_work
+    enabled = optimize_analysis(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=source))
+    assert isinstance(baseline, AnalysisSuccess) and enabled.status == "success"
+    assert enabled.search_scope.completion == "complete"
     plan = next(
         plan
-        for plan in enabled.optimization.plans
+        for plan in enabled.plans
         if any(step.kind == "finite_polynomial_sum_v1" for step in plan.trace)
     )
+    assert plan.objective.kind == "unit_work_v1"
     replay = analyze(AnalysisRequest.model_validate(plan.candidate.model_dump()))
     assert isinstance(replay, AnalysisSuccess)
     assert replay.interpretation.normalized_sympy == "21591278"
@@ -318,9 +310,9 @@ def test_analyze_returns_normalized_interpretation() -> None:
     assert outcome == AnalysisSuccess(
         interpretation=Interpretation(normalized_sympy="x + 1", normalized_latex="x + 1"),
         operation_counts=OperationCounts(additions=1),
-        abstract_work=1,
-        optimization=OptimizationReport(requested_limit=3, status="complete"),
+        abstract_work=1
     )
+    assert "optimization" not in outcome.model_dump()
 
 
 def test_analyze_counts_submitted_subtraction() -> None:
@@ -331,9 +323,9 @@ def test_analyze_counts_submitted_subtraction() -> None:
     assert outcome == AnalysisSuccess(
         interpretation=Interpretation(normalized_sympy="x - y", normalized_latex="x - y"),
         operation_counts=OperationCounts(subtractions=1),
-        abstract_work=1,
-        optimization=OptimizationReport(requested_limit=3, status="complete"),
+        abstract_work=1
     )
+    assert "optimization" not in outcome.model_dump()
 
 
 def test_analyze_counts_submitted_multiplication() -> None:
@@ -344,9 +336,9 @@ def test_analyze_counts_submitted_multiplication() -> None:
     assert outcome == AnalysisSuccess(
         interpretation=Interpretation(normalized_sympy="x*y", normalized_latex="x y"),
         operation_counts=OperationCounts(multiplications=1),
-        abstract_work=1,
-        optimization=OptimizationReport(requested_limit=3, status="complete"),
+        abstract_work=1
     )
+    assert "optimization" not in outcome.model_dump()
 
 
 def test_analyze_counts_submitted_division() -> None:
@@ -360,9 +352,9 @@ def test_analyze_counts_submitted_division() -> None:
             normalized_latex=r"\frac{x}{y}",
         ),
         operation_counts=OperationCounts(divisions=1),
-        abstract_work=1,
-        optimization=OptimizationReport(requested_limit=3, status="complete"),
+        abstract_work=1
     )
+    assert "optimization" not in outcome.model_dump()
 
 
 def test_analyze_counts_submitted_power() -> None:
@@ -373,9 +365,9 @@ def test_analyze_counts_submitted_power() -> None:
     assert outcome == AnalysisSuccess(
         interpretation=Interpretation(normalized_sympy="x**2", normalized_latex="x^{2}"),
         operation_counts=OperationCounts(powers=1),
-        abstract_work=1,
-        optimization=OptimizationReport(requested_limit=3, status="complete"),
+        abstract_work=1
     )
+    assert "optimization" not in outcome.model_dump()
 
 
 def test_numeric_powers_are_normalized_without_eager_exponentiation() -> None:
@@ -389,9 +381,9 @@ def test_numeric_powers_are_normalized_without_eager_exponentiation() -> None:
             normalized_latex="2^{100000}",
         ),
         operation_counts=OperationCounts(powers=1),
-        abstract_work=1,
-        optimization=OptimizationReport(requested_limit=3, status="complete"),
+        abstract_work=1
     )
+    assert "optimization" not in outcome.model_dump()
 
 
 @pytest.mark.parametrize(
@@ -431,9 +423,9 @@ def test_signed_integer_literals_have_no_operation_cost(
             normalized_latex=normalized,
         ),
         operation_counts=OperationCounts(),
-        abstract_work=0,
-        optimization=OptimizationReport(requested_limit=3, status="complete"),
+        abstract_work=0
     )
+    assert "optimization" not in outcome.model_dump()
 
 
 def test_nested_formula_counts_submitted_operators_before_normalization() -> None:
@@ -670,8 +662,9 @@ def test_complete_candidate_replays_factoring_neutral_and_horner_with_context() 
         },
         assumptions=(),
         definitions=(),
-        optimization=OptimizationConfig(max_suggestions=16),
     )
+    policy = goal_request(request)
+    assert policy.goal.objective.kind == "unit_work_v1"
     retained = analyze_retained(request)
     assert isinstance(retained, object) and not isinstance(retained, AnalysisFailure)
     candidates, _ = _generate_candidates(retained, _OptimizationBudget())
@@ -689,19 +682,14 @@ def test_dense_polynomial_horner_advice_is_independently_proved_and_lower_work()
     request = AnalysisRequest(
         syntax=FormulaSyntax.SYMPY,
         expression="a*x**3 + b*x**2 + c*x + d",
-        optimization=OptimizationConfig(max_suggestions=16),
     )
-    enabled = analyze(request)
-    disabled = analyze(
-        request.model_copy(update={"optimization": OptimizationConfig(max_suggestions=0)})
-    )
+    enabled = optimize_analysis(request)
 
-    assert isinstance(enabled, AnalysisSuccess)
-    assert isinstance(disabled, AnalysisSuccess)
-    assert enabled.model_copy(update={"optimization": None}) == disabled.model_copy(
-        update={"optimization": None}
-    )
-    suggestion = next(item for item in enabled.optimization.suggestions if item.kind == "horner")
+    assert enabled.status == "success"
+    assert enabled.search_scope.completion == "complete"
+    plan = next(plan for plan in enabled.plans if plan.suggestion.kind == "horner")
+    assert plan.objective.kind == "unit_work_v1"
+    suggestion = plan.suggestion
     assert suggestion.conclusion == "proved"
     assert int(suggestion.work_before) > int(suggestion.work_after) > 0
     assert int(suggestion.savings) == int(suggestion.work_before) - int(suggestion.work_after)
@@ -714,25 +702,19 @@ def test_objective_v1_custom_selection_preserves_ordinary_analysis_fields() -> N
         expression="(x + 1)*(x + 1) + (y*z + y*w)",
     )
     default = analyze(base)
-    weighted = analyze(
-        AnalysisRequest.model_validate(
+    weighted = optimize_analysis(
+        base,
+        objective=WeightedOperationsObjective.model_validate(
             {
-                **base.model_dump(),
-                "optimization": {
-                    "objective": {
-                        "kind": "weighted_operations_v1",
-                        "weights": {
-                            "additions": "1", "subtractions": "1",
-                            "multiplications": "1", "divisions": "1", "powers": "5/2",
-                        },
-                    }
+                "kind": "weighted_operations_v1",
+                "weights": {
+                    "additions": "1", "subtractions": "1",
+                    "multiplications": "1", "divisions": "1", "powers": "5/2",
                 },
             }
-        )
+        ),
     )
-    assert isinstance(default, AnalysisSuccess) and isinstance(weighted, AnalysisSuccess)
-    assert default.model_copy(update={"optimization": None}) == weighted.model_copy(
-        update={"optimization": None}
-    )
-    assert default.optimization.plans[0].objective.kind == "unit_work_v1"
-    assert weighted.optimization.plans[0].objective.kind == "weighted_operations_v1"
+    assert isinstance(default, AnalysisSuccess) and weighted.status == "success"
+    assert "optimization" not in default.model_dump()
+    assert weighted.search_scope.completion == "complete"
+    assert weighted.plans[0].objective.kind == "weighted_operations_v1"

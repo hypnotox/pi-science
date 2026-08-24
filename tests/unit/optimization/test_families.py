@@ -2,8 +2,14 @@
 from typing import cast
 
 import pytest
+from goal_requests import goal_request, optimize_analysis
+from py_science.formula import OptimizationResult, OptimizationSuggestion
 from py_science.formula.expressions import Expression
 from py_science.formula.parser import ParseFailure, parse_expression
+
+
+def _suggestions(result: OptimizationResult) -> tuple[OptimizationSuggestion, ...]:
+    return tuple(plan.suggestion for plan in result.plans)
 
 
 def _expression(source: str):
@@ -84,10 +90,9 @@ def test_lexical_binding_reuse_candidate_stays_inside_its_scope() -> None:
         MathematicalDomain,
         PrimitiveCost,
         VariableDeclaration,
-        analyze,
     )
 
-    outcome = analyze(
+    outcome = optimize_analysis(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
             expression="Let(t, x + 1, f(t) + f(t))",
@@ -97,9 +102,7 @@ def test_lexical_binding_reuse_candidate_stays_inside_its_scope() -> None:
     )
 
     assert outcome.status == "success"
-    suggestion = next(
-        item for item in outcome.optimization.suggestions if item.kind == "repeated_call"
-    )
+    suggestion = next(item for item in _suggestions(outcome) if item.kind == "repeated_call")
     assert suggestion.intermediate is not None
     assert suggestion.intermediate.scope_binders == ("t",)
     assert suggestion.work_before == "22"
@@ -129,9 +132,9 @@ def test_lexical_binding_reuse_resolves_nested_values_and_multiplicity(
     work_before: str,
     work_after: str,
 ) -> None:
-    from py_science.formula import AnalysisRequest, FormulaSyntax, PrimitiveCost, analyze
+    from py_science.formula import AnalysisRequest, FormulaSyntax, PrimitiveCost
 
-    outcome = analyze(
+    outcome = optimize_analysis(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
             expression=expression,
@@ -140,9 +143,7 @@ def test_lexical_binding_reuse_resolves_nested_values_and_multiplicity(
     )
 
     assert outcome.status == "success"
-    suggestion = next(
-        item for item in outcome.optimization.suggestions if item.kind == "repeated_call"
-    )
+    suggestion = next(item for item in _suggestions(outcome) if item.kind == "repeated_call")
     assert suggestion.intermediate is not None
     assert suggestion.intermediate.scope_binders == expected_scope
     assert suggestion.work_before == work_before
@@ -150,7 +151,7 @@ def test_lexical_binding_reuse_resolves_nested_values_and_multiplicity(
 
 
 def test_local_optimization_families_publish_only_verified_savings() -> None:
-    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+    from py_science.formula import AnalysisRequest, FormulaSyntax
 
     fixtures = {
         "repeated_subexpression": "(x + 1) * (x + 1)",
@@ -160,10 +161,12 @@ def test_local_optimization_families_publish_only_verified_savings() -> None:
         "iterator_invariant_hoisting": "Sum(x * x + i, (i, 0, 3))",
     }
     for family, expression in fixtures.items():
-        outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression))
+        outcome = optimize_analysis(
+            AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression)
+        )
         assert outcome.status == "success"
-        assert outcome.optimization is not None
-        suggestion = next(item for item in outcome.optimization.suggestions if item.kind == family)
+        assert outcome.status == "success"
+        suggestion = next(item for item in _suggestions(outcome) if item.kind == family)
         assert suggestion.conclusion in {"proved", "proved_under_assumptions"}
         assert int(suggestion.savings) > 0
         assert int(suggestion.work_before) > int(suggestion.work_after)
@@ -173,15 +176,15 @@ def test_local_optimization_families_publish_only_verified_savings() -> None:
 
 
 def test_neutral_redundant_operations_can_reduce_work_to_zero() -> None:
-    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+    from py_science.formula import AnalysisRequest, FormulaSyntax
 
     for expression in ("x + 0", "x * 1", "x / 1", "x**1"):
-        outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression))
-        assert outcome.status == "success" and outcome.optimization is not None
+        outcome = optimize_analysis(
+            AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression)
+        )
+        assert outcome.status == "success" and outcome.status == "success"
         suggestion = next(
-            item
-            for item in outcome.optimization.suggestions
-            if item.kind == "redundant_operation_removal"
+            item for item in _suggestions(outcome) if item.kind == "redundant_operation_removal"
         )
         assert (suggestion.work_before, suggestion.work_after, suggestion.savings) == (
             "1",
@@ -204,10 +207,9 @@ def test_zero_work_optimization_scales_equation_output_multiplicity() -> None:
         IndexDomain,
         MathematicalDomain,
         VariableDeclaration,
-        analyze,
     )
 
-    outcome = analyze(
+    outcome = optimize_analysis(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
             equations=(
@@ -220,66 +222,64 @@ def test_zero_work_optimization_scales_equation_output_multiplicity() -> None:
             variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
         )
     )
-    assert outcome.status == "success" and outcome.optimization is not None
-    assert outcome.system is not None and outcome.system.total_work == "4"
+    assert outcome.status == "success"
     suggestion = next(
-        item
-        for item in outcome.optimization.suggestions
-        if item.kind == "redundant_operation_removal"
+        item for item in _suggestions(outcome) if item.kind == "redundant_operation_removal"
     )
     assert (suggestion.work_before, suggestion.work_after, suggestion.savings) == (
-        outcome.system.total_work,
+        "4",
         "0",
-        outcome.system.total_work,
+        "4",
     )
     assert suggestion.transformations[0].target.name == "value"
 
 
 def test_repeated_defined_call_is_reused_but_unknown_call_is_omitted() -> None:
-    from py_science.formula import AnalysisRequest, FormulaSyntax, FunctionDefinition, analyze
+    from py_science.formula import AnalysisRequest, FormulaSyntax, FunctionDefinition
 
-    known = analyze(
+    known = optimize_analysis(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
             expression="f(x) + f(x)",
             functions=(FunctionDefinition(name="f", parameters=("z",), body="z * z"),),
         )
     )
-    unknown = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="f(x) + f(x)"))
-    assert known.status == "success" and known.optimization is not None
-    assert any(item.kind == "repeated_call" for item in known.optimization.suggestions)
-    assert unknown.status == "success" and unknown.optimization is not None
-    assert unknown.optimization.suggestions == ()
+    unknown = optimize_analysis(
+        AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="f(x) + f(x)")
+    )
+    assert known.status == "success"
+    assert any(item.kind == "repeated_call" for item in _suggestions(known))
+    assert unknown.status == "success"
+    assert _suggestions(unknown) == ()
 
 
 def test_scope_collision_reciprocal_conditions_and_incompatible_sums() -> None:
-    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+    from py_science.formula import AnalysisRequest, FormulaSyntax
 
-    collision = analyze(
+    collision = optimize_analysis(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
             expression="(optimization_tmp_1 + 1) * (optimization_tmp_1 + 1)",
         )
     )
-    reciprocal = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="1 / x + 1 / x"))
-    incompatible = analyze(
+    reciprocal = optimize_analysis(
+        AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="1 / x + 1 / x")
+    )
+    incompatible = optimize_analysis(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
             expression="Sum(x + 1, (i, 0, 3)) + Sum(x + 1, (j, 0, 3))",
         )
     )
-    assert collision.status == "success" and collision.optimization is not None
-    assert collision.optimization.suggestions[0].intermediate is not None
-    assert collision.optimization.suggestions[0].intermediate.name == "optimization_tmp_2"
-    assert reciprocal.status == "success" and reciprocal.optimization is not None
-    reuse = next(
-        item for item in reciprocal.optimization.suggestions if item.kind == "reciprocal_reuse"
-    )
+    assert collision.status == "success" and collision.status == "success"
+    intermediate = _suggestions(collision)[0].intermediate
+    assert intermediate is not None
+    assert intermediate.name == "optimization_tmp_2"
+    assert reciprocal.status == "success" and reciprocal.status == "success"
+    reuse = next(item for item in _suggestions(reciprocal) if item.kind == "reciprocal_reuse")
     assert reuse.conditions == ("x != 0",)
-    assert incompatible.status == "success" and incompatible.optimization is not None
-    assert all(
-        item.kind != "repeated_subexpression" for item in incompatible.optimization.suggestions
-    )
+    assert incompatible.status == "success" and incompatible.status == "success"
+    assert all(item.kind != "repeated_subexpression" for item in _suggestions(incompatible))
 
 
 def test_each_local_family_can_publish_for_an_equation_system() -> None:
@@ -289,7 +289,6 @@ def test_each_local_family_can_publish_for_an_equation_system() -> None:
         FormulaSyntax,
         MathematicalDomain,
         VariableDeclaration,
-        analyze,
     )
 
     fixtures = {
@@ -303,15 +302,15 @@ def test_each_local_family_can_publish_for_an_equation_system() -> None:
         name: VariableDeclaration(domain=MathematicalDomain.REAL) for name in ("x", "y", "z")
     }
     for family, expression in fixtures.items():
-        outcome = analyze(
+        outcome = optimize_analysis(
             AnalysisRequest(
                 syntax=FormulaSyntax.SYMPY,
                 equations=(EquationRequest(name="value", expression=f"Eq(value, {expression})"),),
                 variables=variables,
             )
         )
-        assert outcome.status == "success" and outcome.optimization is not None
-        suggestion = next(item for item in outcome.optimization.suggestions if item.kind == family)
+        assert outcome.status == "success" and outcome.status == "success"
+        suggestion = next(item for item in _suggestions(outcome) if item.kind == family)
         assert suggestion.transformations[0].target.kind == "equation"
         assert suggestion.transformations[0].target.name == "value"
         assert int(suggestion.work_before) > int(suggestion.work_after) > 0
@@ -325,10 +324,9 @@ def test_output_multiplicity_and_intermediate_scope_are_charged_directly() -> No
         IndexDomain,
         MathematicalDomain,
         VariableDeclaration,
-        analyze,
     )
 
-    outcome = analyze(
+    outcome = optimize_analysis(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
             equations=(
@@ -341,9 +339,9 @@ def test_output_multiplicity_and_intermediate_scope_are_charged_directly() -> No
             variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
         )
     )
-    assert outcome.status == "success" and outcome.optimization is not None
+    assert outcome.status == "success" and outcome.status == "success"
     suggestion = next(
-        item for item in outcome.optimization.suggestions if item.kind == "repeated_subexpression"
+        item for item in _suggestions(outcome) if item.kind == "repeated_subexpression"
     )
     assert all(item.output_indices == ("i",) for item in suggestion.transformations[0].occurrences)
     assert suggestion.intermediate is not None
@@ -362,12 +360,10 @@ def test_indexed_local_intermediate_is_referenced_at_its_output_interface() -> N
         FormulaSyntax,
         IndexDomain,
         MathematicalDomain,
-        OptimizationConfig,
         VariableDeclaration,
-        analyze,
     )
 
-    outcome = analyze(
+    outcome = optimize_analysis(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
             equations=(
@@ -378,13 +374,12 @@ def test_indexed_local_intermediate_is_referenced_at_its_output_interface() -> N
                 ),
             ),
             variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
-            optimization=OptimizationConfig(max_suggestions=16),
         )
     )
 
-    assert outcome.status == "success" and outcome.optimization is not None
+    assert outcome.status == "success" and outcome.status == "success"
     suggestion = next(
-        item for item in outcome.optimization.suggestions if item.kind == "repeated_subexpression"
+        item for item in _suggestions(outcome) if item.kind == "repeated_subexpression"
     )
     assert suggestion.intermediate is not None
     assert suggestion.intermediate.scope_output_indices == ("i",)
@@ -392,18 +387,16 @@ def test_indexed_local_intermediate_is_referenced_at_its_output_interface() -> N
 
 
 def test_hoisting_with_no_whole_work_improvement_is_omitted() -> None:
-    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze
+    from py_science.formula import AnalysisRequest, FormulaSyntax
 
-    outcome = analyze(
+    outcome = optimize_analysis(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
             expression="Sum(x * x + i, (i, 0, 0))",
         )
     )
-    assert outcome.status == "success" and outcome.optimization is not None
-    assert all(
-        item.kind != "iterator_invariant_hoisting" for item in outcome.optimization.suggestions
-    )
+    assert outcome.status == "success" and outcome.status == "success"
+    assert all(item.kind != "iterator_invariant_hoisting" for item in _suggestions(outcome))
 
 
 def test_repeated_defined_call_can_publish_for_an_equation_system() -> None:
@@ -414,10 +407,9 @@ def test_repeated_defined_call_can_publish_for_an_equation_system() -> None:
         FunctionDefinition,
         MathematicalDomain,
         VariableDeclaration,
-        analyze,
     )
 
-    outcome = analyze(
+    outcome = optimize_analysis(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
             equations=(EquationRequest(name="value", expression="Eq(value, f(x) + f(x))"),),
@@ -425,10 +417,8 @@ def test_repeated_defined_call_can_publish_for_an_equation_system() -> None:
             functions=(FunctionDefinition(name="f", parameters=("z",), body="z * z"),),
         )
     )
-    assert outcome.status == "success" and outcome.optimization is not None
-    suggestion = next(
-        item for item in outcome.optimization.suggestions if item.kind == "repeated_call"
-    )
+    assert outcome.status == "success" and outcome.status == "success"
+    suggestion = next(item for item in _suggestions(outcome) if item.kind == "repeated_call")
     assert suggestion.transformations[0].target.name == "value"
     assert (suggestion.work_before, suggestion.work_after, suggestion.savings) == (
         "3",
@@ -444,12 +434,10 @@ def test_cross_equation_sharing_and_horner_publish_verified_savings() -> None:
         FormulaSyntax,
         IndexDomain,
         MathematicalDomain,
-        OptimizationConfig,
         VariableDeclaration,
-        analyze,
     )
 
-    shared = analyze(
+    shared = optimize_analysis(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
             equations=(
@@ -465,13 +453,10 @@ def test_cross_equation_sharing_and_horner_publish_verified_savings() -> None:
                 ),
             ),
             variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
-            optimization=OptimizationConfig(max_suggestions=16),
         )
     )
-    assert shared.status == "success" and shared.optimization is not None
-    sharing = next(
-        item for item in shared.optimization.suggestions if item.kind == "cross_equation_sharing"
-    )
+    assert shared.status == "success" and shared.status == "success"
+    sharing = next(item for item in _suggestions(shared) if item.kind == "cross_equation_sharing")
     assert sharing.intermediate is not None
     assert sharing.intermediate.scope_output_indices == ("i",)
     assert {
@@ -481,15 +466,14 @@ def test_cross_equation_sharing_and_horner_publish_verified_savings() -> None:
     } == {("i",), ("j",)}
     assert int(sharing.work_before) > int(sharing.work_after) > 0
 
-    horner = analyze(
+    horner = optimize_analysis(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
             expression="2*x**3 + 3*x**2 + 4*x + 5",
-            optimization=OptimizationConfig(max_suggestions=16),
         )
     )
-    assert horner.status == "success" and horner.optimization is not None
-    reformulation = next(item for item in horner.optimization.suggestions if item.kind == "horner")
+    assert horner.status == "success" and horner.status == "success"
+    reformulation = next(item for item in _suggestions(horner) if item.kind == "horner")
     assert reformulation.intermediate is None
     assert reformulation.finite_precision_qualification == "exact_symbolic_only"
     assert int(reformulation.work_before) > int(reformulation.work_after) > 0
@@ -503,10 +487,9 @@ def test_sharing_refuses_incompatible_interfaces_and_horner_refuses_ambiguity() 
         IndexDomain,
         MathematicalDomain,
         VariableDeclaration,
-        analyze,
     )
 
-    incompatible = analyze(
+    incompatible = optimize_analysis(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
             equations=(
@@ -524,13 +507,13 @@ def test_sharing_refuses_incompatible_interfaces_and_horner_refuses_ambiguity() 
             variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
         )
     )
-    ambiguous = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x**2 + y**2"))
-    assert incompatible.status == "success" and incompatible.optimization is not None
-    assert all(
-        item.kind != "cross_equation_sharing" for item in incompatible.optimization.suggestions
+    ambiguous = optimize_analysis(
+        AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="x**2 + y**2")
     )
-    assert ambiguous.status == "success" and ambiguous.optimization is not None
-    assert all(item.kind != "horner" for item in ambiguous.optimization.suggestions)
+    assert incompatible.status == "success" and incompatible.status == "success"
+    assert all(item.kind != "cross_equation_sharing" for item in _suggestions(incompatible))
+    assert ambiguous.status == "success" and ambiguous.status == "success"
+    assert all(item.kind != "horner" for item in _suggestions(ambiguous))
 
 
 def test_cross_equation_domains_distinguish_dependent_and_free_bounds() -> None:
@@ -540,12 +523,10 @@ def test_cross_equation_domains_distinguish_dependent_and_free_bounds() -> None:
         FormulaSyntax,
         IndexDomain,
         MathematicalDomain,
-        OptimizationConfig,
         VariableDeclaration,
-        analyze,
     )
 
-    outcome = analyze(
+    outcome = optimize_analysis(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
             equations=(
@@ -573,12 +554,11 @@ def test_cross_equation_domains_distinguish_dependent_and_free_bounds() -> None:
                     domain=MathematicalDomain.NONNEGATIVE_INTEGER
                 ),
             },
-            optimization=OptimizationConfig(max_suggestions=16),
         )
     )
 
     assert outcome.status == "success"
-    assert all(item.kind != "cross_equation_sharing" for item in outcome.optimization.suggestions)
+    assert all(item.kind != "cross_equation_sharing" for item in _suggestions(outcome))
 
 
 def test_sharing_covers_scalar_lexical_predecessor_and_producer_dependencies() -> None:
@@ -588,9 +568,7 @@ def test_sharing_covers_scalar_lexical_predecessor_and_producer_dependencies() -
         FormulaSyntax,
         IndexDomain,
         MathematicalDomain,
-        OptimizationConfig,
         VariableDeclaration,
-        analyze,
     )
 
     cases = (
@@ -604,8 +582,8 @@ def test_sharing_covers_scalar_lexical_predecessor_and_producer_dependencies() -
         ),
         (
             (
-                EquationRequest(name="a", expression="Eq(a, Sum(x*x+i, (i, 0, 3)) + 1)"),
-                EquationRequest(name="b", expression="Eq(b, Sum(x*x+j, (j, 0, 3)) - 1)"),
+                EquationRequest(name="a", expression="Eq(a, Let(t, x*x, t + 1))"),
+                EquationRequest(name="b", expression="Eq(b, Let(u, x*x, u - 1))"),
             ),
             {"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
             (),
@@ -657,27 +635,24 @@ def test_sharing_covers_scalar_lexical_predecessor_and_producer_dependencies() -
             ("i", "j"),
         ),
     )
-    for equations, variables, expected_scope in cases:
-        outcome = analyze(
+    for case_index, (equations, variables, expected_scope) in enumerate(cases):
+        outcome = optimize_analysis(
             AnalysisRequest(
                 syntax=FormulaSyntax.SYMPY,
                 equations=equations,
                 variables=variables,
-                optimization=OptimizationConfig(max_suggestions=16),
             )
         )
-        assert outcome.status == "success" and outcome.optimization is not None
+        assert outcome.status == "success" and outcome.status == "success"
         sharing = next(
-            item
-            for item in outcome.optimization.suggestions
-            if item.kind == "cross_equation_sharing"
+            (item for item in _suggestions(outcome) if item.kind == "cross_equation_sharing"),
+            None,
         )
+        assert sharing is not None, case_index
         assert sharing.intermediate is not None
         assert sharing.intermediate.scope_output_indices == expected_scope
         assert int(sharing.savings) > 0 if sharing.savings.isdigit() else sharing.savings
-        matching_plan = next(
-            plan for plan in outcome.optimization.plans if plan.suggestion is sharing
-        )
+        matching_plan = next(plan for plan in outcome.plans if plan.suggestion is sharing)
         assert matching_plan.trace[-1].evidence.statement.endswith(
             "every transformed retained output"
         )
@@ -691,12 +666,10 @@ def test_sharing_refuses_unequal_arity_constraints_and_uses_collision_free_name(
         FormulaSyntax,
         IndexDomain,
         MathematicalDomain,
-        OptimizationConfig,
         VariableDeclaration,
-        analyze,
     )
 
-    refused = analyze(
+    refused = optimize_analysis(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
             equations=(
@@ -718,10 +691,10 @@ def test_sharing_refuses_unequal_arity_constraints_and_uses_collision_free_name(
             variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
         )
     )
-    assert refused.status == "success" and refused.optimization is not None
-    assert all(item.kind != "cross_equation_sharing" for item in refused.optimization.suggestions)
+    assert refused.status == "success" and refused.status == "success"
+    assert all(item.kind != "cross_equation_sharing" for item in _suggestions(refused))
 
-    collision = analyze(
+    collision = optimize_analysis(
         AnalysisRequest(
             syntax=FormulaSyntax.SYMPY,
             equations=(
@@ -730,12 +703,11 @@ def test_sharing_refuses_unequal_arity_constraints_and_uses_collision_free_name(
                 EquationRequest(name="b", expression="Eq(b, x*x - 1)"),
             ),
             variables={"x": VariableDeclaration(domain=MathematicalDomain.REAL)},
-            optimization=OptimizationConfig(max_suggestions=16),
         )
     )
-    assert collision.status == "success" and collision.optimization is not None
+    assert collision.status == "success" and collision.status == "success"
     sharing = next(
-        item for item in collision.optimization.suggestions if item.kind == "cross_equation_sharing"
+        item for item in _suggestions(collision) if item.kind == "cross_equation_sharing"
     )
     assert sharing.intermediate is not None
     assert sharing.intermediate.name == "optimization_tmp_2"
@@ -747,8 +719,6 @@ def test_horner_coefficients_bounds_refusals_and_higher_work_filtering(
     from py_science.formula import (
         AnalysisRequest,
         FormulaSyntax,
-        OptimizationConfig,
-        analyze,
         sympy_backend,
     )
 
@@ -756,17 +726,14 @@ def test_horner_coefficients_bounds_refusals_and_higher_work_filtering(
         "a*x**3 + b*x**2 + c*x + d",
         "(1/2)*x**3 + (2/3)*x**2 + (3/4)*x + 1",
     ):
-        outcome = analyze(
+        outcome = optimize_analysis(
             AnalysisRequest(
                 syntax=FormulaSyntax.SYMPY,
                 expression=expression,
-                optimization=OptimizationConfig(max_suggestions=16),
             )
         )
-        assert outcome.status == "success" and outcome.optimization is not None
-        suggestion = next(
-            item for item in outcome.optimization.suggestions if item.kind == "horner"
-        )
+        assert outcome.status == "success" and outcome.status == "success"
+        suggestion = next(item for item in _suggestions(outcome) if item.kind == "horner")
         assert suggestion.conclusion in {"proved", "proved_under_assumptions"}
         assert int(suggestion.work_before) > int(suggestion.work_after) > 0
         assert not isinstance(
@@ -774,47 +741,50 @@ def test_horner_coefficients_bounds_refusals_and_higher_work_filtering(
         )
 
     for expression in ("x**8 + 1", "x*(x*(2*x + 3) + 4) + 5", "x**2 + y**2"):
-        outcome = analyze(AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression))
-        assert outcome.status == "success" and outcome.optimization is not None
-        assert all(item.kind != "horner" for item in outcome.optimization.suggestions)
-        assert outcome.optimization.status == "complete"
+        outcome = optimize_analysis(
+            AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression=expression)
+        )
+        assert outcome.status == "success" and outcome.status == "success"
+        assert all(item.kind != "horner" for item in _suggestions(outcome))
+        assert outcome.search_scope.completion == "complete"
 
-    over_bound = analyze(
+    over_bound = optimize_analysis(
         AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="2*x**9 + 3*x**8 + 4*x + 5")
     )
-    assert over_bound.status == "success" and over_bound.optimization is not None
-    assert over_bound.optimization.status == "incomplete"
-    assert "measured 9, configured 8" in over_bound.optimization.qualifications[0]
+    assert over_bound.status == "success" and over_bound.status == "success"
+    assert over_bound.search_scope.completion == "incomplete"
+    assert "measured 9, configured 8" in over_bound.search_scope.qualifications[0]
 
     def refused(*_args: object, **_kwargs: object) -> object:
         raise sympy_backend.sympy.polys.polyerrors.PolynomialError("expected refusal")
 
     monkeypatch.setattr(sympy_backend.sympy, "horner", refused)
-    backend_refused = analyze(
+    backend_refused = optimize_analysis(
         AnalysisRequest(syntax=FormulaSyntax.SYMPY, expression="2*x**3 + 3*x**2 + 4*x + 5")
     )
-    assert backend_refused.status == "success" and backend_refused.optimization is not None
-    assert backend_refused.optimization.status == "incomplete"
-    assert backend_refused.optimization.qualifications[0] == "optimization Horner backend refusal"
+    assert backend_refused.status == "success" and backend_refused.status == "success"
+    assert backend_refused.search_scope.completion == "incomplete"
+    assert backend_refused.search_scope.qualifications[0] == "optimization Horner backend refusal"
 
 
 def test_unexpected_horner_backend_defects_propagate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from py_science.formula import AnalysisRequest, FormulaSyntax, analyze, sympy_backend
+    from py_science.formula import AnalysisRequest, FormulaSyntax, optimize, sympy_backend
 
     def defect(*_args: object, **_kwargs: object) -> object:
         raise RuntimeError("unexpected Horner defect")
 
     monkeypatch.setattr(sympy_backend.sympy, "horner", defect)
-    result = analyze(
-        AnalysisRequest(
-            syntax=FormulaSyntax.SYMPY,
-            expression="2*x**3 + 3*x**2 + 4*x + 5",
+    result = optimize(
+        goal_request(
+            AnalysisRequest(
+                syntax=FormulaSyntax.SYMPY,
+                expression="2*x**3 + 3*x**2 + 4*x + 5",
+            )
         )
     )
-    assert result.status == "success"
-    assert result.optimization.status == "failed"
+    assert result.status == "failure"
 
 
 def test_unexpected_factoring_backend_defects_propagate(
