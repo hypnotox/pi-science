@@ -12,7 +12,7 @@ The tool reports information such as:
 - qualified bounded properties, limits, asymptotics, equivalence, and closed forms;
 - scenario specializations and conservative parameter bounds;
 - named equation dependencies, ideal reuse, and repeated-expression extraction diagnostics;
-- bounded exact-symbolic local optimization advice with proved positive whole-work savings;
+- explicit bounded exact-symbolic optimization plans with proved strict whole-work improvement;
 - unknown costs, assumptions, or evaluator limits that prevent a tighter conclusion.
 
 The goal is not to replace agent reasoning. It is to make the mathematical structure behind that reasoning testable before it becomes code.
@@ -23,8 +23,8 @@ The goal is not to replace agent reasoning. It is to make the mathematical struc
 2. The agent expresses the planned computation in restricted SymPy syntax.
 3. The agent supplies relevant domains, assumptions, scenarios, and opaque primitive costs.
 4. The tool safely parses and normalizes the submission into one internal mathematical model.
-5. The tool analyzes symbolic work, dependencies, scenarios, supported bounded mathematical queries, and independently verified local optimization candidates.
-6. The agent inspects the normalized interpretation, proof and finite-precision qualifications, then revises the plan before implementation.
+5. The tool analyzes symbolic work, dependencies, scenarios, and supported bounded mathematical queries; an agent may separately submit an explicit goal-driven optimization request.
+6. The agent inspects normalized interpretation, proof scope, bounded search and projection state, blockers, and finite-precision qualifications, then revises the plan before implementation.
 
 The same workflow supports a one-line expression and a named system of indexed equations. A motivating use case is a 3D adaptive fast multipole method whose upward pass, interactions, downward pass, and particle evaluation depend on particle count, expansion order, tree occupancy, and interaction-list size. The analysis remains general mathematical tooling rather than an AFMM-specific product.
 
@@ -60,7 +60,7 @@ The MVP provides:
 4. scenario evaluation for fixed values, intervals, finite choices, definitions, and retained asymptotic variables;
 5. dependency, ideal-reuse, and repeated-expression extraction diagnostics for named equation systems;
 6. explicit bounded general-context mathematical queries with qualified evidence;
-7. default-on bounded exact-algebraic repeated-structure, reuse, factoring, redundant-operation-removal, iterator-invariant-hoisting, compatible cross-equation-sharing, and Horner advice, plus a separately opted-in exact-algorithmic replacement for ADR-0012's bounded nested finite-polynomial `Sum` family; every step and final has independent proof and positive whole-computation selected-objective reduction.
+7. an explicit preserve-all optimization goal with fixed bounded depth-two search over every shipped exact-algebraic family and ADR-0012's bounded nested finite-polynomial `Sum` family; every published plan has independent proof, a `strict_improvement` claim, and positive whole-computation selected-objective reduction.
 
 The tooling includes a concise agent skill for formulating analyzable requests and inspecting the normalized result. [Analysis Model](analysis-model.md) defines the request and report contract.
 
@@ -72,7 +72,7 @@ The MVP does not:
 - analyze supplied datasets statistically;
 - validate physical correctness or prove that a model represents the intended real-world system;
 - model caches, vectorization, GPU occupancy, exact hardware timing, parallel schedules, or synchronization;
-- generate optimized source code or infer arbitrary high-level algorithm replacements beyond the explicitly enabled bounded finite-polynomial `Sum` family;
+- generate optimized source code or infer arbitrary high-level algorithm replacements beyond the fixed bounded finite-polynomial `Sum` family;
 - provide a complete formal proof system;
 - accept arbitrary Python, LaTeX input, or unrestricted SymPy;
 - silently choose numerical approximations.
@@ -88,14 +88,14 @@ The MVP succeeds when an agent can:
 - fix some parameters while retaining others as scaling dimensions;
 - evaluate intervals and finite choices with correctly qualified results;
 - inspect named dependencies, ideal reuse, and repeated-expression extraction diagnostics;
-- inspect a bounded incomplete-or-complete, tier-qualified optimization report without confusing abstract work with runtime or exact-symbolic algorithm replacement with finite-precision stability;
+- submit an explicit goal and distinguish strict improvement, observed result classification, deterministic selection, incomplete search, projection truncation, and localized blockers without confusing abstract work with runtime or exact-symbolic replacement with finite-precision stability;
 - ask supported bounded mathematical questions and inspect their evidence and qualifications;
 - see exactly which unknowns or evaluator limits prevent a tighter answer;
 - revise an algorithm plan using the analysis before producing implementation code.
 
 ## Future direction
 
-Later work may add symbolic storage analysis, work-depth and parallelism models, richer stage semantics, recurrence solving, expected-cost models from declared parameter distributions, domain rule libraries, equality-saturation rewrite exploration, target-aware abstract cost models, formula-to-skeleton lowering, and separate profiler or benchmark integrations. The shipped advice remains bounded, omits unknown-cost or unproved candidates, and never claims exhaustive search.
+Later work may add symbolic storage analysis, work-depth and parallelism models, richer stage semantics, recurrence solving, expected-cost models from declared parameter distributions, domain rule libraries, equality-saturation rewrite exploration, target-aware abstract cost models, formula-to-skeleton lowering, and separate profiler or benchmark integrations. The shipped optimizer remains explicit and bounded, omits unsafe candidates and blockers, and never claims exhaustive search or optimality.
 
 Every extension preserves the central boundary: agents express planned computation in familiar mathematics, provide explicit context, and receive deterministic structural analysis before they write the implementation.
 <!-- awf:edit-in-place body -->

@@ -147,21 +147,42 @@ assert [pole.value for pole in pole_scope.exclusions] == ["1"]
 
 The [formula component boundaries](../../docs/topics/product/formula-component-boundaries.md) define the dependency rule for internal changes. Add a transformation family under `_optimization/families/`, register its stable lane and admission policy in `_optimization/search.py`, and keep complete-candidate replay, proof, whole-computation objective checks, and plan projection in their shared owners. A family proposes bounded candidates; it does not publish proof or bypass ordinary retained analysis. Exact-algebraic proposals use the common equivalence verifier, while an exact-algorithmic family must add an independently checked derivation and correlate it both parent-to-child and original-to-final. Extend canonical contracts in `contracts/`, neutral retained facts in `_analysis`, and request behavior in `_service` rather than adding policy to compatibility facades.
 
-## Bounded local optimization advice
+## Explicit goal-driven optimization
 
-Ordinary `AnalysisRequest` accepts `OptimizationConfig(max_suggestions=..., objective=..., enabled_algorithmic_families=...)`. The strict suggestion range is `0..16`, the default is `3`, and zero returns a disabled empty report. Omitted objective selects `unit_work_v1`; `weighted_operations_v1` requires strictly positive bounded exact-rational weights for additions, subtractions, multiplications, divisions, and powers, while known opaque work keeps coefficient one. The direct optimize request accepts the same selector. Candidate-comparison and dominance request models have no optimization setting. A `complete` report may contain fewer suggestions than requested, including none. An `incomplete` report identifies bounded search exhaustion, preserves already proved suggestions, and does not establish that no other improvement exists.
-
-The eight default exact-algebraic Python lanes cover repeated-subexpression extraction, identical-call and reciprocal reuse, bounded checked factoring, redundant-operation removal, iterator-invariant hoisting, compatible sharing across named equation RHSs, and bounded Horner form. The strict list `["finite_polynomial_sum_v1"]` separately enables a ninth exact-algorithmic lane for ADR-0012's unique maximal bounded nested finite-polynomial `Sum` tree; absent or empty selection preserves the default population. Shared producers require one compatible positional free-index interface and acyclic placement. Horner uses fixed target-node, variable, degree, term, and generated-node ceilings. Every generated candidate goes through one verifier: generated intermediates are expanded by checked substitution, while algorithmic proposals independently rerun the shared checked antidifference and inclusive-boundary derivation against their replayed parent and again for original-to-final proof. Every transformed retained output is proved under declared assumptions and domains, and retained operation plus opaque-work analysis includes iterator cardinality, output multiplicity, and intermediate scope before selected-objective projection. Unknown costs, unresolved cardinality or proof, incompatible scopes, capture, and nonpositive or incomparable selected-objective reductions are omitted.
+`AnalysisRequest` has no optimization controls or result. Use `OptimizeRequest` for one explicit preserve-all exact-symbolic goal:
 
 ```python
-factored = analyze(AnalysisRequest(
+from py_science.formula import (
+    BoundedGoalSearchPolicy,
+    FormulaSyntax,
+    GoalSpec,
+    OptimizeRequest,
+    UnitWorkObjective,
+    VerifierBackedProofPolicy,
+    optimize,
+)
+
+result = optimize(OptimizeRequest(
     syntax=FormulaSyntax.SYMPY,
+    operation="optimize",
     expression="x*y + x*z",
+    goal=GoalSpec(
+        kind="preserve_all_outputs_v1",
+        semantics="exact_symbolic_v1",
+        operating_domain="submitted_domain_v1",
+        objective=UnitWorkObjective(),
+    ),
+    search=BoundedGoalSearchPolicy(kind="bounded_goal_v1"),
+    proof=VerifierBackedProofPolicy(kind="verifier_backed_v1"),
+    projection_limit=3,
 ))
-assert factored.status == "success"
-assert factored.optimization is not None
-assert factored.optimization.suggestions[0].transformations[0].proposed.normalized_sympy == "x*(y + z)"
-assert factored.optimization.suggestions[0].objective_savings == "1"
+assert result.status == "success"
+assert result.plans[0].claim.kind == "strict_improvement"
+assert result.plans[0].suggestion.objective_savings == "1"
 ```
 
-Every plan carries canonical objective provenance while its candidate and stable identity exclude objective policy. A plan has one or two ordered replayable trace steps: each owns its family-local unique target transformations, explicit `exact_algebraic_v1` or `exact_algorithmic_v1` tier, optional collision-free intermediate, exact parent-relative evidence, conditions, assumptions, selected-objective evidence, complete post-step candidate, and candidate identity. Plan evidence and qualified ordering are independently original-to-final; position one makes no superiority claim. Python canonically deduplicates complete states and uses fixed fair breadth-first family lanes, so `max_plans` selects only the final ranked prefix. Search exhaustion and post-search output truncation are separate qualified statuses. Pi protocol v16 correlates and presents every complete trace state without applying transformations or recomputing policy. Advice is informational and never changes retained interpretation, counts, work, scenarios, queries, dependencies, reuse, or extraction diagnostics. Exact-symbolic equivalence is not a runtime, numerical-stability, or identical floating-point evaluation claim.
+The goal preserves every submitted output and consumes the computation's variable and output domains, constraints, and assumptions. Definitions, functions, and primitive costs remain part of the computation context. `WeightedOperationsObjective` requires strictly positive bounded exact-rational weights for additions, subtractions, multiplications, divisions, and powers; known opaque work keeps coefficient one. Requests expose no family, depth, budget, selected-output, goal-local-domain, or hard-resource-bound control.
+
+Python searches every shipped exact-algebraic lane and `finite_polynomial_sum_v1` through fixed fair monotonic depth two. Every generated candidate passes complete ordinary-analysis replay and independent transition and original-to-final proof. Each published plan carries only `strict_improvement`, its objective, exact-symbolic and aggregate-abstract-work semantics, actual families, configured limits, and engine. Candidate identity remains policy-free.
+
+A success separately reports observed `classification`, search completion, `deterministic_ranked_prefix` selection, and projection completion or truncation. `plans_returned`, `no_applicable_candidate`, and `no_verified_improvement` describe observed bounded work, not best-candidate or optimality evidence. Localized blockers name missing information already observed during generation or verification; they are not speculative candidates, recommendations, or proof. Exact-symbolic equivalence and abstract-work reduction do not establish runtime improvement, numerical stability, or identical floating-point evaluation.

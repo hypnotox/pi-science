@@ -5,7 +5,7 @@ description: Analyze or explicitly optimize one restricted SymPy expression or n
 
 # Formula analysis
 
-Use ordinary `analyze_formula` expression or equation-system analysis for bounded verified local optimization advice. Use `analyze_formula` for one bounded restricted-SymPy expression or one nonempty list of uniquely named equations. Choose `expression` for an isolated calculation. Choose `equations` when results have local output domains or later equations reuse named results. Pi supplies `syntax: sympy`; do not include `syntax` in a tool call.
+Use `analyze_formula` for one bounded restricted-SymPy expression or one nonempty list of uniquely named equations. Choose `expression` for an isolated calculation. Choose `equations` when results have local output domains or later equations reuse named results. Submit a separate explicit `operation: optimize` request only when you want verified transformation plans. Pi supplies `syntax: sympy`; do not include `syntax` in a tool call.
 
 ## Request cookbook
 
@@ -13,7 +13,7 @@ Choose one recipe, then add only metadata accepted by that operation. The tool s
 
 ### Analyze an expression or selected system outputs
 
-Omit `operation` for ordinary analysis. An expression may omit `outputs` or use only `["expression"]`; a system may use a unique list of equation names. Ordinary analysis alone accepts scenarios, queries, and `optimization`.
+Omit `operation` for ordinary analysis. An expression may omit `outputs` or use only `["expression"]`; a system may use a unique list of equation names. Ordinary analysis accepts scenarios and queries but no optimization controls.
 
 ```json
 {
@@ -87,30 +87,37 @@ Declare the numeric axis, fix every required non-axis value exactly, and optiona
 }
 ```
 
-### Request weighted direct optimization
+### Request explicit weighted optimization
 
-Omit `objective` for unit work. A weighted objective requires all five strictly positive exact-rational weights inside `weights`.
+Supply every fixed goal, search, and proof literal. A weighted objective requires all five strictly positive exact-rational weights. `projection_limit` controls only the returned ranked prefix.
 
 ```json
 {
   "operation": "optimize",
   "expression": "(x + 1)**2 + (x + 1)**3",
   "variables": { "x": { "domain": "real" } },
-  "max_plans": 5,
-  "objective": {
-    "kind": "weighted_operations_v1",
-    "weights": {
-      "additions": 1,
-      "subtractions": 1,
-      "multiplications": 2,
-      "divisions": 3,
-      "powers": 4
+  "goal": {
+    "kind": "preserve_all_outputs_v1",
+    "semantics": "exact_symbolic_v1",
+    "operating_domain": "submitted_domain_v1",
+    "objective": {
+      "kind": "weighted_operations_v1",
+      "weights": {
+        "additions": 1,
+        "subtractions": 1,
+        "multiplications": 2,
+        "divisions": 3,
+        "powers": 4
+      }
     }
-  }
+  },
+  "search": { "kind": "bounded_goal_v1" },
+  "proof": { "kind": "verifier_backed_v1" },
+  "projection_limit": 5
 }
 ```
 
-Use the same objective under `optimization.objective` for ordinary advice. `max_plans` and `max_suggestions` select only the ranked output prefix after the fixed search; they do not deepen the search or raise its budgets.
+Use `{"kind":"unit_work_v1"}` as the goal objective for unit work. Do not add family, depth, budget, selected-output, goal-local-domain, or hard-resource-bound controls.
 
 ## Compare two candidates
 
@@ -215,8 +222,8 @@ Use this interpretation checklist:
 - Ordinary direct work is either `finite` or `not_finite`. A non-finite computation has null aggregate counts, work, and primitive totals plus explicit blockers; a mathematical query may still have a qualified conclusion.
 - For comparison, read mapped semantic and interface status before work status. The reuse-aware delta is second minus first; `not_comparable`, `unresolved`, and a proved preference are distinct outcomes.
 - For dominance, distinguish the requested range from the effective active domain. Read top-level `dominance_status`, then inspect `cells` and blockers for `complete` or `unresolved`; `empty` means the effective active domain is empty.
-- For optimization, distinguish search status from output-projection status. `incomplete` does not prove that no improvement exists, and truncation does not mean search exhaustion.
-- In ordinary analysis, a passive optimizer failure preserves the base analysis and appears only as failed advice. Direct `operation: optimize` failure contains no plans.
+- For optimization, distinguish observed classification, search completion, deterministic selection, and output projection. `incomplete` does not prove that no improvement exists, truncation does not mean search exhaustion, and first position does not prove best or optimal.
+- A direct `operation: optimize` failure contains no plans. Ordinary analysis has no optimizer result or passive optimizer failure.
 
 When a request fails, retain the Python-owned message and use any returned field path, source span, or supported alternative to correct it rather than guessing a broader spelling. For query answers, read `conclusion`, conditions, assumptions used, relevant unsupported assumptions, blockers, evidence, and any informational derived candidates. An unresolved query blocker identifies the failed family, exceeded bound, ambiguous axis, or missing supported precondition. Use any measured observation and recovery hint to simplify, reformulate, or select a supported source family. Recovery hints are conservative: they do not certify equivalence or promise wider evaluator support. Treat `proved_under_assumptions`, conservative bounds, `unresolved`, and `inapplicable` as distinct outcomes.
 
@@ -226,12 +233,12 @@ For persistent or one-off direct Python use, depend on `py-science-formula` inde
 
 ## Use bounded optimization
 
-Submit `operation: optimize` for complete replayable plans. Set `max_plans` to a strict integer from `1` through `16`; omission defaults to three. Omit `objective` for `unit_work_v1`, or submit `weighted_operations_v1` with all five strictly positive bounded exact-rational `additions`, `subtractions`, `multiplications`, `divisions`, and `powers` weights; known opaque work keeps coefficient one. Ordinary advice accepts the same selector under `optimization.objective`. To enable the narrow checked nested finite-polynomial `Sum` replacement, submit `enabled_algorithmic_families: ["finite_polynomial_sum_v1"]` at the direct top level or under `optimization`; omission or `[]` preserves default algebraic advice. Each plan contains canonical objective provenance, one complete policy-free candidate, its caller-output identities, the same verified diagnostic suggestion used by ordinary advice, and a stable objective-independent identity. Submit the candidate's expression or equations and mathematical context directly to ordinary analysis or candidate comparison without changing its mathematical content; Pi supplies the restricted-SymPy syntax. Keep plans atomic and do not combine separate candidates. Inspect normalized replay, output identities, conditions, assumptions, work, and `exact_symbolic_only` qualification before using a plan.
+Submit `operation: optimize` only for an explicit preserve-all exact-symbolic goal over the computation's submitted mathematical facts. Supply `goal.kind: preserve_all_outputs_v1`, `goal.semantics: exact_symbolic_v1`, `goal.operating_domain: submitted_domain_v1`, a unit-work or exact weighted-operation objective, `search.kind: bounded_goal_v1`, `proof.kind: verifier_backed_v1`, and `projection_limit` from 1 through 16. Ordinary analysis has no optimization controls or plans. Keep scenarios and queries out of optimization requests.
 
-A direct `failed` result is a bounded operation failure and contains no unverified plan. `incomplete` means a search or output budget was exhausted, may still contain proved plans, and never means no improvement exists. `complete` with no plans means no candidate qualified within the bounded search. A passive optimizer failure leaves ordinary analysis successful and reports failed advice separately. Ordinary expression and equation-system analysis remains default-on advice over the same plans. Set `optimization.max_suggestions` to a strict integer from `0` through `16`; `0` disables advice.
+Python searches all shipped exact-algebraic families and the exact-algorithmic `finite_polynomial_sum_v1` family with fixed fair monotonic depth two. Each published plan contains a complete policy-free candidate, one or two replayable parent-relative steps, independent original-to-final evidence, positive selected-objective whole-computation savings, and only a `strict_improvement` claim. The exact-algorithmic lane replaces only ADR-0012's unique maximal supported nested finite-polynomial `Sum` tree inside its existing shell. Query candidates remain informational and never serve as optimizer proof.
 
-The compact ordinary-analysis text shows the selected one- or two-step optimization plan: every ordered family step, `exact_algebraic_v1` or `exact_algorithmic_v1` tier, affected target, original-to-final selected-objective saving, conditions, and exact-symbolic qualification. This deterministic presentation is not a superiority claim. Canonical `details` contains every complete replayable trace candidate and identity; search-incomplete and output-truncation qualifications remain separate. Pi correlates and presents protocol-v16 fields but never applies a transformation or recomputes proof, objective, scheduling, or ranking policy.
+Read the canonical result in `details`. `classification` reports only the observed population: `plans_returned`, `no_applicable_candidate`, or `no_verified_improvement`. `search_scope` reports actual families, fixed depth, configured limits, and complete or incomplete bounded search. `selection.kind` is `deterministic_ranked_prefix`; it does not claim superiority or optimality. `projection_status` separately reports whether the output prefix was truncated. A typed failure contains no plan.
 
-The eight default exact-algebraic families are repeated-subexpression extraction, identical-call and reciprocal reuse, checked factoring, redundant-operation removal, iterator-invariant hoisting, compatible sharing across named equation RHSs, and bounded Horner reformulation. The separately enabled exact-algorithmic family replaces only ADR-0012's unique maximal supported nested finite-polynomial `Sum` tree inside its existing shell; ineligible or nonpositive proposals stay silent and query candidates remain informational. Sharing requires one compatible positional free-index interface and acyclic producer placement; Horner stays within fixed variable, degree, term, and node ceilings. Python publishes only independently proved positive selected-objective reductions; it omits unknown-cost, unresolved-cardinality, unproved, capture-prone, incompatible-scope, or nonpositive candidates. Position one is neutral; each later position records either proved superiority of the preceding plan or a deterministic non-superiority tie-break. Python independently rederives every algorithmic identity against replayed parents and the original-to-final proof. Pi validates shape, canonical provenance, and correlation only and never derives a sum or recomputes algebra, objective values, applicability, or ranking.
+A blocker names a family, target, localized reason, and required information already observed during generation or verification. Treat it as missing-information guidance, not a candidate, recommendation, or proof. Blockers may identify a missing primitive cost, unproved domain or cardinality fact, or evaluator limit; unsafe or unlocalized refusals remain absent.
 
-Advice never changes submitted interpretation, ordinary work, scenarios, queries, dependencies, reuse, or extraction diagnostics. Treat aggregate abstract work as a mathematical metric rather than runtime, and do not infer floating-point equivalence or numerical stability from exact-symbolic reassociation.
+The compact optimization text keeps classification, plans, deterministic selection, search scope, output projection, and blockers visibly separate. Pi correlates and presents protocol-v17 fields but never applies a transformation or recomputes proof, objective, applicability, refusal, scheduling, or ranking policy. Treat aggregate abstract work as a mathematical metric rather than runtime, and do not infer best-candidate status, global optimality, floating-point equivalence, or numerical stability from exact-symbolic reassociation.

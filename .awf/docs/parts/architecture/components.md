@@ -1,4 +1,4 @@
-- `packages/py-science-formula/src/py_science/formula/contracts/`: canonical request, evidence, result, and report definitions; `models.py` and the package root are forwarding compatibility surfaces.
+- `packages/py-science-formula/src/py_science/formula/contracts/`: canonical request, explicit goal/search/proof, evidence, result, and report definitions; `models.py` and the package root are forwarding compatibility surfaces.
 - `packages/py-science-formula/src/py_science/formula/_analysis/`: neutral retained-computation construction and structural-occurrence facts.
 - `packages/py-science-formula/src/py_science/formula/_optimization/`: candidate families, replay, verification, objectives, canonical state, search, and plan projection; `optimization.py` is its compatibility facade.
 - `packages/py-science-formula/src/py_science/formula/_service/`: request orchestration, queries, scenarios, dominance and optimization dispatch, and result bounds; `service.py` is its compatibility facade.

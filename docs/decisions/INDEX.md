@@ -2,7 +2,7 @@
 <!-- awf:source derived:authored-adr-corpus -->
 ## In flight
 
-- [ADR-adopt-declarative-optimization-goals-and-explicit-claim-scope: Adopt Declarative Optimization Goals and Explicit Claim Scope](adopt-declarative-optimization-goals-and-explicit-claim-scope.md) (Proposed)
+- [ADR-adopt-declarative-optimization-goals-and-explicit-claim-scope: Adopt Declarative Optimization Goals and Explicit Claim Scope](adopt-declarative-optimization-goals-and-explicit-claim-scope.md) (Implementing)
 
 ## History
 
