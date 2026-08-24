@@ -27,14 +27,21 @@ def _bound_optimization_result(outcome: OptimizationResult) -> OptimizationResul
         "optimization result bytes budget exhausted "
         f"(measured {measured}, configured {MAX_OPTIMIZATION_BYTES})"
     )
-    for retained in range(len(outcome.plans), -1, -1):
-        bounded = outcome.model_copy(
-            update={
-                "plans": outcome.plans[:retained],
-                "projection_status": "truncated",
-                "projection_qualifications": (qualification,),
-            }
-        )
-        if len(bounded.model_dump_json().encode("utf-8")) <= MAX_OPTIMIZATION_BYTES:
-            return bounded
+    combined = tuple(dict.fromkeys((*outcome.projection_qualifications, qualification)))
+    if len(combined) > 128:
+        combined = (*combined[:127], qualification)
+    qualification_populations = (
+        (combined, (qualification,)) if combined != (qualification,) else (combined,)
+    )
+    for qualifications in qualification_populations:
+        for retained in range(len(outcome.plans), -1, -1):
+            bounded = outcome.model_copy(
+                update={
+                    "plans": outcome.plans[:retained],
+                    "projection_status": "truncated",
+                    "projection_qualifications": qualifications,
+                }
+            )
+            if len(bounded.model_dump_json().encode("utf-8")) <= MAX_OPTIMIZATION_BYTES:
+                return bounded
     raise ValueError("optimization result bound cannot contain its exhaustion diagnostic")

@@ -335,6 +335,31 @@ def test_optimize_operation_bounds_duplicated_plan_output(monkeypatch: pytest.Mo
     )
 
 
+def test_result_byte_bound_preserves_projection_limit_qualification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from py_science.formula import AnalysisRequest, FormulaSyntax, service
+    from py_science.formula._service import result_bounds
+
+    result = optimize_analysis(
+        AnalysisRequest(
+            syntax=FormulaSyntax.SYMPY,
+            expression="(a*x**3 + b*x**2 + c*x + d) + (y + 1)*(y + 1) + z*w + z*q",
+        ),
+        projection_limit=1,
+    )
+    assert result.projection_status == "truncated"
+    limit_qualification = result.projection_qualifications[0]
+    monkeypatch.setattr(result_bounds, "MAX_OPTIMIZATION_BYTES", 3_000)
+    bounded = service._bound_optimization_result(result)
+    assert bounded.projection_status == "truncated"
+    assert limit_qualification in bounded.projection_qualifications
+    assert any(
+        "result bytes budget exhausted" in item
+        for item in bounded.projection_qualifications
+    )
+
+
 def test_composed_search_v1_budget_seams_distinguish_transition_and_final_proofs() -> None:
     from py_science.formula import AnalysisFailure, AnalysisRequest, FormulaSyntax
     from py_science.formula._analysis.computation import analyze_retained
