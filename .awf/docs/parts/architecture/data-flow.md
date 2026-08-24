@@ -1,7 +1,7 @@
 The formula-analysis flow is:
 
 ```text
-strict Pi analysis/comparison request -> readiness gate -> bounded versioned JSON adapter -> py_science.formula -> validated qualified report
+strict Pi analysis/comparison/dominance/optimization request -> readiness gate -> bounded versioned JSON adapter -> py_science.formula -> validated qualified report
 ```
 
 Python publishes the request model from which the repository generates Pi's checked-in provider-compatible structural schema. The gate rejects schema drift. Pi imports that artifact, injects restricted-SymPy syntax, and translates the public formula contract without owning mathematical policy. Active-tool routing metadata points agents to the packaged operational skill rather than duplicating its grammar.

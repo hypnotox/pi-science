@@ -315,20 +315,17 @@ describe("npm package boundary", () => {
     );
     expect(skill).toContain("compact human-readable projection");
     expect(skill).toContain("complete canonical report in `details`");
-    expect(skill).toContain(
-      "Submit a separate explicit `operation: optimize` request",
-    );
-    expect(skill).toContain(
-      "Each published plan contains a complete policy-free candidate",
-    );
-    expect(skill).toContain("one or two replayable parent-relative steps");
-    expect(skill).toContain(
-      "Treat it as missing-information guidance, not a candidate, recommendation, or proof",
-    );
-    expect(skill).toContain("protocol-v17 fields");
-    expect(skill).toContain(
-      "Ordinary analysis has no optimization controls or plans",
-    );
+    expect(skill).toContain("operation: optimize");
+    expect(skill).toContain("preserve_all_outputs_v1");
+    expect(skill).toContain("bounded_goal_v1");
+    expect(skill).toContain("verifier_backed_v1");
+    expect(skill).toContain("strict_improvement");
+    expect(skill).toContain("not a candidate, recommendation, or proof");
+    expect(skill).toContain("protocol-v17");
+    expect(skill).not.toContain("max_plans");
+    expect(skill).not.toContain("max_suggestions");
+    expect(skill).not.toContain("enabled_algorithmic_families");
+    expect(skill).not.toContain("protocol-v16");
     expect(skill).not.toContain("best proved");
     expect(skill).toContain(
       "evaluation work, not represented mathematical value",

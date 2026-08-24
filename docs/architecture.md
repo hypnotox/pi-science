@@ -3,7 +3,7 @@
 
 <!-- awf:edit overview: from .awf/docs/parts/architecture/overview.md -->
 ## Overview
-The repository contains the independently importable `py-science-formula` Python 3.13 distribution and the aggregate `pi-science` Pi package. Formula parsing, expression representation, mathematical policy, and bounded SymPy algebra, rendering, and verification remain transport-free behind `py_science.formula`. Pi carries the same strict analysis-or-comparison request and qualified report through a private bounded JSON subprocess adapter.
+The repository contains the independently importable `py-science-formula` Python 3.13 distribution and the aggregate `pi-science` Pi package. Formula parsing, expression representation, mathematical policy, and bounded SymPy algebra, rendering, and verification remain transport-free behind `py_science.formula`. Pi carries the same strict analysis, comparison, dominance, or explicit optimization request and qualified report through a private bounded JSON subprocess adapter.
 
 At extension startup Pi provisions an isolated, immutable-revision uv environment outside its checkout. It registers formula analysis and its product skill only after that readiness check; otherwise only its diagnostic command remains available. [Vision](vision.md) owns the product boundary, [Analysis Model](analysis-model.md) owns request and report semantics, and [Roadmap](roadmap.md) owns uncommitted expansion work.
 
@@ -36,7 +36,7 @@ Optimization is a separate explicit goal operation; ordinary analysis carries no
 The formula-analysis flow is:
 
 ```text
-strict Pi analysis/comparison request -> readiness gate -> bounded versioned JSON adapter -> py_science.formula -> validated qualified report
+strict Pi analysis/comparison/dominance/optimization request -> readiness gate -> bounded versioned JSON adapter -> py_science.formula -> validated qualified report
 ```
 
 Python publishes the request model from which the repository generates Pi's checked-in provider-compatible structural schema. The gate rejects schema drift. Pi imports that artifact, injects restricted-SymPy syntax, and translates the public formula contract without owning mathematical policy. Active-tool routing metadata points agents to the packaged operational skill rather than duplicating its grammar.
