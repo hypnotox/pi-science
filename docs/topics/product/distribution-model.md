@@ -4,7 +4,7 @@
 
 Package boundaries, source distribution, integration provisioning, and licensing.
 
-**Applicability:** Owning domain selectors: none. Topic selectors: `package-lock.json`, `package.json`, `packages/**`, `pyproject.toml`, `uv.lock`. Both domain and topic selectors must match. Run `awf topic product/distribution-model --coverage` for current applicable and owned paths and marker sites.
+**Applicability:** Owning domain selectors: none. Topic selectors: `package-lock.json`, `package.json`, `packages/**`, `pyproject.toml`, `uv.lock`. Both domain and topic selectors must match. Run `awf read topic product/distribution-model --coverage` for current applicable and owned paths and marker sites.
 
 The repository develops independently importable Python analysis packages alongside its aggregate Pi integration.
 

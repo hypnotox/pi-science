@@ -7,9 +7,9 @@
 
 Pitfalls are durable hazards, not backlog items. Author sources under `.awf/docs/pitfalls/*.md`.
 
-| Pitfall | Domains | Tags | Related ADRs |
-| --- | --- | --- | --- |
-| [Conservative bounds are not observations](pitfalls/conservative-bounds-are-not-observations.md) | Unassigned |  |  |
+| Pitfall | Domains | Related ADRs |
+| --- | --- | --- |
+| [Conservative bounds are not observations](pitfalls/conservative-bounds-are-not-observations.md) | Unassigned |  |
 
 ## By domain
 

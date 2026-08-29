@@ -4,7 +4,7 @@
 
 The shared internal mathematical model and backend separation.
 
-**Applicability:** Owning domain selectors: none. Topic selectors: `docs/architecture.md`. Both domain and topic selectors must match. Run `awf topic product/mathematical-analysis-model --coverage` for current applicable and owned paths and marker sites.
+**Applicability:** Owning domain selectors: none. Topic selectors: `docs/architecture.md`. Both domain and topic selectors must match. Run `awf read topic product/mathematical-analysis-model --coverage` for current applicable and owned paths and marker sites.
 
 The mathematical analysis model separates public syntax and analysis semantics from backend-specific representation.
 

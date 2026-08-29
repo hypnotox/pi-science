@@ -4,7 +4,7 @@
 
 Interpretation, qualification, and uncertainty requirements for analysis results.
 
-**Applicability:** Owning domain selectors: none. Topic selectors: `docs/analysis-model.md`. Both domain and topic selectors must match. Run `awf topic product/analysis-report-contract --coverage` for current applicable and owned paths and marker sites.
+**Applicability:** Owning domain selectors: none. Topic selectors: `docs/analysis-model.md`. Both domain and topic selectors must match. Run `awf read topic product/analysis-report-contract --coverage` for current applicable and owned paths and marker sites.
 
 The report contract governs inspectability, qualification, and unresolved analysis results.
 

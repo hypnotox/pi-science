@@ -4,7 +4,7 @@
 
 The symbolic mathematical analysis scope and its exclusions.
 
-**Applicability:** Owning domain selectors: none. Topic selectors: `docs/vision.md`. Both domain and topic selectors must match. Run `awf topic product/product-boundary --coverage` for current applicable and owned paths and marker sites.
+**Applicability:** Owning domain selectors: none. Topic selectors: `docs/vision.md`. Both domain and topic selectors must match. Run `awf read topic product/product-boundary --coverage` for current applicable and owned paths and marker sites.
 
 The product boundary separates symbolic mathematical analysis from empirical and implementation-execution workflows.
 

@@ -4,7 +4,7 @@
 
 Internal responsibility ownership and dependency direction across formula analysis and Pi transport.
 
-**Applicability:** Owning domain selectors: none. Topic selectors: `packages/pi-science/src/**`, `packages/py-science-formula/src/py_science/formula/**`. Both domain and topic selectors must match. Run `awf topic product/formula-component-boundaries --coverage` for current applicable and owned paths and marker sites.
+**Applicability:** Owning domain selectors: none. Topic selectors: `packages/pi-science/src/**`, `packages/py-science-formula/src/py_science/formula/**`. Both domain and topic selectors must match. Run `awf read topic product/formula-component-boundaries --coverage` for current applicable and owned paths and marker sites.
 
 Formula analysis responsibilities have one internal owner and explicit dependency direction behind stable compatibility surfaces.
 
