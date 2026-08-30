@@ -1,3 +1,5 @@
+Roadmap entries are candidates, not current architecture, decisions, or operational plans. When graduating one, reverify cited measurements, preserve neighboring entries, and route unresolved material choices through the ordinary workflow.
+
 ### Stage metadata
 
 Add optional stage metadata without weakening the normalized mathematical model or bounded request contract.

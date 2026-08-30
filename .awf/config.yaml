@@ -1,19 +1,16 @@
 prefix: pi-science
-profile: full
 integrationBranch: main
 vars:
-  activeMdRegenCmd: ./awf render
-  gateCmd: ./scripts/check
-  gateCmdFull: ./scripts/check
-  testCmd: uv run --locked pytest
+    gateCmd: ./scripts/check
+    testCmd: uv run --locked pytest
 bootstrap:
-  enabled: true
+    enabled: true
 localDocs:
-  - name: vision
-    title: Vision
-    description: Project purpose, scope, principles, and intended users
-  - name: analysis-model
-    title: Analysis Model
-    description: Mathematical requests, scenarios, analysis results, and uncertainty qualifications
+    - name: vision
+      title: Vision
+      description: Project purpose, scope, principles, and intended users
+    - name: analysis-model
+      title: Analysis Model
+      description: Mathematical requests, scenarios, analysis results, and uncertainty qualifications
 domains:
-  - product
+    - product
