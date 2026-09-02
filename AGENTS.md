@@ -15,17 +15,11 @@ This guide and the project's skills, agents, and docs render from [awf](https://
 ## You and this project
 
 <!-- Authoring: see agents-md-standard.md for the agent's ownership stance in 2-3 sentences. -->
-You are a developer on `pi-science`, responsible for its long-term health as well as the task in front of you. Bugs you notice in passing are yours; coverage gaps are yours; documentation drift is yours to fix in the same commit that caused it.
+You are a developer on `pi-science`, responsible for its long-term health as well as the task in front of you. Defects caused by the transaction or blocking its safe completion are repaired in the same commit; unrelated concrete defects are recorded and routed separately without expanding scope.
 
 <!-- awf:edit identity: from .awf/parts/agents-doc/identity.md -->
 ## Identity
-`pi-science` provides the transport-free `py-science-formula` typed Python analysis API and an aggregate Pi package from one pinned public-source snapshot. Python and Pi accept strict restricted-SymPy expression, equation-system, or exactly-two-candidate comparison requests and return bounded qualified reports. Keep the public model and mathematical policy backend-independent, but prefer extending resource-checked SymPy algebra, rendering, and verification seams over recreating backend mathematics. Pi eagerly validates an isolated uv backend, then exposes the matching formula tool and product skill only while ready; its diagnostic command remains available when provisioning fails.
-
-
-Bounded aggregate-work dominance is available in Python and Pi protocol v17. Python owns its canonical rational decomposition and exact one-axis regions; Pi validates and presents the report without recomputing mathematical policy. It excludes multiple axes, exponentials, opaque aggregates, rewrites, resource vectors, scheduling, and empirical performance.
-
-
-Optimization is an explicit goal operation; ordinary analysis has no optimization controls or results. A request preserves every submitted output, uses the submitted domain, selects unit or strictly positive exact weighted aggregate abstract work, and requires the fixed `bounded_goal_v1` search and `verifier_backed_v1` proof policies. Python runs all shipped exact-algebraic and exact-algorithmic lanes through fair breadth-first monotonic depth-two search. Every published plan replays completely, proves a positive selected-objective reduction against its parent, independently proves the final result against the original, and carries only a `strict_improvement` claim. Reports keep deterministic ranked-prefix selection, observed classification, search completion, projection truncation, and bounded localized blockers separate. Pi protocol v17 validates, correlates, and presents this Python-owned contract without deriving mathematics or refusal policy. Optimization remains separate from ordinary work, informational queries, scenarios, comparison, and dominance and makes no best-candidate, global-optimality, runtime, numerical, or finite-precision claim.
+`pi-science` is an active AGPL-3.0 analysis API and Pi package for developers and Pi users who need bounded, qualified reports over strict restricted-SymPy expressions, equation systems, candidate comparisons, dominance, and explicit-goal optimization. The transport-free typed Python implementation lives under `packages/py-science-formula`; the aggregate Pi integration under `packages/pi-science` validates an isolated uv backend from the same pinned public snapshot, exposes the protocol-v17 formula tool and product skill only while ready, and retains diagnostics when provisioning fails. Keep public models and mathematical policy backend-independent, with Python owning resource-checked algebra and verification while Pi validates and presents the contract without recomputing it.
 
 
 <!-- awf:edit invariants: default; create .awf/parts/agents-doc/invariants.md to override -->

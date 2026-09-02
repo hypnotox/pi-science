@@ -1,12 +1,12 @@
 {
-  "awfVersion": "0.46.0",
+  "awfVersion": "0.46.1",
   "schemaVersion": 50,
   "files": {
     ".awf/bootstrap.sh": {
       "templateId": "bootstrap/awf-bootstrap.sh.tmpl",
       "templateHash": "sha256:4fc6e03481f7b5d72843e3927e99c2dced933d60b2796d8e32acd5b9d44b65d2",
       "configHash": "sha256:1c571f43c6f52f99b26c45c8c4987d1e6ead9ee3d3951de8d0f2a34d25026ce4",
-      "outputHash": "sha256:0fc2885501bc051c819b1c0f87705b57ecf5554660adf4b23a1d80939ae0b85c"
+      "outputHash": "sha256:29b15e81067e12fe454e4a94a0b3a3ddab85dcb56ef316b61b8732ba8bdbeebd"
     },
     ".awf/effort-archive/.gitignore": {
       "templateId": "effort-archive/gitignore.tmpl",
@@ -112,9 +112,9 @@
     },
     ".claude/skills/pi-science-effort-workflow/SKILL.md": {
       "templateId": "skills/effort-workflow/SKILL.md.tmpl",
-      "templateHash": "sha256:a7ecc6ea0a47bf764a352b5c7db621e11603651248d8d3a3663acaf9f8f37310",
+      "templateHash": "sha256:3cb4589189833db0604180fd653963ab82021f59597158fbcaf7879ce1df786d",
       "configHash": "sha256:53fcd42a27f49402ff569b17c83ad0382d91f6bb46c0b3986c9dab9f8d44e5af",
-      "outputHash": "sha256:92bac41877888e82e6bf6d0811e3a6cd8d498111a516877af4e1a48e42aaa866"
+      "outputHash": "sha256:5e22443721946dce8b52757ff6983b86ffb2544c5447b93427ba7ddcf9ed474d"
     },
     ".claude/skills/pi-science-implementing/SKILL.md": {
       "templateId": "skills/implementing/SKILL.md.tmpl",
@@ -214,9 +214,9 @@
     },
     ".pi/skills/pi-science-effort-workflow/SKILL.md": {
       "templateId": "skills/effort-workflow/SKILL.md.tmpl",
-      "templateHash": "sha256:a7ecc6ea0a47bf764a352b5c7db621e11603651248d8d3a3663acaf9f8f37310",
+      "templateHash": "sha256:3cb4589189833db0604180fd653963ab82021f59597158fbcaf7879ce1df786d",
       "configHash": "sha256:1481af0916f9ae01ec269131994c06e7a5831844c2a6ff4dce169d7be197d06f",
-      "outputHash": "sha256:92bac41877888e82e6bf6d0811e3a6cd8d498111a516877af4e1a48e42aaa866"
+      "outputHash": "sha256:5e22443721946dce8b52757ff6983b86ffb2544c5447b93427ba7ddcf9ed474d"
     },
     ".pi/skills/pi-science-implementing/SKILL.md": {
       "templateId": "skills/implementing/SKILL.md.tmpl",
@@ -256,9 +256,9 @@
     },
     "AGENTS.md": {
       "templateId": "agents-doc/AGENTS.md.tmpl",
-      "templateHash": "sha256:eae92f4cfcc204201d598b8ba02410807326895b6e7ab9357dc18a9c72616a7c",
-      "configHash": "sha256:485ea9f5881b8ccf413af8a53a45cb441e39971e976f481937601dacaba77198",
-      "outputHash": "sha256:333fb17437c8e6b662c9ee681f8b9a79d24332655fb2ac490620174cf2a643a5"
+      "templateHash": "sha256:dc210f88d4db5243df9f3f21ba9d6c9499c6d88b2b66b29434cb8293ffed5a1b",
+      "configHash": "sha256:5a35d0784f68c42a31f8230828bb165a885bcf053f0b8ac0d134ced6c66e2b65",
+      "outputHash": "sha256:3d0d2c2068d0f293c270cafdeb8fe7853a507dc5f875be8ea84c318c323e50bd"
     },
     "CLAUDE.md": {
       "templateId": "claude/CLAUDE.md.tmpl",
@@ -287,7 +287,7 @@
     },
     "docs/architecture.md": {
       "templateId": "docs/architecture.md.tmpl",
-      "templateHash": "sha256:7bc740b274b500aebcaeceffe79405748ce951bea99419a86906fe45a5ed3393",
+      "templateHash": "sha256:8894bf78b539f7024e193ed489d2472818ceb8451a0e035553fca794207821b0",
       "configHash": "sha256:076ad7fb4a840a30ffe4ff3bfe2ab8b4665d214c6ac79380570e51f8b773c571",
       "outputHash": "sha256:ff9a5b29907e53d440cf1b95d7b5877c064bf9bec61bec94953dd45e1581c585"
     },
