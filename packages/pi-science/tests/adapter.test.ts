@@ -313,76 +313,72 @@ describe("formula adapter protocol boundary", () => {
     });
   });
 
-  it("uses all fixed optimization families, including algorithmic finite sums", () => {
-    const cases = [
-      ["repeated_subexpression", { expression: "(x + 1) * (x + 1)" }],
-      ["factoring", { expression: "x*y + x*z" }],
-      ["horner", { expression: "2*x**3 + 3*x**2 + 4*x + 5" }],
-      [
-        "cross_equation_sharing",
-        {
-          equations: [
-            {
-              name: "left",
-              expression: "Eq(left[i], x[i]*x[i] + 1)",
-              domains: { i: { lower: "0", upper: "3" } },
-            },
-            {
-              name: "right",
-              expression: "Eq(right[j], x[j]*x[j] - 1)",
-              domains: { j: { lower: "0", upper: "3" } },
-            },
-          ],
-          variables: { x: { domain: "real" } },
-        },
-      ],
-      [
-        "repeated_call",
-        {
-          expression: "f(x) + f(x)",
-          variables: { x: { domain: "real" } },
-          functions: [{ name: "f", parameters: ["z"], body: "z*z" }],
-        },
-      ],
-      [
-        "reciprocal_reuse",
-        { expression: "1/x + 1/x", variables: { x: { domain: "real" } } },
-      ],
-      [
-        "iterator_invariant_hoisting",
-        {
-          expression: "Sum(x*x + i, (i, 0, 3))",
-          variables: { x: { domain: "real" } },
-        },
-      ],
-      [
-        "finite_polynomial_sum_v1",
-        { expression: "3 + Sum(Sum(i*j + j**2, (j, 0, i)), (i, 0, 100))" },
-      ],
-    ] as const;
-    for (const [kind, request] of cases) {
-      const result = invoke(
-        JSON.stringify({ version: 17, request: optimizeRequest(request) }),
-      );
-      expect(result.status).toBe(0);
-      const plan = JSON.parse(result.stdout).result.plans.find(
-        (item: { suggestion: { kind: string } }) =>
-          item.suggestion.kind === kind,
-      );
-      expect(plan).toMatchObject({
-        claim: {
-          kind: "strict_improvement",
-          families: expect.arrayContaining(["finite_polynomial_sum_v1"]),
-        },
-        suggestion: {
-          kind,
-          tier:
-            kind === "finite_polynomial_sum_v1"
-              ? "exact_algorithmic_v1"
-              : "exact_algebraic_v1",
-        },
-      });
-    }
+  it.each([
+    ["repeated_subexpression", { expression: "(x + 1) * (x + 1)" }],
+    ["factoring", { expression: "x*y + x*z" }],
+    ["horner", { expression: "2*x**3 + 3*x**2 + 4*x + 5" }],
+    [
+      "cross_equation_sharing",
+      {
+        equations: [
+          {
+            name: "left",
+            expression: "Eq(left[i], x[i]*x[i] + 1)",
+            domains: { i: { lower: "0", upper: "3" } },
+          },
+          {
+            name: "right",
+            expression: "Eq(right[j], x[j]*x[j] - 1)",
+            domains: { j: { lower: "0", upper: "3" } },
+          },
+        ],
+        variables: { x: { domain: "real" } },
+      },
+    ],
+    [
+      "repeated_call",
+      {
+        expression: "f(x) + f(x)",
+        variables: { x: { domain: "real" } },
+        functions: [{ name: "f", parameters: ["z"], body: "z*z" }],
+      },
+    ],
+    [
+      "reciprocal_reuse",
+      { expression: "1/x + 1/x", variables: { x: { domain: "real" } } },
+    ],
+    [
+      "iterator_invariant_hoisting",
+      {
+        expression: "Sum(x*x + i, (i, 0, 3))",
+        variables: { x: { domain: "real" } },
+      },
+    ],
+    [
+      "finite_polynomial_sum_v1",
+      { expression: "3 + Sum(Sum(i*j + j**2, (j, 0, i)), (i, 0, 100))" },
+    ],
+  ] as const)("uses fixed optimization family %s", (kind, request) => {
+    const result = invoke(
+      JSON.stringify({ version: 17, request: optimizeRequest(request) }),
+    );
+    expect(result.status).toBe(0);
+    const plan = JSON.parse(result.stdout).result.plans.find(
+      (item: { suggestion: { kind: string } }) => item.suggestion.kind === kind,
+    );
+    expect(plan).toMatchObject({
+      claim: {
+        kind: "strict_improvement",
+        families: expect.arrayContaining(["finite_polynomial_sum_v1"]),
+      },
+      suggestion: {
+        kind,
+        tier:
+          kind === "finite_polynomial_sum_v1"
+            ? "exact_algorithmic_v1"
+            : "exact_algebraic_v1",
+      },
+    });
   });
 
   it("reports concrete blockers without turning them into optimization failures", () => {
