@@ -2,13 +2,17 @@
 <!-- awf:edit overview: default; create .awf/parts/working-with-awf/overview.md to override -->
 # Working with awf
 
-awf owns this project's generated skills, agents, docs, and `AGENTS.md`. Edit the committed
+awf owns this project's four generated `awf-*` skills, docs, and `AGENTS.md`. Edit the committed
 `.awf/` sources and convention parts, never a generated output. Run `./awf render` after a
 source change and keep the regenerated outputs and `.awf/awf.lock` with that change.
 
-This is the daily guide. [Workflow](workflow.md) owns effort lifecycle and model-selection
-policy; [Debugging](debugging.md) owns recovery and failure diagnosis; and the
-[configuration reference](config-reference.md) owns configuration and override semantics. Pi adopters use the [Pi runtime reference](pi-runtime-reference.md) for runtime and subagent protocol.
+Install `agentic-skills` globally for generic skills and roles. Pi users also install `pi-tools` separately for role delegation. AWF does not install,
+update, vendor, configure, or probe either package, and all binary operations remain offline.
+
+This is the daily guide. [Workflow](workflow.md) owns AWF effort and capability routing;
+[Debugging](debugging.md) owns failure inspection and retry guidance; and the [configuration
+reference](config-reference.md) owns configuration and override semantics. Pi adopters use the
+[Pi runtime reference](pi-runtime-reference.md) for the external runtime boundary.
 
 <!-- awf:edit commands: default; create .awf/parts/working-with-awf/commands.md to override -->
 ## Daily commands
@@ -20,7 +24,7 @@ policy; [Debugging](debugging.md) owns recovery and failure diagnosis; and the
 - `./awf config [<key-or-var>]`: inspect effective configuration.
 
 Use the repository `./awf` wrapper for local commands. For workflow and effort commands, see
-[Workflow](workflow.md); for a command refusal, recovery, or upgrade residue, see
+[Workflow](workflow.md); for a command refusal or failed upgrade, see
 [Debugging](debugging.md).
 
 <!-- awf:edit config-and-overrides: default; create .awf/parts/working-with-awf/config-and-overrides.md to override -->
@@ -36,11 +40,12 @@ page names its metadata and claim part. Local documents are the exception: edit 
 after the `awf:edit-in-place` pointer through end-of-file. See the [documentation standard](doc-standard.md) for
 authorship rules.
 
-<!-- awf:edit model-selection: default; create .awf/parts/working-with-awf/model-selection.md to override -->
+<!-- awf:edit advanced-workflow: default; create .awf/parts/working-with-awf/advanced-workflow.md to override -->
 ## Advanced workflow
 
-For effort lifecycle, model tiers, hook and commit policy, and verification procedure, see
-[Workflow](workflow.md). Pi runtime and subagent protocol is in the [Pi runtime reference](pi-runtime-reference.md); other target-specific guidance remains with its target.
+For AWF effort lifecycle, hook and commit policy, and verification procedure, see
+[Workflow](workflow.md). Generic task behavior and role prompts come from `agentic-skills`.
+Pi dependency and handoff guidance is in the [Pi runtime reference](pi-runtime-reference.md).
 
 <!-- awf:edit placeholders: default; create .awf/parts/working-with-awf/placeholders.md to override -->
 ## Advanced configuration
@@ -65,4 +70,7 @@ bash .awf/upgrade.sh
 ```
 
 Then inspect the changed generated outputs, run `./awf check`, and commit the source, output, and
-lock updates together. For advanced upgrade recovery and triage, see [Debugging](debugging.md).
+lock updates together. Upgrades rename retained authored skill overrides to the four fixed AWF
+identities only when ownership and collision checks permit it. Content AWF cannot prove it owns
+blocks mutation rather than being overwritten, moved, or copied aside. If an upgrade fails, inspect
+the reported paths and Git diff, correct the blocker, and rerun it. See [Debugging](debugging.md).

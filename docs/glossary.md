@@ -7,12 +7,12 @@
 
 | Term | Meaning |
 |---|---|
+| agentic skill | An operator-installed generic `agentic-*` capability. AWF references these external skills but does not install, probe, configure, or rename them. |
 | analysis scenario | A named treatment of model variables as fixed values, bounds, finite choices, definitions, or retained scaling dimensions. |
+| AWF skill | One of the four fixed repository-local skills: `awf-effort`, `awf-topics`, `awf-decisions`, or `awf-maintenance`. Project prefixes do not rename them. |
 | candidate comparison | Python and Pi analysis of exactly two mapped formulations under shared mathematical metadata; scenarios are not compared, and work conclusions use qualified aggregate abstract-work evidence. |
-| check-in | A deliberate stop for user attention: it names the issue, the options, a recommendation, and the blocked next action, then waits. |
 | claim | One statement of what holds today, declared in a current-state topic and carrying its provenance. An invariant claim is additionally backed, by a test or by stated reasoning. |
 | conservative bound | A qualified limit guaranteed by stated assumptions when an exact range cannot be derived. |
-| continuity notice | The routine checkpoint's one-line summary on the clear branch, naming the completed phase and the immediate next action. Informational, never a stop. |
 | current-state topic | A domain-owned document of prose plus a closing claims section. Its claims, not the decision-record corpus, are what tooling reads for the rules in force now. |
 | dominant term | A canonical aggregate-work term with greatest absolute magnitude within an active declared domain; it implies neither scenario control nor growth control. |
 | drift | Divergence between a generated file and what the config would produce now, or between a declaration and reality. The check command is the oracle, and drift fails it. |
@@ -20,15 +20,11 @@
 | equation system | Named indexed equations whose domains and references define aggregate work and dependencies. |
 | invariant backing | What makes an invariant claim checkable: either a proof marker on a test, or a written verification procedure where no test can bear it. The two forms are enforced symmetrically. |
 | managed effort worktree | The checkout an effort creates alongside itself, on its own branch, as the default place its work executes. Integrated and removed explicitly when the effort finishes. |
-| mandatory approval check-in | The pre-artifact stop for explicit brainstorming outline approval when a material decision is unresolved. Effort creation is not an approval boundary. |
 | mathematical request | A restricted-SymPy computation with relevant domains, assumptions, scenarios, and primitive costs. |
 | normalized interpretation | The canonical mathematical form the analyzer actually uses, returned in SymPy and LaTeX renderings for inspection. |
 | opaque primitive | A symbolic function whose internal work remains unknown until the request supplies a definition or cost. |
 | primitive cost | A symbolic abstract-work expression assigned to an otherwise opaque operation. |
-| promotion ladder | The path a recurring finding takes from prose guidance toward a deterministic check, so a lesson stops depending on anyone remembering it. |
 | resident root | A directory inside the config tree holding local machine-owned state rather than rendered output, so the closed-tree sweep leaves it alone instead of reporting it as a stray. |
-| retrospective | The terminal step of an effort: capture durable lessons, confirm no managed topology remains, and finish the effort last. |
-| routine checkpoint | The boundary protocol between phases: update working memory, decide whether user attention is required, then either raise a check-in or state a continuity notice and continue. |
 | scaling variable | A variable retained as an asymptotic dimension rather than fixed by a scenario. |
 | stub | A rendered section still carrying only its placeholder text. Stubs raise a non-failing advisory so unwritten content stays visible instead of passing as authored. |
 | symbolic work | An expression counting abstract computation while preserving declared parameters and unknown primitive costs. |
