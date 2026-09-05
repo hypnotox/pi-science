@@ -1,1 +1,0 @@
-The root Python workspace and Node manifests define development dependencies. Production adopters declare `py-science-formula` directly from the Git subdirectory and pin `pi-science` separately in project-local Pi settings; neither imports the other's managed environment. Pi provisions the backend from its resolved full checkout commit with mutable uv state outside that checkout.

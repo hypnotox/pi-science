@@ -1,1 +1,0 @@
-Install Git, uv, Python 3.13, and Node, then run `uv sync --locked` and `npm install`. Pi eagerly invokes its isolated uv backend at startup. A cold source pin needs Git, network, Python 3.13, and the selected immutable revision; repair prerequisites and reload or restart Pi after `/pi-science-doctor` reports a failure.

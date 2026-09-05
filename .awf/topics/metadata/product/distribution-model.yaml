@@ -1,8 +1,0 @@
-title: Distribution Model
-summary: Package boundaries, source distribution, integration provisioning, and licensing.
-paths:
-    - package.json
-    - package-lock.json
-    - packages/**
-    - pyproject.toml
-    - uv.lock

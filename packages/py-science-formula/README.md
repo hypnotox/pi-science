@@ -60,7 +60,7 @@ For a one-off PEP 723 probe, put the same Git-subdirectory dependency in script 
 
 ## Candidate comparison
 
-Direct Python can compare exactly two explicitly mapped candidates. Semantic equivalence is established before the retained ADR-0003 aggregate abstract-work delta (`second - first`) is qualified; this does not compare scenarios, runtime, machine arithmetic, resource vectors, rewrites, or global optimality.
+Direct Python can compare exactly two explicitly mapped candidates. Semantic equivalence is established before the retained reuse-aware aggregate abstract-work delta (`second - first`) is qualified; this does not compare scenarios, runtime, machine arithmetic, resource vectors, rewrites, or global optimality.
 
 ```python
 from py_science.formula import CandidateComparisonRequest, CandidateComputation, CandidateOutputMapping, CandidateTargetReference, ExpressionTarget, FormulaSyntax, compare_candidates
@@ -145,7 +145,7 @@ assert [pole.value for pole in pole_scope.exclusions] == ["1"]
 
 ## Internal extension seams
 
-The [formula component boundaries](../../docs/topics/product/formula-component-boundaries.md) define the dependency rule for internal changes. Add a transformation family under `_optimization/families/`, register its stable lane and admission policy in `_optimization/search.py`, and keep complete-candidate replay, proof, whole-computation objective checks, and plan projection in their shared owners. A family proposes bounded candidates; it does not publish proof or bypass ordinary retained analysis. Exact-algebraic proposals use the common equivalence verifier, while an exact-algorithmic family must add an independently checked derivation and correlate it both parent-to-child and original-to-final. Extend canonical contracts in `contracts/`, neutral retained facts in `_analysis`, and request behavior in `_service` rather than adding policy to compatibility facades.
+The [formula component boundaries](../../.awf/topics/product/formula-component-boundaries.md) define the dependency rule for internal changes. Add a transformation family under `_optimization/families/`, register its stable lane and admission policy in `_optimization/search.py`, and keep complete-candidate replay, proof, whole-computation objective checks, and plan projection in their shared owners. A family proposes bounded candidates; it does not publish proof or bypass ordinary retained analysis. Exact-algebraic proposals use the common equivalence verifier, while an exact-algorithmic family must add an independently checked derivation and correlate it both parent-to-child and original-to-final. Extend canonical contracts in `contracts/`, neutral retained facts in `_analysis`, and request behavior in `_service` rather than adding policy to compatibility facades.
 
 ## Explicit goal-driven optimization
 

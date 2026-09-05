@@ -1,1 +1,0 @@
-Use `./scripts/check` for the fast combined gate. Use `./scripts/check-release` after a release-flow change to create a clean source snapshot and exercise pinned Pi and Python installation; it is intentionally not part of the fast gate. Run `./awf render` after changing `.awf/` sources and `./awf check` to diagnose managed drift.
