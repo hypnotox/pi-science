@@ -6,6 +6,6 @@ Use `/pi-science-doctor` when formula analysis or its matching product skill is 
 
 ## AWF projection recovery
 
-When repository guidance or topic routing is stale, edit `.awf/project.md` or the matching source under `.awf/topics/`, run `./awf render`, inspect the source and generated projections together, then run `./awf check`.
+When repository guidance or topic routing is stale, edit `.awf/project.md` or the matching source under `docs/topics/`, run `./awf render`, inspect the source and generated projections together, then run `./awf check`.
 
 If a generated projection was edited directly, restore it by rendering from the owning source. An unmarked file at a fixed output path is an intentional collision; preserve or move its content before allowing AWF to own that destination.

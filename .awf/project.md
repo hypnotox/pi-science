@@ -1,5 +1,5 @@
 ---
-format: 1
+format: 2
 ---
 
 # pi-science project guidance
@@ -9,7 +9,7 @@ format: 1
 ## Invariants
 
 - Keep public models and mathematical policy backend-independent. Python owns resource-checked algebra and verification; Pi validates and presents the contract without recomputing it.
-- Keep current behavior and durable rationale in the matching `.awf/topics/` source and project documentation. Treat decision records as temporary implementation artifacts: after verifying the result and incorporating their durable substance, remove them while preserving their Git history.
+- Keep current behavior and durable rationale in the matching `docs/topics/` source and project documentation. Treat decision records as temporary implementation artifacts: after verifying the result and incorporating their durable substance, remove them while preserving their Git history.
 - Update documentation with behavior and contract changes.
 - Preserve unrelated work and repair defects introduced by the current transaction.
 - Use Conventional Commits and keep each commit to one concern.
@@ -18,7 +18,7 @@ format: 1
 
 Use the narrowest relevant test, build, or lint command while editing. Before committing, stage the complete transaction and run `./awf check` and `./scripts/check` manually; this repository does not rely on installed Git hooks. Run the slower release check after AWF render settlement or release-flow changes.
 
-After editing `.awf/project.md` or `.awf/topics/`, run `./awf render`, inspect the generated diff, and run `./awf check`. Generated files carry an AWF ownership marker; edit their source rather than the projection.
+After editing `.awf/project.md` or `docs/topics/`, run `./awf render`, inspect the generated diff, and run `./awf check`. Generated files carry an AWF ownership marker; edit their source rather than the projection.
 
 ## Commands
 

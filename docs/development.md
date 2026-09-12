@@ -6,7 +6,7 @@ Install Git, uv, Python 3.13, and Node, then run `uv sync --locked` and `npm ins
 
 ## Command runner
 
-Use `./scripts/check` for the fast combined gate. Use `./scripts/check-release` after AWF render settlement or a release-flow change to create a clean source snapshot and exercise pinned Pi and Python installation; it is intentionally not part of the fast gate. Run `./awf render` after changing `.awf/project.md` or `.awf/topics/`, and run `./awf check` to diagnose projection drift.
+Use `./scripts/check` for the fast combined gate. Use `./scripts/check-release` after AWF render settlement or a release-flow change to create a clean source snapshot and exercise pinned Pi and Python installation; it is intentionally not part of the fast gate. Run `./awf render` after changing `.awf/project.md` or `docs/topics/`, and run `./awf check` to diagnose projection drift.
 
 ## Dependencies
 
