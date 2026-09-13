@@ -63,6 +63,6 @@ Generation and verification capture only bounded localized missing-cost, domain/
 | Pydantic v2 / SymPy | Formula contracts and bounded algebra, rendering, and verification. |
 | Pi host API | Aggregate tool and diagnostic-command host (peer dependency). |
 | TypeScript / Vitest / ESLint / Prettier | Pi bridge checking and tests. |
-| awf | Projects repository guidance, lexical topics, and effort entrypoints. |
+| awf | Generates fixed workflow skills and launch infrastructure; resolves author-owned lexical topics and provides local effort commands. |
 
 The root manifest resolves Pi production and development dependencies; `packages/py-science-formula/pyproject.toml` retains formula runtime dependencies.

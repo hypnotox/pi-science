@@ -3,7 +3,7 @@
 # Fetch a pinned AWF release, verify it, cache it, and print its binary path.
 set -euo pipefail
 
-AWF_VERSION="${AWF_VERSION:-0.55.0}"
+AWF_VERSION="${AWF_VERSION:-0.57.0}"
 repo="hypnotox/agentic-workflows"
 cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/awf/${AWF_VERSION}"
 binary="${cache_dir}/awf"

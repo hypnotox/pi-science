@@ -6,6 +6,6 @@ Use `/pi-science-doctor` when formula analysis or its matching product skill is 
 
 ## AWF projection recovery
 
-When repository guidance or topic routing is stale, edit `.awf/project.md` or the matching source under `docs/topics/`, run `./awf render`, inspect the source and generated projections together, then run `./awf check`.
+When repository guidance or topic routing is stale, edit author-owned `AGENTS.md`, `CLAUDE.md`, or the matching source under `docs/topics/` directly. Use `./awf resolve <path>` to inspect routing. After topic or integration changes, run `./awf render`, inspect the diff, then run `./awf check`; rendering does not rewrite agent guides or topic prose.
 
-If a generated projection was edited directly, restore it by rendering from the owning source. An unmarked file at a fixed output path is an intentional collision; preserve or move its content before allowing AWF to own that destination.
+If a fixed AWF skill or launcher was edited directly, regenerate it with the pinned renderer. An unmarked file at a fixed output path is an intentional collision; preserve or move its content before allowing AWF to own that destination. The reserved `.awf/VERSION` record is the exception: rendering replaces it without requiring a marker. Read `./awf docs integration` before changing versions or reconciling collisions.
