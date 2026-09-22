@@ -1,11 +1,13 @@
 ---
+type: Project Topic
+title: Mathematical analysis model
+description: Current guidance for backend-independent mathematical semantics, bounded reasoning, comparison, dominance, and optimization.
 paths:
   - 'docs/architecture.md'
   - 'packages/py-science-formula/src/py_science/formula/**'
   - 'packages/pi-science/src/**'
   - 'packages/pi-science/skills/formula-analysis/SKILL.md'
 ---
-
 # Mathematical analysis model
 
 The mathematical analysis model separates public syntax and analysis semantics from backend-specific representation.

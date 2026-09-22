@@ -1,3 +1,9 @@
+---
+type: Reference
+title: Vision
+description: Product purpose, use cases, principles, MVP capabilities, non-goals, and success criteria.
+---
+
 # Vision
 ## Purpose
 

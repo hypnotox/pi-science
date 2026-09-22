@@ -1,3 +1,9 @@
+---
+type: Reference
+title: Analysis Model
+description: Implemented formula-analysis request, report, scenario, query, dominance, and optimization contract.
+---
+
 # Analysis Model
 ## Implemented formula-analysis contract
 

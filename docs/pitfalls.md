@@ -1,3 +1,9 @@
+---
+type: Reference
+title: Pitfalls
+description: Index of durable implementation hazards that remain relevant to future work.
+---
+
 # Pitfalls
 
 Pitfalls are durable implementation hazards, not backlog items.

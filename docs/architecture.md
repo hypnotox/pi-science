@@ -1,3 +1,9 @@
+---
+type: Reference
+title: Architecture
+description: Repository component boundaries, data flow, dependencies, and Pi-to-Python integration architecture.
+---
+
 # Architecture
 ## Overview
 The repository contains the independently importable `py-science-formula` Python 3.13 distribution and the aggregate `pi-science` Pi package. Formula parsing, expression representation, mathematical policy, and bounded SymPy algebra, rendering, and verification remain transport-free behind `py_science.formula`. Pi carries the same strict analysis, comparison, dominance, or explicit optimization request and qualified report through a private bounded JSON subprocess adapter.

@@ -1,3 +1,9 @@
+---
+type: Reference
+title: Releasing
+description: Release workflow for compatible public Git snapshots and post-publication verification.
+---
+
 # Releasing
 A release is one compatible public Git snapshot for the Pi bridge, its product skill, and Python distributions. Pin Pi and Python separately to the same full commit SHA; tags are readable release identifiers, not immutable evidence until resolved and locked.
 

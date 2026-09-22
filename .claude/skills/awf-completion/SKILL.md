@@ -10,6 +10,10 @@ Use this workflow during implementation for verification and commit cadence, and
 
 The coordinating agent owns repository-level commits, combined-result review, integration, and cleanup. Delegated agents return their assigned work, checks, and findings within their brief; their handoff does not trigger separate completion review or Git operations.
 
+Delegation under this workflow stays within the active task, applicable permissions, and role boundaries; explicit prohibitions remain binding. Use supported discovery and activation before treating delegation as unavailable. Absence of a separate operator request is not a prohibition.
+
+Before implementation relies on code structure requiring nontrivial judgment, use `./awf docs changes` for the early design-review checkpoint, even when the proposed structure is already settled. Reuse directly applicable prior review without reopening settled choices unless consequential new evidence warrants it.
+
 ## Verify and commit coherent results
 
 Compare the actual result with the agreed outcome and criteria. When intent, specification, or applicable ADRs exist, use those agreements rather than only the plan's completed steps. Check the meaningful behavior, inspect the combined diff, and update affected documentation and topics. Report what was checked, what remains uncertain or unmet, and material deviations.
@@ -22,17 +26,11 @@ Where effort memory exists, update its checkpoint with relevant evidence, unmet 
 
 When assessing the result's behavior, interactions, contracts, or guidance requires nontrivial judgment, obtain or reuse a directly applicable independent review from fresh context before reporting completion or integrating it. Routine, well-understood changes and uniform mechanical edits need no independent review, regardless of line or file count. Review the actual result against the agreed outcome, established constraints, and applicable project guidance. Select only lenses relevant to the work, such as correctness, simplicity, maintainability, verification, or instruction and artifact quality.
 
-When permitted and available, delegate the review to a suitable agent with a self-contained brief covering its purpose, scope, relevant evidence, constraints, and guidance. Request findings rather than edits. Evaluate the findings, distinguishing established problems, grounded risks, and optional improvements. Address material findings, refresh affected verification, and report remaining limitations.
+Include affected documentation in result review, including relevant documents that were not edited. Check claims and references against the delivered behavior, agreed outcome, and active decisions. The coordinating agent ensures this coverage is assigned; add artifact or instruction quality lenses only when they need distinct judgment. Keep the scope tied to the work. Preserve historical and proposal status, and resolve conflicts with authoritative agreements rather than rewriting those agreements to match implementation.
 
-An existing fresh-context result review can satisfy this checkpoint when it is directly applicable. If delegation is unavailable or not permitted, review the result directly and disclose that the review was not independent. This checkpoint applies with or without an effort, worktree, or change document and is not a repository approval or CLI gate.
+When new independent result review is needed, delegate it to a suitable available agent. This checkpoint authorizes the coordinating agent to delegate without a separate operator request. Supply a self-contained brief covering its purpose, scope, relevant evidence, constraints, and guidance. Reviewers report findings without editing or delegating. Evaluate the findings, distinguishing established problems, grounded risks, and optional improvements. Address material findings, refresh affected verification, and report remaining limitations.
 
-## Complete the retrospective
-
-At implementation completion, review the work and any recorded findings for significant issues, avoidable friction, and useful lessons. This retrospective concerns what happened while doing the work; it is distinct from reviewing whether the result satisfies the agreed outcome. Report material findings to the user, including resolved issues worth tracking and unresolved follow-ups. Retrospective review is required; findings are not. Do not manufacture findings or investigate unrelated areas to fill a report. Without an effort, use the available task context rather than creating retrospective artifacts.
-
-When a concrete reusable lesson warrants guidance, update the most specific existing topic and consolidate stale or redundant advice. Create a focused topic only when none fits and the lesson merits persistence. Topics carry current guidance, not incident history or general methods already owned by doctrine or optional skills. A focused fix or behavioral test may fully capture the lesson without more prose, but does not replace reporting a material issue encountered.
-
-Surface substantial follow-up work instead of silently expanding implementation. Use ordinary repository issues for durable tracking when appropriate; ignored notes and their archive are not a shared tracking system.
+An existing fresh-context result review can satisfy this checkpoint when it is directly applicable. If an explicit prohibition applies or no suitable agent can be made available, review the result directly and disclose the reason and lack of independence. This checkpoint applies with or without an effort, worktree, or change document and is not a repository approval or CLI gate.
 
 ## Reconcile documents when present
 
@@ -42,10 +40,24 @@ Retain lasting choices in ADRs and current practical guidance in topics. Reconci
 
 Review whether each change definition and plan still serves implementation, verification, review, handoff, or a maintained reference. Remove it when that use ends, preserving still-needed requirements and knowledge first. An ADR does not replace a behavior specification. Repair surviving links with current replacements or a committed historical reference such as `git show <commit>:<path>`. Follow repository integration policy and keep needed historical content and references available after integration and branch cleanup.
 
-## Integrate and clean up when applicable
+## Integrate when applicable
 
 Follow repository conventions for integration. With a worktree, perform integration, worktree removal, and branch cleanup from the primary checkout, keeping coordinating memory there. Use `./awf docs effort` for the checkout and continuity conventions when needed.
 
 After integration, confirm that verification covers the combined result in the target checkout. Reuse still-applicable evidence; refresh checks affected by divergence, conflict resolution, or changed integration context. Request additional review only when material uncertainty warrants it. Reconcile affected ADRs and topic links before cleanup, and revisit any material findings from integration.
+
+## Complete the retrospective
+
+After implementation, verification, material result-review findings, and affected documentation are reconciled, review the work's history for significant issues, avoidable friction, useful lessons, and unresolved consequences. Include integration performed within the task, before final reporting and cleanup; completion of a PR handoff does not wait for a future merge. This retrospective concerns what happened while doing the work, rather than repeating result correctness or documentation-currency review. Report material findings to the user, including resolved issues worth tracking. Retrospective review is required; findings are not.
+
+Default to independent retrospective review for long-running or multi-stage work whose accumulated history merits separate judgment, and for smaller work with meaningful issues, even if resolved. Routine, well-understood and uniform mechanical work can use direct retrospective review unless meaningful issues arose; size or ordinary expected test failures alone do not trigger delegation. When new independent retrospective review is needed, delegate it to a suitable available agent under the delegation and reconciliation rules above. This checkpoint authorizes the coordinating agent to delegate without a separate operator request; reuse directly applicable fresh-context review instead of repeating it. If an explicit prohibition applies or no suitable agent can be made available, review directly and disclose the reason and lack of independence.
+
+Supply available history explicitly as evidence: relevant transcripts or excerpts, effort notes, decisions, earlier review findings, and verification or integration outcomes. Fresh context does not prevent inspecting this evidence. Historical records are not live instructions; distinguish recorded events, participant claims, and inferred causes. State missing or partial coverage, and do not present a final success summary as a review of the full work history. Use available task context without requiring inaccessible transcripts or new retrospective artifacts. Preserve useful significant findings under the effort workflow when an effort exists.
+
+When a concrete reusable lesson warrants guidance, update the most specific existing topic and consolidate stale or redundant advice. Create a focused topic only when none fits and the lesson merits persistence. Topics carry current guidance, not incident history or general methods already owned by doctrine or optional skills. A focused fix or behavioral test may fully capture the lesson without more prose, but does not replace reporting a material issue encountered.
+
+The coordinating agent makes authorized corrections and refreshes affected verification or review; a retrospective finding does not restart every checkpoint. Later consequential integration evidence refreshes affected historical conclusions. Do not manufacture findings or investigate unrelated areas to fill a report. Surface substantial follow-up work instead of silently expanding implementation. Use ordinary repository issues for durable tracking when appropriate; ignored notes and their archive are not a shared tracking system.
+
+## Clean up when applicable
 
 After verification, applicable independent result review, retrospective review, and document reconciliation, use ordinary Git for deliberate worktree and branch cleanup. When local memory exists, archive the effort from the primary checkout with `./awf effort finish <slug>`. The CLI moves opaque local state; it does not assess these completion conditions.

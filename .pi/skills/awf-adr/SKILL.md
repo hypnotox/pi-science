@@ -6,7 +6,7 @@ description: Record consequential decisions and maintain ADR authority, includin
 
 # Record and maintain decisions
 
-Use this workflow when a consequential choice needs rationale that should outlive the change, or when an existing ADR's decision or authority changes. Routine implementation details need no ADR. AWF creates the requested starter but does not interpret, synchronize, or manage decision records.
+Use this workflow when a consequential choice needs rationale that should outlive the change, or when an existing ADR's decision or authority changes. Routine implementation details need no ADR. AWF creates the requested starter and checks declared metadata consistency, but does not interpret decision prose, synchronize fields, or manage authority.
 
 Use the repository's documented AWF runner; examples below use `./awf`. For intent, specifications, and implementation plans, use `docs changes`. During implementation and integration, use `docs completion`.
 
@@ -18,21 +18,27 @@ From the checkout that owns the decision, create only the record the work needs:
 ./awf new adr <decision-slug>  # docs/decisions/<decision-slug>.md
 ```
 
-Use one record per coherent decision area; split choices with independent reasons to change. Preserve the consequential choice, its scope, supporting evidence, and rationale worth retaining. An ADR is not a specification summary. Reference the originating intent or specification and relevant active decisions instead of duplicating their requirements. An ADR does not require an effort or a separate change document; state its basis briefly when none exists. Creation refuses replacement. Adapt or omit starter sections and remove unused prompts.
+Use one record per coherent decision area; split choices with independent reasons to change. Preserve the consequential choice, its scope, supporting evidence, and rationale worth retaining. An ADR is not a specification summary. Reference the originating intent or specification and relevant active decisions instead of duplicating their requirements. An ADR does not require an effort or a separate change document; state its basis briefly when none exists. Creation refuses replacement. Follow `awf docs knowledge` for shared metadata and replace starter titles and description prompts with useful authored values. Adapt or omit starter sections and remove unused prompts.
 
 Before relying on a new or revised decision whose trade-offs, interactions, or supersession require nontrivial judgment, obtain or reuse a directly applicable independent review from fresh context. Assess fit to the agreed outcome and constraints, the rationale, and consistency with active authority. Routine corrections need no independent review; line and file counts do not decide.
 
-When permitted and available, use a suitable agent with the proposed decision, agreed basis, relevant evidence, constraints, and affected authority. Request findings rather than edits, address material findings before dependent work, and recheck conclusions affected by substantive corrections. Otherwise check directly and disclose that the review was not independent. An applicable direction or definition review can cover these questions; creating an ADR does not itself require another review or approval stage.
+When new independent decision review is needed, delegate it to a suitable available agent. This checkpoint authorizes the coordinating agent to delegate without a separate operator request, within the active task, applicable permissions, and role boundaries; explicit prohibitions remain binding. Supply the proposed decision, agreed basis, relevant evidence, constraints, and affected authority. Reviewers report findings without editing or delegating. Address material findings before dependent work, and recheck conclusions affected by substantive corrections.
+
+Use supported discovery and activation before treating delegation as unavailable. If an explicit prohibition applies or no suitable agent can be made available, check directly and disclose the reason and lack of independence. Absence of a separate operator request is not a prohibition. An applicable direction or definition review can cover these questions; creating an ADR does not itself require another review or approval stage.
 
 ## Maintain decision authority
 
-ADRs begin with hand-maintained `status: pending` frontmatter:
+ADR concepts under `docs/decisions/` carry hand-maintained `decision_status` and OKF `status` fields. New records start as pending/draft:
 
-- `pending`: the decision is proposed; agreement has not been established.
-- `accepted`: the direction is agreed but not yet fully in effect.
-- `active`: the decision governs the repository and its applicable implementation has been verified.
+| `decision_status` | `status` | Authority |
+|---|---|---|
+| `pending` | `draft` | Proposed; agreement has not been established. |
+| `accepted` | `draft` | Agreed, but not yet fully in effect. |
+| `active` | `stable` | Governs the repository; applicable implementation has been verified. |
 
-Status records established agreement and implementation state, not an additional approval gate. Do not invent acceptance. A decision may become accepted and active in the same change. For existing records, use their documented agreement and implementation evidence. AWF does not parse, validate, activate, or retire ADRs.
+`decision_status` owns the domain state; `status` is its interoperable representation, not another approval process. Update them together. OKF describes draft as not yet reviewed; AWF deliberately keeps accepted decisions draft until activation. Generic OKF consumers cannot distinguish pending from accepted without reading `decision_status`.
+
+These fields record established agreement and implementation state, not an additional approval gate. Do not invent acceptance. A decision may become accepted and active in the same change. For existing records, use their documented agreement and implementation evidence. `awf check` rejects missing, invalid, or inconsistent pairs; it never infers agreement, verifies implementation, promotes decisions, synchronizes fields, or retires records. Use only draft and stable for this lifecycle; other document kinds do not acquire this state machine. For legacy status migration, use `awf docs integration`.
 
 Keep pending, accepted, and active records together in `docs/decisions/`. Discover relevant ADRs through topics and ordinary repository inspection; there is no roster, query command, or clause-level lifecycle. Topics describe current practical implications and link to active ADRs for enduring choices and rationale.
 

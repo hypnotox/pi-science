@@ -1,3 +1,9 @@
+---
+type: Reference
+title: Debugging
+description: Diagnostic surfaces and recovery guidance for Pi readiness, formula-analysis failures, and AWF projection drift.
+---
+
 # Debugging
 
 ## Inspection surfaces

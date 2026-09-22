@@ -1,4 +1,7 @@
 ---
+type: Project Topic
+title: Analysis report contract
+description: Current guidance for formula-analysis reports, qualified conclusions, dominance regions, and optimization result claims.
 paths:
   - 'docs/analysis-model.md'
   - 'packages/py-science-formula/src/py_science/formula/contracts/**'
@@ -10,7 +13,6 @@ paths:
   - 'packages/pi-science/src/formula-schema.json'
   - 'packages/pi-science/skills/formula-analysis/SKILL.md'
 ---
-
 # Analysis report contract
 
 Every analysis reports the normalized interpretation actually analyzed and distinguishes exact results, assumption-dependent results, conservative bounds, and unresolved quantities. System reports may identify repeated-expression extraction diagnostics without claiming a rewrite or improvement. The analyzer never silently fixes a scaling variable, invents an unknown cost, or presents sampling as a mathematical bound.

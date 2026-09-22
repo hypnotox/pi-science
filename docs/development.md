@@ -1,3 +1,9 @@
+---
+type: Reference
+title: Development
+description: Local setup, command runners, and dependency ownership for repository development.
+---
+
 # Development
 
 ## Setup

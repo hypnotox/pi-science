@@ -1,3 +1,9 @@
+---
+type: Reference
+title: Glossary
+description: Definitions for formula-analysis, mathematical-model, and repository terminology.
+---
+
 # Glossary
 
 | Term | Meaning |

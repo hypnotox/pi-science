@@ -1,9 +1,11 @@
 ---
+type: Project Topic
+title: Product boundary
+description: Current guidance separating symbolic formula analysis from empirical, implementation, and future optimization-adjacent workflows.
 paths:
   - 'docs/vision.md'
   - 'packages/**'
 ---
-
 # Product boundary
 
 The product boundary separates symbolic mathematical analysis from empirical and implementation-execution workflows.

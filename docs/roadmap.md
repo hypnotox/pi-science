@@ -1,3 +1,9 @@
+---
+type: Reference
+title: Roadmap
+description: Uncommitted future work candidates, deferred capabilities, and open product directions.
+---
+
 # Roadmap
 ## Ideas
 Roadmap entries are candidates, not current architecture, decisions, or operational plans. When graduating one, reverify cited measurements, preserve neighboring entries, and route unresolved material choices through the ordinary workflow.

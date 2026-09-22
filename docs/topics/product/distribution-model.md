@@ -1,4 +1,7 @@
 ---
+type: Project Topic
+title: Distribution model
+description: Current guidance for Python package distribution, pinned public source, licensing, and Pi provisioning.
 paths:
   - 'package.json'
   - 'package-lock.json'
@@ -6,7 +9,6 @@ paths:
   - 'pyproject.toml'
   - 'uv.lock'
 ---
-
 # Distribution model
 
 The repository develops independently importable Python analysis packages alongside its aggregate Pi integration.

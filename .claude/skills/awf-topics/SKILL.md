@@ -8,7 +8,7 @@ description: Discover, read, and maintain applicable path-routed project knowled
 
 Use this workflow when discovering, reading, or maintaining applicable project knowledge. Reuse it during the task rather than loading it before every action.
 
-Topics are AWF's current project-knowledge layer. Each `docs/topics/**/*.md` file owns one body of current guidance and the positive path selectors that make it relevant. AWF returns source locations so readers use the authored files rather than generated copies. Other Markdown under `docs/`, including plans and decisions, is not topic input.
+Topics are AWF's current project-knowledge layer. Each non-reserved `docs/topics/**/*.md` file owns one body of current guidance and the positive path selectors that make it relevant. AWF returns source locations so readers use the authored files rather than generated copies. Other Markdown under `docs/`, including plans and decisions, is not topic input. Reserved `index.md` and `log.md` files are never topics. Follow `awf docs knowledge` for the shared bundle metadata and reserved-file contract; type does not determine routing.
 
 ## Discover applicable context
 
@@ -32,7 +32,7 @@ Create a topic with an optionally nested ID and at least one explicitly supplied
 ./awf new topic code/go 'cmd/**/*.go'
 ```
 
-The command creates `docs/topics/<id>.md` exclusively and prints that path. It never replaces an existing destination, renders generated files, or performs a Git action. The ID omits `.md` and cannot escape the topic source directory.
+The command creates `docs/topics/<id>.md` exclusively and prints that path. It never replaces an existing destination, renders generated files, or performs a Git action. The ID omits `.md` and cannot escape the topic source directory. Its basename cannot be `index` or `log` (case-insensitive), which OKF reserves.
 
 The created file is ordinary author-owned Markdown. Begin with a focused purpose, then explain current behavior, ownership boundaries, and relationships that matter to future changes, followed by constraints and practical implications. Prefer useful orientation over an exhaustive code inventory. Keep useful local explanations and change or verification guidance near the relevant facts; add specific headings such as testing only when they improve reading. Adapt or omit sections. Remove prompts and content that does not help this document serve its purpose. Link active ADRs for the enduring decisions they own rather than duplicating their full rationale.
 
@@ -40,6 +40,9 @@ You may also author a topic directly:
 
 ```markdown
 ---
+type: Project Topic
+title: Projection
+description: Current projection behavior, ownership boundaries, and change guidance.
 paths:
   - 'internal/projector/**'
   - 'cmd/awf/*'
@@ -59,7 +62,7 @@ paths:
   - '**'
 ```
 
-A standalone `**` is invalid in a mixed or duplicate selector list. Patterns such as `*`, `./**`, `src/**`, and `**/*.go` remain ordinary selectors rather than global declarations. Topic creation preserves the supplied selector spelling; in particular, it does not silently rewrite `./**` into an explicit global declaration. AWF interprets the `paths` field and treats the Markdown body and unknown frontmatter fields as opaque authored content.
+A standalone `**` is invalid in a mixed or duplicate selector list. Patterns such as `*`, `./**`, `src/**`, and `**/*.go` remain ordinary selectors rather than global declarations. Topic creation preserves the supplied selector spelling; in particular, it does not silently rewrite `./**` into an explicit global declaration. Routing interprets only the `paths` field and treats the Markdown body and other frontmatter as opaque authored content. Separately, `check` validates the shared knowledge contract; type and description do not affect routing.
 
 ## Inspect routing coverage
 

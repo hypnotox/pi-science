@@ -1,4 +1,7 @@
 ---
+type: Project Topic
+title: Mathematical input contract
+description: Current guidance for restricted-SymPy request syntax, metadata, queries, dominance, and explicit optimization inputs.
 paths:
   - 'docs/analysis-model.md'
   - 'packages/py-science-formula/src/py_science/formula/contracts/**'
@@ -10,7 +13,6 @@ paths:
   - 'packages/pi-science/src/formula-schema.json'
   - 'packages/pi-science/skills/formula-analysis/SKILL.md'
 ---
-
 # Mathematical input contract
 
 The input contract governs mathematical syntax and the metadata that qualifies its interpretation.

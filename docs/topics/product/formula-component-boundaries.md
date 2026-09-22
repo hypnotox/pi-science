@@ -1,9 +1,11 @@
 ---
+type: Project Topic
+title: Formula component boundaries
+description: Current ownership and dependency boundaries between Python formula internals and the Pi bridge.
 paths:
   - 'packages/py-science-formula/src/py_science/formula/**'
   - 'packages/pi-science/src/**'
 ---
-
 # Formula component boundaries
 
 Formula analysis responsibilities have one internal owner and explicit dependency direction behind stable compatibility surfaces.
